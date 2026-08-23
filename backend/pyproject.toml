@@ -11,6 +11,7 @@ dependencies = [
     "alembic>=1.14",
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
+    "espn-api>=0.46.0",
 ]
 
 [dependency-groups]
@@ -30,6 +31,12 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Live tests hit ESPN and need cookies in .env; they skip themselves without them, and this
+# keeps the default run offline and deterministic.
+addopts = "-m 'not live'"
+markers = [
+    "live: hits the real ESPN API; requires ESPN_S2/SWID in .env",
+]
 
 [tool.ruff]
 line-length = 100

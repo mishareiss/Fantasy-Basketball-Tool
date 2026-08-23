@@ -1,0 +1,1697 @@
+[
+  {
+    "id": 4278073,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": false,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Shai",
+      "fullName": "Shai Gilgeous-Alexander",
+      "id": 4278073,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "2",
+      "lastName": "Gilgeous-Alexander",
+      "proTeamId": 25
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 5104157,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": false,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Victor",
+      "fullName": "Victor Wembanyama",
+      "id": 5104157,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Wembanyama",
+      "proTeamId": 24
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3112335,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": false,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Nikola",
+      "fullName": "Nikola Jokic",
+      "id": 3112335,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "15",
+      "lastName": "Jokic",
+      "proTeamId": 7
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4594268,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Anthony",
+      "fullName": "Anthony Edwards",
+      "id": 4594268,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "5",
+      "lastName": "Edwards",
+      "proTeamId": 16
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3032977,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Giannis",
+      "fullName": "Giannis Antetokounmpo",
+      "id": 3032977,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "7",
+      "lastName": "Antetokounmpo",
+      "proTeamId": 14
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3945274,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Luka",
+      "fullName": "Luka Doncic",
+      "id": 3945274,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "77",
+      "lastName": "Doncic",
+      "proTeamId": 13
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3136195,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": false,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Karl-Anthony",
+      "fullName": "Karl-Anthony Towns",
+      "id": 3136195,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "32",
+      "lastName": "Towns",
+      "proTeamId": 18
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4431678,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Tyrese",
+      "fullName": "Tyrese Maxey",
+      "id": 4431678,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "0",
+      "lastName": "Maxey",
+      "proTeamId": 20
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4432166,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Cade",
+      "fullName": "Cade Cunningham",
+      "id": 4432166,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "2",
+      "lastName": "Cunningham",
+      "proTeamId": 8
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3908809,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": false,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Donovan",
+      "fullName": "Donovan Mitchell",
+      "id": 3908809,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "45",
+      "lastName": "Mitchell",
+      "proTeamId": 5
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3917376,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jaylen",
+      "fullName": "Jaylen Brown",
+      "id": 3917376,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "7",
+      "lastName": "Brown",
+      "proTeamId": 20
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3934672,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jalen",
+      "fullName": "Jalen Brunson",
+      "id": 3934672,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "11",
+      "lastName": "Brunson",
+      "proTeamId": 18
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 5041939,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Cooper",
+      "fullName": "Cooper Flagg",
+      "id": 5041939,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "32",
+      "lastName": "Flagg",
+      "proTeamId": 6
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3202,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": false,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Kevin",
+      "fullName": "Kevin Durant",
+      "id": 3202,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "7",
+      "lastName": "Durant",
+      "proTeamId": 10
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4065648,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jayson",
+      "fullName": "Jayson Tatum",
+      "id": 4065648,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "0",
+      "lastName": "Tatum",
+      "proTeamId": 2
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3136193,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": false,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Devin",
+      "fullName": "Devin Booker",
+      "id": 3136193,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "15",
+      "lastName": "Booker",
+      "proTeamId": 21
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 1966,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "LeBron",
+      "fullName": "LeBron James",
+      "id": 1966,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "23",
+      "lastName": "James",
+      "proTeamId": 20
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4684740,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Amen",
+      "fullName": "Amen Thompson",
+      "id": 4684740,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Thompson",
+      "proTeamId": 10
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3992,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": false,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "James",
+      "fullName": "James Harden",
+      "id": 3992,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Harden",
+      "proTeamId": 5
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4433134,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Scottie",
+      "fullName": "Scottie Barnes",
+      "id": 4433134,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "4",
+      "lastName": "Barnes",
+      "proTeamId": 28
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3975,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Stephen",
+      "fullName": "Stephen Curry",
+      "id": 3975,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "30",
+      "lastName": "Curry",
+      "proTeamId": 9
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4432158,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Evan",
+      "fullName": "Evan Mobley",
+      "id": 4432158,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "4",
+      "lastName": "Mobley",
+      "proTeamId": 5
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4432573,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Paolo",
+      "fullName": "Paolo Banchero",
+      "id": 4432573,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "5",
+      "lastName": "Banchero",
+      "proTeamId": 19
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4432816,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "LaMelo",
+      "fullName": "LaMelo Ball",
+      "id": 4432816,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Ball",
+      "proTeamId": 16
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3936299,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jamal",
+      "fullName": "Jamal Murray",
+      "id": 3936299,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "27",
+      "lastName": "Murray",
+      "proTeamId": 7
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 6583,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Anthony",
+      "fullName": "Anthony Davis",
+      "id": 6583,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "23",
+      "lastName": "Davis",
+      "proTeamId": 27
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4066261,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Bam",
+      "fullName": "Bam Adebayo",
+      "id": 4066261,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "13",
+      "lastName": "Adebayo",
+      "proTeamId": 14
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4701230,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jalen",
+      "fullName": "Jalen Johnson",
+      "id": 4701230,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Johnson",
+      "proTeamId": 1
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3149673,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Pascal",
+      "fullName": "Pascal Siakam",
+      "id": 3149673,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "43",
+      "lastName": "Siakam",
+      "proTeamId": 11
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4871144,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Alperen",
+      "fullName": "Alperen Sengun",
+      "id": 4871144,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "28",
+      "lastName": "Sengun",
+      "proTeamId": 10
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4593803,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jalen",
+      "fullName": "Jalen Williams",
+      "id": 4593803,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "8",
+      "lastName": "Williams",
+      "proTeamId": 25
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4433255,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Chet",
+      "fullName": "Chet Holmgren",
+      "id": 4433255,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "7",
+      "lastName": "Holmgren",
+      "proTeamId": 25
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3155942,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Domantas",
+      "fullName": "Domantas Sabonis",
+      "id": 3155942,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "11",
+      "lastName": "Sabonis",
+      "proTeamId": 23
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4277905,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Trae",
+      "fullName": "Trae Young",
+      "id": 4277905,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "3",
+      "lastName": "Young",
+      "proTeamId": 27
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4871145,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Josh",
+      "fullName": "Josh Giddey",
+      "id": 4871145,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "3",
+      "lastName": "Giddey",
+      "proTeamId": 4
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 6450,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Kawhi",
+      "fullName": "Kawhi Leonard",
+      "id": 6450,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "2",
+      "lastName": "Leonard",
+      "proTeamId": 12
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4279888,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        5,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Ja",
+      "fullName": "Ja Morant",
+      "id": 4279888,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "1",
+      "lastName": "Morant",
+      "proTeamId": 22
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4066259,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "De'Aaron",
+      "fullName": "De'Aaron Fox",
+      "id": 4066259,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "4",
+      "lastName": "Fox",
+      "proTeamId": 24
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4395628,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 4,
+      "droppable": true,
+      "eligibleSlots": [
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Zion",
+      "fullName": "Zion Williamson",
+      "id": 4395628,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "1",
+      "lastName": "Williamson",
+      "proTeamId": 3
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4066457,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Austin",
+      "fullName": "Austin Reaves",
+      "id": 4066457,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "15",
+      "lastName": "Reaves",
+      "proTeamId": 13
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3059318,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Joel",
+      "fullName": "Joel Embiid",
+      "id": 3059318,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "21",
+      "lastName": "Embiid",
+      "proTeamId": 20
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4066320,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Desmond",
+      "fullName": "Desmond Bane",
+      "id": 4066320,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "3",
+      "lastName": "Bane",
+      "proTeamId": 19
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3078576,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Derrick",
+      "fullName": "Derrick White",
+      "id": 3078576,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "9",
+      "lastName": "White",
+      "proTeamId": 2
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4566434,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Franz",
+      "fullName": "Franz Wagner",
+      "id": 4566434,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "22",
+      "lastName": "Wagner",
+      "proTeamId": 19
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4683021,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Deni",
+      "fullName": "Deni Avdija",
+      "id": 4683021,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "8",
+      "lastName": "Avdija",
+      "proTeamId": 22
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3062679,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Josh",
+      "fullName": "Josh Hart",
+      "id": 3062679,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "3",
+      "lastName": "Hart",
+      "proTeamId": 18
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4845367,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Stephon",
+      "fullName": "Stephon Castle",
+      "id": 4845367,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "5",
+      "lastName": "Castle",
+      "proTeamId": 24
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4278104,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Michael",
+      "fullName": "Michael Porter Jr.",
+      "id": 4278104,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "17",
+      "lastName": "Porter Jr.",
+      "proTeamId": 17
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4017837,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Ivica",
+      "fullName": "Ivica Zubac",
+      "id": 4017837,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "40",
+      "lastName": "Zubac",
+      "proTeamId": 11
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4433621,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jalen",
+      "fullName": "Jalen Duren",
+      "id": 4433621,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "0",
+      "lastName": "Duren",
+      "proTeamId": 8
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4869342,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Dyson",
+      "fullName": "Dyson Daniels",
+      "id": 4869342,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "5",
+      "lastName": "Daniels",
+      "proTeamId": 1
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3934719,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "OG",
+      "fullName": "OG Anunoby",
+      "id": 3934719,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "8",
+      "lastName": "Anunoby",
+      "proTeamId": 18
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3147657,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Mikal",
+      "fullName": "Mikal Bridges",
+      "id": 3147657,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "25",
+      "lastName": "Bridges",
+      "proTeamId": 18
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4066328,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jarrett",
+      "fullName": "Jarrett Allen",
+      "id": 4066328,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "31",
+      "lastName": "Allen",
+      "proTeamId": 5
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4396993,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 1,
+      "droppable": true,
+      "eligibleSlots": [
+        0,
+        1,
+        5,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Tyrese",
+      "fullName": "Tyrese Haliburton",
+      "id": 4396993,
+      "injured": false,
+      "injuryStatus": "DAY_TO_DAY",
+      "jersey": "0",
+      "lastName": "Haliburton",
+      "proTeamId": 11
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 3978,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "DeMar",
+      "fullName": "DeMar DeRozan",
+      "id": 3978,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "10",
+      "lastName": "DeRozan",
+      "proTeamId": 7
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 6478,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 5,
+      "droppable": true,
+      "eligibleSlots": [
+        4,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Nikola",
+      "fullName": "Nikola Vucevic",
+      "id": 6478,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "9",
+      "lastName": "Vucevic",
+      "proTeamId": 19
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4397688,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Trey",
+      "fullName": "Trey Murphy III",
+      "id": 4397688,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "25",
+      "lastName": "Murphy III",
+      "proTeamId": 3
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 5061575,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 3,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Kon",
+      "fullName": "Kon Knueppel",
+      "id": 5061575,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "7",
+      "lastName": "Knueppel",
+      "proTeamId": 30
+    },
+    "status": "FREEAGENT"
+  },
+  {
+    "id": 4437244,
+    "onTeamId": 0,
+    "player": {
+      "active": true,
+      "defaultPositionId": 2,
+      "droppable": true,
+      "eligibleSlots": [
+        1,
+        2,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "firstName": "Jalen",
+      "fullName": "Jalen Green",
+      "id": 4437244,
+      "injured": false,
+      "injuryStatus": "ACTIVE",
+      "jersey": "4",
+      "lastName": "Green",
+      "proTeamId": 21
+    },
+    "status": "FREEAGENT"
+  }
+]
