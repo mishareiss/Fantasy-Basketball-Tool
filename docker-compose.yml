@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: fbb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fbb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fbb}
+      POSTGRES_DB: ${POSTGRES_DB:-fbb}
+    ports:
+      # 5433 on the host by default: 5432 is usually taken by a local Postgres install.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fbb} -d ${POSTGRES_DB:-fbb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

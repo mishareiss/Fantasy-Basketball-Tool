@@ -216,3 +216,38 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Project additions (Node/Next, secrets, local data, OS files)
+# ---------------------------------------------------------------------------
+
+# The Python template above ignores `lib/` (virtualenv dirs), which would swallow the
+# frontend's source `lib/`. Un-ignore it.
+!frontend/lib/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+frontend/build/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+next-env.d.ts
+.vercel
+
+# Environment / secrets — never commit real cookies or API keys
+.env
+.env.*
+!.env.example
+
+# Local data, imports, and caches
+data/
+*.csv
+.cache/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
