@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.ages import sync_ages
 from app.db.models import AdpEntry, Projection
 from app.db.session import get_db
 from app.espn.ownership import parse_ownership
@@ -18,6 +19,7 @@ from app.espn.sync import (
 )
 from app.main import app
 from app.scoring import ScoringEngine, parse_league_settings
+from tests.conftest import AGE_AS_OF
 
 LEAGUE_ID = 999999
 SEASON = 2027
@@ -125,3 +127,31 @@ def test_an_unknown_position_returns_an_empty_board_not_an_error(api, synced):
 
     assert body["total_ranked"] == 0
     assert body["players"] == []
+
+
+def test_the_board_shows_age_beside_value(api, db, synced, nba_players, fetch_recorded_birthdate):
+    """Value and age on one line — the two numbers a dynasty startup is decided on."""
+    sync_ages(
+        db,
+        as_of=AGE_AS_OF,
+        nba_players=nba_players,
+        fetch=fetch_recorded_birthdate,
+        delay=0,
+        sleep=lambda _: None,
+    )
+
+    body = api.get("/players/board?limit=1000").json()
+
+    assert body["age_as_of"] == AGE_AS_OF.isoformat(), "an age means nothing without its date"
+    aged = [row for row in body["players"] if row["age"] is not None]
+    assert len(aged) > 40
+    assert all(18 <= row["age"] <= 45 for row in aged)
+    assert next(row["age"] for row in body["players"] if row["name"] == "LeBron James") == 41
+
+
+def test_a_player_with_no_age_still_makes_the_board(api, synced):
+    """Before any age sync every age is null, and the board is still the board."""
+    body = api.get("/players/board").json()
+
+    assert body["players"]
+    assert all(row["age"] is None for row in body["players"])

@@ -12,6 +12,8 @@ dependencies = [
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
     "espn-api>=0.46.0",
+    "nba-api>=1.11.4",
+    "rapidfuzz>=3.14.5",
 ]
 
 [dependency-groups]
@@ -31,11 +33,12 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# Live tests hit ESPN and need cookies in .env; they skip themselves without them, and this
-# keeps the default run offline and deterministic.
-addopts = "-m 'not live'"
+# Anything that talks to a real external API is deselected by default, so `make test` is
+# offline, deterministic, and needs neither cookies nor a network.
+addopts = "-m 'not live and not nbaapi'"
 markers = [
     "live: hits the real ESPN API; requires ESPN_S2/SWID in .env",
+    "nbaapi: hits the real nba.com stats API; no credentials, but undocumented rate limits",
 ]
 
 [tool.ruff]

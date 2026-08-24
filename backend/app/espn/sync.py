@@ -24,8 +24,13 @@ from app.scoring.settings import LeagueScoringSettings, parse_league_settings
 ESPN_SOURCE = "espn"
 SEASON_PROJECTION_KIND = "projected_season"
 
-# Player columns the sync owns. Anything else on the row (aliases, later-derived fields) is
-# left alone so a re-sync never clobbers work from other sources.
+# Player columns the sync owns. Anything else on the row is left alone so a re-sync never
+# clobbers work from other sources.
+#
+# `birthdate` and `age` are pointedly NOT here. ESPN publishes neither, so this sync would
+# only ever write None over them — and once the nba.com age sync has populated them, the next
+# `make sync` would silently wipe every age on the board. They belong to `app.ages`; this
+# module does not touch them.
 _PLAYER_FIELDS = (
     "full_name",
     "first_name",
@@ -38,8 +43,6 @@ _PLAYER_FIELDS = (
     "espn_fantasy_team_id",
     "injury_status",
     "injured",
-    "birthdate",
-    "age",
 )
 
 

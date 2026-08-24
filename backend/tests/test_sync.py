@@ -1,5 +1,7 @@
 """The league sync: it stores what ESPN gave us, and running it twice changes nothing."""
 
+from datetime import date
+
 import pytest
 from sqlalchemy import func, select
 
@@ -288,3 +290,45 @@ def test_a_changed_coefficient_reprices_projections(db, msettings_payload, playe
         assert row.fantasy_points_total == pytest.approx(
             before[row.player_id] + row.raw_stats["PTS"] * 3
         )
+
+
+def test_a_resync_does_not_wipe_an_age_espn_never_gave_us(
+    db, msettings_payload, player_pool_payload
+):
+    """The bug this guards against would have silently emptied the age column every sync.
+
+    ESPN publishes no birthdate, so its parser yields None for both fields. When they were
+    listed among the columns the sync owns, the next `make sync` after an age sync would write
+    that None straight over every birthdate nba.com had given us — and the dynasty curve would
+    quietly go back to ranking a 38-year-old like a 22-year-old.
+    """
+    _sync(db, msettings_payload, player_pool_payload)
+
+    lebron = db.get(Player, 1966)
+    lebron.birthdate = date(1984, 12, 30)
+    lebron.age = 41
+    db.commit()
+
+    summary = _sync(db, msettings_payload, player_pool_payload)
+
+    assert summary.players_updated == 0, "ESPN saw nothing new; nothing should have changed"
+    assert db.get(Player, 1966).birthdate == date(1984, 12, 30)
+    assert db.get(Player, 1966).age == 41
+
+
+def test_a_resync_still_updates_the_fields_espn_does_own(
+    db, msettings_payload, player_pool_payload
+):
+    """The other half of the same rule: dropping age from the owned set drops only age."""
+    _sync(db, msettings_payload, player_pool_payload)
+    player = db.get(Player, 1966)
+    player.birthdate = date(1984, 12, 30)
+    player.age = 41
+    player.injury_status = "OUT"
+    db.commit()
+
+    _sync(db, msettings_payload, player_pool_payload)
+
+    refreshed = db.get(Player, 1966)
+    assert refreshed.injury_status != "OUT", "ESPN owns injury status and should have reset it"
+    assert refreshed.age == 41

@@ -10,8 +10,11 @@ from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
 # an "eligible slot" (G, F, G/F, UT, BE, IR) is a lineup construct, not a position.
 ATOMIC_POSITIONS: tuple[str, ...] = ("PG", "SG", "SF", "PF", "C")
 
-# Keys ESPN has used for a birthdate in other endpoints. The fantasy API doesn't currently
-# return any of them, which is why age is nullable and an authoritative source lands later.
+# Keys ESPN has used for a birthdate in other endpoints. The fantasy API returns none of them
+# today, which is why ages come from nba.com instead (`app.ages`) — and why the sync does not
+# list `birthdate`/`age` among the columns it owns: writing this parser's None over a real
+# birthdate would wipe the ages the board depends on. Parsed here only so we'd notice if ESPN
+# ever started publishing them.
 _BIRTHDATE_KEYS = ("dateOfBirth", "birthDate", "birthdate")
 
 

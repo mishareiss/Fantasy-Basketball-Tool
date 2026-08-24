@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync fixtures test test-live lint fmt
+.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-ages fixtures nba-fixtures test test-live test-nba lint fmt
 
 # Load the local .env (gitignored) and pass it to every recipe, so the frontend gets
 # NEXT_PUBLIC_API_BASE_URL and docker compose gets the POSTGRES_* values.
@@ -11,7 +11,7 @@ endif
 UV := uv --project backend
 
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Install backend and frontend dependencies
 	$(UV) sync
@@ -35,8 +35,14 @@ revision: ## Autogenerate a migration: make revision m="add players"
 sync: ## Pull scoring settings + player pool from ESPN into the DB (idempotent)
 	cd backend && uv run python -m scripts.sync_league
 
+sync-ages: ## Match nba.com's roster to our players and fill in birthdates + ages (idempotent)
+	cd backend && uv run python -m scripts.sync_ages
+
 fixtures: ## Re-record the sanitized ESPN test fixtures from a live pull
 	cd backend && uv run python -m scripts.record_fixtures
+
+nba-fixtures: ## Re-record the offline nba.com fixtures (roster + birthdates)
+	cd backend && uv run python -m scripts.record_nba_fixtures
 
 backend: ## Run the API with reload on :8000
 	cd backend && uv run uvicorn app.main:app --reload --port 8000
@@ -49,6 +55,9 @@ test: ## Run the backend test suite (offline: fixtures only, no ESPN cookies nee
 
 test-live: ## Run only the tests that hit the real ESPN API (needs cookies in .env)
 	cd backend && uv run pytest -m live
+
+test-nba: ## Run only the tests that hit the real nba.com stats API (no credentials needed)
+	cd backend && uv run pytest -m nbaapi
 
 lint: ## Lint and format-check the backend
 	$(UV) run ruff check backend

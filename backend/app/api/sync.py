@@ -1,11 +1,13 @@
-"""Manual "sync now" endpoint. A scheduled job will call the same code path later."""
+"""Manual "sync now" endpoints. A scheduled job will call the same code paths later."""
 
 from dataclasses import asdict
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.ages import NbaApiError, sync_ages
 from app.db.session import get_db
 from app.espn import sync_league
 from app.espn.client import ESPNCredentialsError, ESPNRequestError
@@ -61,3 +63,54 @@ def sync_league_now(db: Session = Depends(get_db)) -> SyncLeagueResponse:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"ESPN sync failed: {exc}") from exc
 
     return SyncLeagueResponse(**asdict(summary))
+
+
+class SyncAgesResponse(BaseModel):
+    """Counts from one age sync, plus the worklist of players it couldn't resolve."""
+
+    # Every age below was computed at this date, not at "now" — see Settings.age_as_of.
+    age_as_of: date
+
+    nba_roster: int
+    nba_matched: int
+    nba_ambiguous: int
+    nba_unmatched: int
+    aliases_created: int
+    aliases_existing: int
+
+    players_total: int
+    players_with_alias: int
+    players_without_alias: int
+    birthdates_fetched: int
+    birthdates_absent: int
+    birthdates_failed: int
+    birthdates_pending: int
+    ages_set: int
+    players_with_age: int
+    players_missing_age: int
+
+    unresolved_players: list[str]
+    ambiguous_names: list[str]
+
+
+@router.post("/ages", response_model=SyncAgesResponse)
+def sync_ages_now(
+    db: Session = Depends(get_db),
+    limit: int | None = Query(
+        None, ge=1, description="Stop after this many birthdate fetches (best players first)"
+    ),
+    refresh: bool = Query(False, description="Re-fetch birthdates we already have"),
+) -> SyncAgesResponse:
+    """Match nba.com's roster to our players, fetch missing birthdates, recompute ages.
+
+    Idempotent and resumable. Note this is one HTTP call to nba.com per player still missing a
+    birthdate, paced politely — so the *first* full run takes minutes and is better done from
+    the CLI (`make sync-ages`). Use `limit` to keep an API call short.
+    """
+    try:
+        summary = sync_ages(db, limit=limit, refresh=refresh)
+    except NbaApiError as exc:
+        # 502, not 500: nba.com is the thing that failed, and it's the thing to retry.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"nba.com refused us: {exc}") from exc
+
+    return SyncAgesResponse(**asdict(summary))

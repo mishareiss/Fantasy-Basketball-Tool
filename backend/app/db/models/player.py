@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -38,8 +38,11 @@ class Player(Base):
     injury_status: Mapped[str | None] = mapped_column(String(24))
     injured: Mapped[bool] = mapped_column(nullable=False, default=False)
 
-    # ESPN's fantasy API does not currently expose birthdates; the authoritative age source
-    # lands later (it drives the dynasty age curve), so both stay nullable.
+    # ESPN publishes neither of these, so they are owned by the nba.com age sync
+    # (`app.ages`), never by the ESPN sync. Birthdate is the source of truth; `age` is derived
+    # from it at `Settings.age_as_of` — a fixed date, not "today" — so a stored age is
+    # reproducible and correct for draft day. Both stay nullable: a player nba.com has never
+    # heard of simply has no age.
     birthdate: Mapped[date | None] = mapped_column(Date)
     age: Mapped[int | None] = mapped_column()
 
@@ -67,8 +70,13 @@ class Player(Base):
 class PlayerAlias(Base):
     """How one external source names a player, so imported rows resolve to a canonical Player.
 
-    Empty until the import pipeline lands; it exists now so ADP/projection imports have
-    somewhere to record a resolved match (fuzzy or hand-made) instead of re-guessing each run.
+    Written by whoever resolved the match — `app.matching` for automatic ones, the manual
+    alias endpoint for the long tail — and read back by `app.matching` before it guesses
+    anything, so a name is resolved once and never re-guessed.
+
+    `confidence` and `match_method` record *how* the match was made. That is the difference
+    between a row you can trust and one worth a second look: a 0.89 fuzzy hit and a hand-made
+    alias are both just a player id without them.
     """
 
     __tablename__ = "player_alias"
@@ -85,6 +93,11 @@ class PlayerAlias(Base):
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     source_name: Mapped[str] = mapped_column(String(120), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(64))
+
+    # 1.0 for an exact, normalized, or hand-made match; the similarity score for a fuzzy one.
+    confidence: Mapped[float | None] = mapped_column(Float)
+    # One of app.matching's methods: alias / exact / normalized / fuzzy, or 'manual'.
+    match_method: Mapped[str | None] = mapped_column(String(24))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

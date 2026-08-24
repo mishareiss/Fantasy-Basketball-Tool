@@ -1,0 +1,415 @@
+[
+  {
+    "first_name": "Bam",
+    "full_name": "Bam Adebayo",
+    "id": 1628389,
+    "is_active": true,
+    "last_name": "Adebayo"
+  },
+  {
+    "first_name": "Giannis",
+    "full_name": "Giannis Antetokounmpo",
+    "id": 203507,
+    "is_active": true,
+    "last_name": "Antetokounmpo"
+  },
+  {
+    "first_name": "Deni",
+    "full_name": "Deni Avdija",
+    "id": 1630166,
+    "is_active": true,
+    "last_name": "Avdija"
+  },
+  {
+    "first_name": "LaMelo",
+    "full_name": "LaMelo Ball",
+    "id": 1630163,
+    "is_active": true,
+    "last_name": "Ball"
+  },
+  {
+    "first_name": "Paolo",
+    "full_name": "Paolo Banchero",
+    "id": 1631094,
+    "is_active": true,
+    "last_name": "Banchero"
+  },
+  {
+    "first_name": "Desmond",
+    "full_name": "Desmond Bane",
+    "id": 1630217,
+    "is_active": true,
+    "last_name": "Bane"
+  },
+  {
+    "first_name": "Scottie",
+    "full_name": "Scottie Barnes",
+    "id": 1630567,
+    "is_active": true,
+    "last_name": "Barnes"
+  },
+  {
+    "first_name": "Devin",
+    "full_name": "Devin Booker",
+    "id": 1626164,
+    "is_active": true,
+    "last_name": "Booker"
+  },
+  {
+    "first_name": "Jaylen",
+    "full_name": "Jaylen Brown",
+    "id": 1627759,
+    "is_active": true,
+    "last_name": "Brown"
+  },
+  {
+    "first_name": "Kendall",
+    "full_name": "Kendall Brown",
+    "id": 1631112,
+    "is_active": false,
+    "last_name": "Brown"
+  },
+  {
+    "first_name": "Jalen",
+    "full_name": "Jalen Brunson",
+    "id": 1628973,
+    "is_active": true,
+    "last_name": "Brunson"
+  },
+  {
+    "first_name": "D.J.",
+    "full_name": "D.J. Carton",
+    "id": 1630618,
+    "is_active": false,
+    "last_name": "Carton"
+  },
+  {
+    "first_name": "Stephon",
+    "full_name": "Stephon Castle",
+    "id": 1642264,
+    "is_active": true,
+    "last_name": "Castle"
+  },
+  {
+    "first_name": "Malcolm",
+    "full_name": "Malcolm Cazalon",
+    "id": 1630608,
+    "is_active": false,
+    "last_name": "Cazalon"
+  },
+  {
+    "first_name": "Cade",
+    "full_name": "Cade Cunningham",
+    "id": 1630595,
+    "is_active": true,
+    "last_name": "Cunningham"
+  },
+  {
+    "first_name": "Stephen",
+    "full_name": "Stephen Curry",
+    "id": 201939,
+    "is_active": true,
+    "last_name": "Curry"
+  },
+  {
+    "first_name": "Anthony",
+    "full_name": "Anthony Davis",
+    "id": 203076,
+    "is_active": true,
+    "last_name": "Davis"
+  },
+  {
+    "first_name": "Luka",
+    "full_name": "Luka Don\u010di\u0107",
+    "id": 1629029,
+    "is_active": true,
+    "last_name": "Don\u010di\u0107"
+  },
+  {
+    "first_name": "Kevin",
+    "full_name": "Kevin Durant",
+    "id": 201142,
+    "is_active": true,
+    "last_name": "Durant"
+  },
+  {
+    "first_name": "Jalen",
+    "full_name": "Jalen Duren",
+    "id": 1631105,
+    "is_active": true,
+    "last_name": "Duren"
+  },
+  {
+    "first_name": "Anthony",
+    "full_name": "Anthony Edwards",
+    "id": 1630162,
+    "is_active": true,
+    "last_name": "Edwards"
+  },
+  {
+    "first_name": "Joel",
+    "full_name": "Joel Embiid",
+    "id": 203954,
+    "is_active": true,
+    "last_name": "Embiid"
+  },
+  {
+    "first_name": "Cooper",
+    "full_name": "Cooper Flagg",
+    "id": 1642843,
+    "is_active": true,
+    "last_name": "Flagg"
+  },
+  {
+    "first_name": "De'Aaron",
+    "full_name": "De'Aaron Fox",
+    "id": 1628368,
+    "is_active": true,
+    "last_name": "Fox"
+  },
+  {
+    "first_name": "Josh",
+    "full_name": "Josh Giddey",
+    "id": 1630581,
+    "is_active": true,
+    "last_name": "Giddey"
+  },
+  {
+    "first_name": "Shai",
+    "full_name": "Shai Gilgeous-Alexander",
+    "id": 1628983,
+    "is_active": true,
+    "last_name": "Gilgeous-Alexander"
+  },
+  {
+    "first_name": "James",
+    "full_name": "James Harden",
+    "id": 201935,
+    "is_active": true,
+    "last_name": "Harden"
+  },
+  {
+    "first_name": "Josh",
+    "full_name": "Josh Hart",
+    "id": 1628404,
+    "is_active": true,
+    "last_name": "Hart"
+  },
+  {
+    "first_name": "Chet",
+    "full_name": "Chet Holmgren",
+    "id": 1631096,
+    "is_active": true,
+    "last_name": "Holmgren"
+  },
+  {
+    "first_name": "LeBron",
+    "full_name": "LeBron James",
+    "id": 2544,
+    "is_active": true,
+    "last_name": "James"
+  },
+  {
+    "first_name": "Jalen",
+    "full_name": "Jalen Johnson",
+    "id": 1630552,
+    "is_active": true,
+    "last_name": "Johnson"
+  },
+  {
+    "first_name": "Nikola",
+    "full_name": "Nikola Joki\u0107",
+    "id": 203999,
+    "is_active": true,
+    "last_name": "Joki\u0107"
+  },
+  {
+    "first_name": "Kawhi",
+    "full_name": "Kawhi Leonard",
+    "id": 202695,
+    "is_active": true,
+    "last_name": "Leonard"
+  },
+  {
+    "first_name": "Tyrese",
+    "full_name": "Tyrese Maxey",
+    "id": 1630178,
+    "is_active": true,
+    "last_name": "Maxey"
+  },
+  {
+    "first_name": "Donovan",
+    "full_name": "Donovan Mitchell",
+    "id": 1628378,
+    "is_active": true,
+    "last_name": "Mitchell"
+  },
+  {
+    "first_name": "Evan",
+    "full_name": "Evan Mobley",
+    "id": 1630596,
+    "is_active": true,
+    "last_name": "Mobley"
+  },
+  {
+    "first_name": "Ja",
+    "full_name": "Ja Morant",
+    "id": 1629630,
+    "is_active": true,
+    "last_name": "Morant"
+  },
+  {
+    "first_name": "Jamal",
+    "full_name": "Jamal Murray",
+    "id": 1627750,
+    "is_active": true,
+    "last_name": "Murray"
+  },
+  {
+    "first_name": "Eugene",
+    "full_name": "Eugene Omoruyi",
+    "id": 1630647,
+    "is_active": false,
+    "last_name": "Omoruyi"
+  },
+  {
+    "first_name": "Gary",
+    "full_name": "Gary Payton",
+    "id": 56,
+    "is_active": false,
+    "last_name": "Payton"
+  },
+  {
+    "first_name": "Gary",
+    "full_name": "Gary Payton II",
+    "id": 1627780,
+    "is_active": true,
+    "last_name": "Payton II"
+  },
+  {
+    "first_name": "Michael",
+    "full_name": "Michael Porter Jr.",
+    "id": 1629008,
+    "is_active": true,
+    "last_name": "Porter Jr."
+  },
+  {
+    "first_name": "Austin",
+    "full_name": "Austin Reaves",
+    "id": 1630559,
+    "is_active": true,
+    "last_name": "Reaves"
+  },
+  {
+    "first_name": "Domantas",
+    "full_name": "Domantas Sabonis",
+    "id": 1627734,
+    "is_active": true,
+    "last_name": "Sabonis"
+  },
+  {
+    "first_name": "Jordan",
+    "full_name": "Jordan Schakel",
+    "id": 1630648,
+    "is_active": false,
+    "last_name": "Schakel"
+  },
+  {
+    "first_name": "Mark",
+    "full_name": "Mark Sears",
+    "id": 1641813,
+    "is_active": true,
+    "last_name": "Sears"
+  },
+  {
+    "first_name": "Alperen",
+    "full_name": "Alperen Sengun",
+    "id": 1630578,
+    "is_active": true,
+    "last_name": "Sengun"
+  },
+  {
+    "first_name": "Pascal",
+    "full_name": "Pascal Siakam",
+    "id": 1627783,
+    "is_active": true,
+    "last_name": "Siakam"
+  },
+  {
+    "first_name": "Lamar",
+    "full_name": "Lamar Stevens",
+    "id": 1630205,
+    "is_active": false,
+    "last_name": "Stevens"
+  },
+  {
+    "first_name": "Jayson",
+    "full_name": "Jayson Tatum",
+    "id": 1628369,
+    "is_active": true,
+    "last_name": "Tatum"
+  },
+  {
+    "first_name": "Amen",
+    "full_name": "Amen Thompson",
+    "id": 1641708,
+    "is_active": true,
+    "last_name": "Thompson"
+  },
+  {
+    "first_name": "Karl-Anthony",
+    "full_name": "Karl-Anthony Towns",
+    "id": 1626157,
+    "is_active": true,
+    "last_name": "Towns"
+  },
+  {
+    "first_name": "Franz",
+    "full_name": "Franz Wagner",
+    "id": 1630532,
+    "is_active": true,
+    "last_name": "Wagner"
+  },
+  {
+    "first_name": "Victor",
+    "full_name": "Victor Wembanyama",
+    "id": 1641705,
+    "is_active": true,
+    "last_name": "Wembanyama"
+  },
+  {
+    "first_name": "Derrick",
+    "full_name": "Derrick White",
+    "id": 1628401,
+    "is_active": true,
+    "last_name": "White"
+  },
+  {
+    "first_name": "Jalen",
+    "full_name": "Jalen Williams",
+    "id": 1631114,
+    "is_active": true,
+    "last_name": "Williams"
+  },
+  {
+    "first_name": "Zion",
+    "full_name": "Zion Williamson",
+    "id": 1629627,
+    "is_active": true,
+    "last_name": "Williamson"
+  },
+  {
+    "first_name": "Trae",
+    "full_name": "Trae Young",
+    "id": 1629027,
+    "is_active": true,
+    "last_name": "Young"
+  },
+  {
+    "first_name": "Ivica",
+    "full_name": "Ivica Zubac",
+    "id": 1627826,
+    "is_active": true,
+    "last_name": "Zubac"
+  }
+]
