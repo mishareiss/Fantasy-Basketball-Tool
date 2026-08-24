@@ -22,8 +22,9 @@ PLAYERS_FIXTURE = FIXTURE_DIR / "espn_player_pool.json"
 
 PLACEHOLDER_LEAGUE_NAME = "Sanitized Test League"
 
-# Only these survive from each player object; everything else (ownership, stat splits,
-# outlooks, draft ranks) is either bulky or beyond what task 2 parses.
+# Only these survive from each player object. `stats` (the projected and actual splits) and
+# `ownership` (ADP, auction value, roster share) are in because the projection and ADP parsers
+# read them; everything else ESPN sends — outlooks, news, draft ranks — is dropped.
 _PLAYER_KEEP = (
     "id",
     "fullName",
@@ -37,6 +38,8 @@ _PLAYER_KEEP = (
     "active",
     "droppable",
     "jersey",
+    "stats",
+    "ownership",
 )
 _ENTRY_KEEP = ("id", "status", "onTeamId")
 
@@ -54,10 +57,22 @@ def sanitize_settings(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def sanitize_players(entries: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
-    """Keep the first `limit` entries, reduced to the fields the parser reads."""
+def sanitize_players(
+    entries: list[dict[str, Any]], limit: int, tail: int = 0
+) -> list[dict[str, Any]]:
+    """Keep `limit` entries, reduced to the fields the parsers read.
+
+    ESPN hands the pool back sorted by roster share, so the head is stars and the tail is
+    players nobody owns. Taking `tail` entries from the bottom as well as the top is
+    deliberate: ESPN publishes projections for roughly the top third of the pool, so without a
+    tail sample the fixtures would have no player who *lacks* a projection — and that path
+    needs the same coverage as the happy one.
+    """
+    head = max(limit - tail, 0)
+    kept = entries[:head] + (entries[-tail:] if tail else [])
+
     out: list[dict[str, Any]] = []
-    for entry in entries[:limit]:
+    for entry in kept:
         player = entry.get("player") or {}
         out.append(
             {
@@ -98,6 +113,12 @@ def main() -> int:
     parser.add_argument(
         "--players", type=int, default=60, help="how many players to keep (default: 60)"
     )
+    parser.add_argument(
+        "--tail",
+        type=int,
+        default=10,
+        help="how many of those to take from the unowned end of the pool (default: 10)",
+    )
     args = parser.parse_args()
 
     client = ESPNClient.from_settings()
@@ -105,8 +126,9 @@ def main() -> int:
 
     write_fixture(SETTINGS_FIXTURE, sanitize_settings(client.fetch_settings_view()), credentials)
 
-    entries = client.fetch_player_pool_pages(page_size=500, max_players=args.players + 500)
-    write_fixture(PLAYERS_FIXTURE, sanitize_players(entries, args.players), credentials)
+    # The whole pool, not just a first page: the tail sample has to come from the real bottom.
+    entries = client.fetch_player_pool_pages()
+    write_fixture(PLAYERS_FIXTURE, sanitize_players(entries, args.players, args.tail), credentials)
     return 0
 
 

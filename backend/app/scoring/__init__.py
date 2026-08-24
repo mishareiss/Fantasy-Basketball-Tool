@@ -8,6 +8,7 @@ from app.scoring.engine import (
     score_stat_line,
     unscored_keys,
 )
+from app.scoring.projections import PerGameBasis, ScoredProjection, score_projection
 from app.scoring.settings import (
     ESPNSettingsError,
     LeagueScoringSettings,
@@ -22,6 +23,8 @@ __all__ = [
     "STAT_NAME_TO_ID",
     "ESPNSettingsError",
     "LeagueScoringSettings",
+    "PerGameBasis",
+    "ScoredProjection",
     "ScoringCoefficient",
     "ScoringEngine",
     "ScoringRulesNotLoaded",
@@ -29,6 +32,7 @@ __all__ = [
     "normalise_stat_line",
     "parse_league_settings",
     "parse_scoring_items",
+    "score_projection",
     "score_stat_line",
     "stat_label",
     "stat_name",

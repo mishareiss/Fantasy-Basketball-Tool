@@ -5,14 +5,24 @@ than a duplicate. That matters because sync is going to run on a schedule and on
 """
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import LeagueSettings, Player, ScoringRule
+from app.db.models import AdpEntry, LeagueSettings, Player, Projection, ScoringRule
 from app.espn.client import ESPNClient
+from app.espn.ownership import OwnershipRecord, parse_ownership
 from app.espn.players import PlayerRecord, parse_player_pool
+from app.espn.statsplits import ProjectionSplit, parse_projections
+from app.scoring.engine import ScoringEngine
+from app.scoring.projections import score_projection
 from app.scoring.settings import LeagueScoringSettings, parse_league_settings
+
+# What we call ourselves in `Projection.source` / `AdpEntry.source`, and the projection horizon
+# ESPN publishes. Named so imported sources slot in beside them without touching this module.
+ESPN_SOURCE = "espn"
+SEASON_PROJECTION_KIND = "projected_season"
 
 # Player columns the sync owns. Anything else on the row (aliases, later-derived fields) is
 # left alone so a re-sync never clobbers work from other sources.
@@ -52,6 +62,21 @@ class SyncSummary:
     players_created: int = 0
     players_updated: int = 0
     players_unchanged: int = 0
+
+    projections_seen: int = 0
+    projections_created: int = 0
+    projections_updated: int = 0
+    projections_unchanged: int = 0
+    # Players ESPN listed but published no projection for — rookies, two-ways, deep bench.
+    projections_missing: int = 0
+    # The season the stored projections are FOR; see `select_projected_split` for why it can
+    # trail the season we synced.
+    projection_season: int | None = None
+
+    adp_seen: int = 0
+    adp_created: int = 0
+    adp_updated: int = 0
+    adp_unchanged: int = 0
 
     roster_slots: dict[str, int] = field(default_factory=dict)
     points_by_stat: dict[str, float] = field(default_factory=dict)
@@ -170,8 +195,155 @@ def _record_fields(record: PlayerRecord) -> dict[str, object]:
     return {name: getattr(record, name) for name in _PLAYER_FIELDS}
 
 
+def _known_player_ids(db: Session, player_ids: list[int]) -> set[int]:
+    """Which of these ids actually have a Player row.
+
+    Projections and ADP hang off `player`, so a row for an unknown id would be a foreign-key
+    error mid-sync. In a full sync every id is known (players are upserted first); this keeps
+    the partial-sync and test paths honest.
+    """
+    if not player_ids:
+        return set()
+    return set(
+        db.scalars(select(Player.espn_player_id).where(Player.espn_player_id.in_(player_ids)))
+    )
+
+
+def sync_projections(
+    db: Session,
+    splits: list[ProjectionSplit],
+    engine: ScoringEngine,
+    summary: SyncSummary,
+    *,
+    source: str = ESPN_SOURCE,
+    kind: str = SEASON_PROJECTION_KIND,
+) -> None:
+    """Price each projected split under our scoring and upsert it.
+
+    Keyed on (player, source, kind, season), so a re-sync overwrites rather than accumulating,
+    and ESPN publishing next season's projections adds rows beside this season's instead of
+    destroying them.
+    """
+    summary.projections_seen = len(splits)
+    summary.projections_missing = max(summary.players_seen - len(splits), 0)
+    if not splits:
+        return
+
+    summary.projection_season = max(split.season for split in splits)
+
+    known = _known_player_ids(db, [split.espn_player_id for split in splits])
+    existing = {
+        (row.player_id, row.season): row
+        for row in db.scalars(
+            select(Projection).where(
+                Projection.source == source,
+                Projection.kind == kind,
+                Projection.player_id.in_(known),
+            )
+        )
+    }
+    now = datetime.now(UTC)
+
+    for split in splits:
+        if split.espn_player_id not in known:
+            continue
+
+        scored = score_projection(
+            engine,
+            split.stats,
+            per_game_stats=split.average_stats,
+            projected_games=split.projected_games,
+        )
+        values = {
+            "raw_stats": split.stats,
+            "per_game_stats": split.average_stats or None,
+            "projected_games": split.projected_games,
+            "fantasy_points_total": scored.fantasy_points_total,
+            "fantasy_points_per_game": scored.fantasy_points_per_game,
+            "per_game_basis": scored.per_game_basis,
+            "source_fantasy_points_total": split.espn_applied_total,
+        }
+
+        row = existing.get((split.espn_player_id, split.season))
+        if row is None:
+            db.add(
+                Projection(
+                    player_id=split.espn_player_id,
+                    source=source,
+                    kind=kind,
+                    season=split.season,
+                    as_of=now,
+                    **values,
+                )
+            )
+            summary.projections_created += 1
+            continue
+
+        if any(getattr(row, name) != value for name, value in values.items()):
+            for name, value in values.items():
+                setattr(row, name, value)
+            row.as_of = now
+            summary.projections_updated += 1
+        else:
+            summary.projections_unchanged += 1
+
+    db.flush()
+
+
+def sync_adp(
+    db: Session,
+    records: list[OwnershipRecord],
+    summary: SyncSummary,
+    *,
+    source: str = ESPN_SOURCE,
+) -> None:
+    """Upsert one ADP row per player for this source. Values are stored exactly as sent."""
+    summary.adp_seen = len(records)
+    if not records:
+        return
+
+    known = _known_player_ids(db, [record.espn_player_id for record in records])
+    existing = {
+        row.player_id: row
+        for row in db.scalars(
+            select(AdpEntry).where(AdpEntry.source == source, AdpEntry.player_id.in_(known))
+        )
+    }
+    now = datetime.now(UTC)
+
+    for record in records:
+        if record.espn_player_id not in known:
+            continue
+
+        values = {
+            "adp": record.adp,
+            "auction_value": record.auction_value,
+            "percent_owned": record.percent_owned,
+        }
+
+        row = existing.get(record.espn_player_id)
+        if row is None:
+            db.add(AdpEntry(player_id=record.espn_player_id, source=source, as_of=now, **values))
+            summary.adp_created += 1
+            continue
+
+        if any(getattr(row, name) != value for name, value in values.items()):
+            for name, value in values.items():
+                setattr(row, name, value)
+            row.as_of = now
+            summary.adp_updated += 1
+        else:
+            summary.adp_unchanged += 1
+
+    db.flush()
+
+
 def sync_league(db: Session, client: ESPNClient | None = None) -> SyncSummary:
-    """Full league sync: scoring settings, then the player pool. Commits on success.
+    """Full league sync: scoring settings, players, projections, ADP. Commits on success.
+
+    Order matters. The scoring rules have to land before projections, because pricing a
+    projection needs them; players have to land before projections and ADP, because both hang
+    off `player`. One `kona_player_info` fetch feeds all three player passes.
 
     Raises `ESPNCredentialsError` if cookies are missing or rejected — nothing is written in
     that case, so a stale-cookie sync leaves the last good data intact.
@@ -180,16 +352,22 @@ def sync_league(db: Session, client: ESPNClient | None = None) -> SyncSummary:
     summary = SyncSummary(league_id=client.league_id, season=client.season)
 
     parsed = parse_league_settings(client.fetch_settings_view())
-    records = parse_player_pool(client.fetch_player_pool_pages())
+    entries = client.fetch_player_pool_pages()
 
-    sync_scoring_settings(
+    settings_row = sync_scoring_settings(
         db,
         espn_league_id=client.league_id,
         season=client.season,
         parsed=parsed,
         summary=summary,
     )
-    sync_players(db, records, summary)
+    sync_players(db, parse_player_pool(entries), summary)
+
+    # Score against the rules we just stored, so a mid-season scoring change is reflected in
+    # the same sync that picked it up.
+    engine = ScoringEngine(settings_row.scoring_rules)
+    sync_projections(db, parse_projections(entries, client.season), engine, summary)
+    sync_adp(db, parse_ownership(entries), summary)
 
     db.commit()
     return summary

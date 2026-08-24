@@ -33,6 +33,18 @@ class SyncLeagueResponse(BaseModel):
     players_updated: int
     players_unchanged: int
 
+    projections_seen: int
+    projections_created: int
+    projections_updated: int
+    projections_unchanged: int
+    projections_missing: int
+    projection_season: int | None = None
+
+    adp_seen: int
+    adp_created: int
+    adp_updated: int
+    adp_unchanged: int
+
     roster_slots: dict[str, int]
     points_by_stat: dict[str, float]
 

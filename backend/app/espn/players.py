@@ -71,10 +71,20 @@ def _age_from(birthdate: date | None, today: date | None = None) -> int | None:
     return today.year - birthdate.year - (0 if had_birthday else 1)
 
 
+def player_object(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """The `player` object inside one `players[]` entry, whichever shape ESPN used.
+
+    Shared with the projection and ownership parsers, which read different blocks of the same
+    object out of the same payload.
+    """
+    player = entry.get("player") or entry.get("playerPoolEntry", {}).get("player")
+    return player if isinstance(player, dict) else None
+
+
 def parse_player_entry(entry: dict[str, Any]) -> PlayerRecord | None:
     """Parse one `players[]` entry. Returns None for entries with no usable player object."""
-    player = entry.get("player") or entry.get("playerPoolEntry", {}).get("player")
-    if not isinstance(player, dict):
+    player = player_object(entry)
+    if player is None:
         return None
 
     player_id = player.get("id", entry.get("id"))

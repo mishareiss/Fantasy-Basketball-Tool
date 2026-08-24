@@ -50,12 +50,30 @@ make sync                            # or: curl -X POST localhost:8000/sync/leag
 ```
 
 That pulls our custom scoring coefficients from ESPN's `mSettings` view and the full player
-universe from `kona_player_info`, then upserts both. It is idempotent — re-running reports
-everything as unchanged rather than duplicating rows. Without cookies the app still boots and
-`/health` still answers; only the sync fails, with a message naming the missing values.
+universe from `kona_player_info`, then upserts four things: league settings, scoring rules,
+players, and — from the same player payload — ESPN's **season projections** (priced under our
+custom scoring) and its **redraft ADP**. It is idempotent — re-running reports everything as
+unchanged rather than duplicating rows. Without cookies the app still boots and `/health`
+still answers; only the sync fails, with a message naming the missing values.
 
 The ESPN cookies expire periodically. When they do, sync returns HTTP 503 (or the CLI exits
 non-zero) telling you to re-copy them from a logged-in browser session.
+
+### The board
+
+```bash
+curl "localhost:8000/players/board?limit=20"        # top 20 by projected points per game
+curl "localhost:8000/players/board?position=C"      # centers only
+```
+
+Players ranked by projected fantasy points per game **under our scoring**, each shown next to
+ESPN's redraft ADP — the gap between the two is the edge. ADP is stored raw; the dynasty
+age adjustment lands later.
+
+> ESPN only publishes a season's projections once its preseason is under way. Out of season the
+> sync stores ESPN's newest available projection and records the season it is really for, so the
+> board is populated year-round and never mislabels a stand-in. `make sync` says so explicitly
+> when the two differ, and `/players/board` returns the season in its response.
 
 ### Tests
 
@@ -74,7 +92,7 @@ that still contains one. Tests marked `live` hit the real API and are excluded b
 | `make revision m="..."` | Autogenerate a migration from the models |
 | `make backend` | Uvicorn with reload on :8000 |
 | `make frontend` | `next dev` on :3000 |
-| `make sync` | Pull ESPN scoring settings + player pool into the DB (idempotent) |
+| `make sync` | Pull ESPN scoring settings, players, projections + ADP into the DB (idempotent) |
 | `make fixtures` | Re-record the sanitized ESPN test fixtures from a live pull |
 | `make test` | pytest (offline — recorded fixtures, no ESPN cookies needed) |
 | `make test-live` | Only the tests that hit the real ESPN API (needs cookies) |
@@ -99,10 +117,10 @@ want a different port.
 │   ├── app/
 │   │   ├── main.py          # app factory: routers + CORS
 │   │   ├── config.py        # pydantic-settings, reads the root .env
-│   │   ├── api/             # routers (health, sync; features next)
+│   │   ├── api/             # routers (health, sync, players/board; features next)
 │   │   ├── db/              # engine/session, declarative Base, models/
-│   │   ├── espn/            # ESPN v3 client, cookie auth, player parsing, league sync
-│   │   ├── scoring/         # custom scoring formula parsed from mSettings
+│   │   ├── espn/            # ESPN v3 client, cookie auth, player/projection/ADP parsing, sync
+│   │   ├── scoring/         # custom scoring formula parsed from mSettings + projection pricing
 │   │   ├── projections/     # stub: pluggable ProjectionSource layer
 │   │   ├── valuation/       # stub: current-year + dynasty value engine
 │   │   ├── ranking/         # stub: ranking sets + personal model

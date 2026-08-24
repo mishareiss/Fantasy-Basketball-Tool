@@ -6,10 +6,18 @@ from fastapi.testclient import TestClient
 from app.api import sync as sync_route
 from app.db.session import get_db
 from app.espn.client import ESPNCredentialsError, ESPNRequestError
+from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
-from app.espn.sync import SyncSummary, sync_players, sync_scoring_settings
+from app.espn.statsplits import parse_projections
+from app.espn.sync import (
+    SyncSummary,
+    sync_adp,
+    sync_players,
+    sync_projections,
+    sync_scoring_settings,
+)
 from app.main import app
-from app.scoring import parse_league_settings
+from app.scoring import ScoringEngine, parse_league_settings
 
 
 @pytest.fixture
@@ -26,7 +34,7 @@ def test_returns_a_summary_of_what_it_stored(
 ):
     def fake_sync(session):
         summary = SyncSummary(league_id=42, season=2027)
-        sync_scoring_settings(
+        settings_row = sync_scoring_settings(
             session,
             espn_league_id=42,
             season=2027,
@@ -34,6 +42,13 @@ def test_returns_a_summary_of_what_it_stored(
             summary=summary,
         )
         sync_players(session, parse_player_pool(player_pool_payload), summary)
+        sync_projections(
+            session,
+            parse_projections(player_pool_payload, 2027),
+            ScoringEngine(settings_row.scoring_rules),
+            summary,
+        )
+        sync_adp(session, parse_ownership(player_pool_payload), summary)
         session.commit()
         return summary
 
@@ -46,6 +61,11 @@ def test_returns_a_summary_of_what_it_stored(
     assert body["scoring_rules"] == 17
     assert body["points_by_stat"]["PTS"] == 3.0
     assert body["players_created"] == len(player_pool_payload)
+    assert body["adp_created"] == len(player_pool_payload)
+    # Not every player has one — the summary reports both halves so the gap is visible.
+    assert 0 < body["projections_created"] < len(player_pool_payload)
+    assert body["projections_missing"] == len(player_pool_payload) - body["projections_created"]
+    assert body["projection_season"]
 
 
 def test_missing_cookies_are_a_503_with_a_useful_message(api, monkeypatch):

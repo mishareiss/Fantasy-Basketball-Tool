@@ -40,6 +40,21 @@ def main() -> int:
         f"(+{summary.players_created} new, ~{summary.players_updated} changed, "
         f"={summary.players_unchanged} unchanged)"
     )
+    season_note = ""
+    if summary.projection_season and summary.projection_season != summary.season:
+        # ESPN has not published the synced season's projections yet; we stored its newest.
+        season_note = f" for season {summary.projection_season}, NOT {summary.season}"
+    print(
+        f"  projections: {summary.projections_seen} priced{season_note} "
+        f"(+{summary.projections_created} new, ~{summary.projections_updated} changed, "
+        f"={summary.projections_unchanged} unchanged, "
+        f"{summary.projections_missing} players had none)"
+    )
+    print(
+        f"  espn adp: {summary.adp_seen} seen "
+        f"(+{summary.adp_created} new, ~{summary.adp_updated} changed, "
+        f"={summary.adp_unchanged} unchanged)"
+    )
     return 0
 
 
