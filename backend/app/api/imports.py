@@ -51,7 +51,10 @@ class ImportRequest(BaseModel):
     options: dict[str, str] | None = Field(
         None,
         description="Per-kind options. `projection` takes {'basis': 'per_game'|'season'} — "
-        "whether the stat columns are per-game averages (the usual export) or season totals.",
+        "whether the stat columns are per-game averages (the usual export) or season totals. "
+        "`ranking` takes {'name': 'Dynasty Top 200'} — the set's label, which together with "
+        "(source, season) decides which stored set this import replaces; it defaults to the "
+        "source name. An option a kind doesn't know is a 422, never a silent default.",
     )
     dry_run: bool = Field(True, description="Preview only. Set false to write.")
     strict: bool = Field(
@@ -66,7 +69,7 @@ class RowOutcomeResponse(BaseModel):
     line: int
     source_name: str
     status: str
-    values: dict[str, float | None] = {}
+    values: dict[str, float | str | None] = {}
     team: str | None = None
     positions: list[str] = []
     player_id: int | None = None
@@ -104,6 +107,10 @@ class ImportResponse(BaseModel):
     rows_created: int
     rows_updated: int
     rows_unchanged: int
+    # Anything the handler wanted to say that the counters can't — a `ranking` import reports
+    # the set it resolved, whether it replaced one, and whether ranks came from a column or
+    # from the file's order.
+    notes: list[str] = []
 
     rows: list[RowOutcomeResponse]
 
@@ -174,7 +181,7 @@ def _run(db: Session, kind: str, **kwargs) -> ImportResponse:
 
 @router.post("/{kind}", response_model=ImportResponse)
 def import_paste(
-    kind: str = Path(..., description="What kind of data this is: 'adp' or 'projection'"),
+    kind: str = Path(..., description="What kind of data this is: 'adp', 'projection', 'ranking'"),
     payload: ImportRequest = Body(...),
     db: Session = Depends(get_db),
 ) -> ImportResponse:

@@ -78,9 +78,9 @@ def _stored(db, player_id: int) -> Projection:
     )
 
 
-def test_the_registry_carries_projection_and_two_still_planned():
-    assert kind_names() == ["adp", "projection"]
-    assert sorted(PLANNED_KINDS) == ["market_line", "ranking"]
+def test_the_registry_carries_projection_and_one_still_planned():
+    assert kind_names() == ["adp", "projection", "ranking"]
+    assert sorted(PLANNED_KINDS) == ["market_line"]
 
 
 # --- columns ------------------------------------------------------------------------------

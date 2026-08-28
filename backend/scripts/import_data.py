@@ -6,11 +6,17 @@
     uv run python -m scripts.import_data --kind projection --source hashtag --season 2027 \
         --file ~/Downloads/projections.csv --basis per_game [--commit]
 
+    uv run python -m scripts.import_data --kind ranking --source hashtag --season 2027 \
+        --name "Dynasty Top 200" --file ~/Downloads/top200.csv [--commit]
+
 Dry run by default: it parses, matches, and prints exactly what it *would* write, including
 the review and unmatched worklists. Nothing is stored until `--commit`.
 
 Committing twice is a no-op — the second run reports every row unchanged and creates no
-aliases, which is the cheap way to confirm a file has already landed.
+aliases, which is the cheap way to confirm a file has already landed. A `ranking` import is
+the one that *replaces* rather than accumulates: the same (source, --name, season) rewrites
+that set's entries wholesale, so a player who fell off the new version is gone from it. The
+dry run says which set it resolved and how many entries would go, before any of that happens.
 
 Read `-` (or leave `--file` off) to take the table on stdin, so a spreadsheet paste works:
 
@@ -58,13 +64,20 @@ def parse_column_map(raw: str | None) -> dict[str, str] | None:
     return mapping
 
 
+def _options(**pairs: str | None) -> dict[str, str]:
+    """The per-kind options actually asked for on the command line, omitting the unset ones."""
+    return {key: value for key, value in pairs.items() if value}
+
+
 def _print_rows(label: str, rows, limit: int, *, show_candidates: bool) -> None:
     if not rows:
         return
     print(f"\n  {label} ({len(rows)}):")
     for row in rows[:limit]:
         values = " ".join(
-            f"{field}={value:g}" for field, value in row.values.items() if value is not None
+            f"{field}={value:g}" if isinstance(value, float | int) else f"{field}={value}"
+            for field, value in row.values.items()
+            if value is not None
         )
         target = f" -> {row.player_name}" if row.player_name else ""
         confidence = f" [{row.method} {row.confidence:.2f}]" if row.method else ""
@@ -111,6 +124,9 @@ def report(summary: ImportSummary) -> None:
         f"{'would update' if summary.dry_run else 'updated'} {summary.rows_updated}, "
         f"{summary.rows_unchanged} unchanged"
     )
+
+    for note in summary.notes:
+        print(f"  note: {note}")
 
     _print_rows("matched", summary.of_status(STATUS_MATCHED), SAMPLE_MATCHED, show_candidates=False)
     _print_rows(
@@ -181,6 +197,13 @@ def main() -> int:
         f"export, and the default: {BASIS_PER_GAME}) or season totals?",
     )
     parser.add_argument(
+        "--name",
+        default=None,
+        help='ranking files only: the set\'s label, e.g. --name "Dynasty Top 200". Together '
+        "with the source and season it decides which stored set this import replaces; "
+        "defaults to the source name",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="hold fuzzy matches for confirmation instead of auto-accepting them",
@@ -221,9 +244,11 @@ def main() -> int:
             delimiter=args.delimiter,
             dry_run=not args.commit,
             accept=accept_only_certain if args.strict else None,
-            # Only what was actually asked for: an ADP import has no basis, and echoing a
-            # default it never read would be a lie in the receipt.
-            options={"basis": args.basis} if args.basis else None,
+            # Only what was actually asked for: an ADP import has no basis and no set name,
+            # and echoing a default it never read would be a lie in the receipt. A handler
+            # that gets an option it doesn't understand refuses the import rather than
+            # dropping it — `--basis` on a ranking file is a mistake worth hearing about.
+            options=_options(basis=args.basis, name=args.name) or None,
         )
     except UnknownKindError as exc:
         print(exc.args[0], file=sys.stderr)

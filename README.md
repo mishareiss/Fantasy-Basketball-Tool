@@ -133,6 +133,10 @@ make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv COMMIT=
 # Projections: per-game stat columns plus GP, priced under OUR scoring.
 make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game
 make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game COMMIT=1
+
+# Rankings: an ordered board with optional tiers. NAME labels the set.
+make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" FILE=~/Downloads/top200.csv
+make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" FILE=~/Downloads/top200.csv COMMIT=1
 ```
 
 **Dry run by default.** Without `COMMIT=1` nothing is stored: you get the columns it found,
@@ -148,6 +152,31 @@ Committing twice is a no-op — the second run reports every row `unchanged` and
 aliases, which is the cheap way to confirm a file has already landed. The same two phases are
 available over HTTP for a paste: `POST /import/projection` with `{"source", "text", "season",
 "options": {"basis": "per_game"}}`, and `GET /import/kinds` lists what can be imported.
+
+#### A ranking is a set, and re-importing it replaces it
+
+ADP and projections store *a number about a player*. A ranking is a **list**, so it gets its own
+tables (`ranking_set` / `ranking_entry`): the interesting facts about a board are collective —
+who is on it, who fell off it, where the tiers break.
+
+A set is identified by **(source, `NAME`, season)**, which is what `NAME=` is for: it lets one
+source publish several boards, and it decides which stored board an import lands on. `NAME`
+defaults to the source, which is right for a source with exactly one list.
+
+Re-importing that identity **replaces the set wholesale** — the old entries are deleted and the
+file's are written. Version two of a list is a different list: players drop off it and the rest
+shift, and upserting row by row would leave last week's fallen players sitting there at their old
+ranks. The dry run tells you the damage before you take it (`replacing 13 entries with 8, 5
+player(s) drop off`).
+
+Rank comes from a rank column when the file has one — gaps and all, because a board that prints
+1, 2, 3, 6, 9 means those numbers. With no rank column, the **order of the rows is the ranking**,
+taken from each row's position in the *file*: a name we couldn't place leaves a gap at its number
+rather than promoting everyone below it. Tiers are stored as text ("1", "Tier 2", "Elite"),
+because half of sources name their tiers rather than numbering them.
+
+Read them back with `GET /rankings` (every set we hold, with its entry count and age) and
+`GET /rankings/{id}` (the entries in rank order, joined to the player; `?limit=` for the top N).
 
 #### Projections are priced by us, not by the source
 
@@ -214,7 +243,7 @@ way: a check that needs cookies is a check that goes red for reasons nobody can 
 | `make frontend` | `next dev` on :3000 |
 | `make sync` | Pull ESPN scoring settings, players, projections + ADP into the DB (idempotent) |
 | `make sync-ages` | Match nba.com's roster to our players; fill in birthdates + ages (idempotent) |
-| `make import KIND=... SOURCE=... FILE=...` | Import a CSV/paste (`KIND=adp\|projection`, `BASIS=`, `COMMIT=1` to write) |
+| `make import KIND=... SOURCE=... FILE=...` | Import a CSV/paste (`KIND=adp\|projection\|ranking`, `BASIS=`, `NAME=`, `COMMIT=1` to write) |
 | `make fixtures` | Re-record the sanitized ESPN test fixtures from a live pull |
 | `make nba-fixtures` | Re-record the offline nba.com fixtures (roster + birthdates) |
 | `make test` | pytest (offline — recorded fixtures, no ESPN cookies needed) |
@@ -241,7 +270,7 @@ want a different port.
 │   ├── app/
 │   │   ├── main.py          # app factory: routers + CORS
 │   │   ├── config.py        # pydantic-settings, reads the root .env
-│   │   ├── api/             # routers (health, sync, players/board; features next)
+│   │   ├── api/             # routers (health, sync, players/board, rankings; features next)
 │   │   ├── db/              # engine/session, declarative Base, models/
 │   │   ├── espn/            # ESPN v3 client, cookie auth, player/projection/ADP parsing, sync
 │   │   ├── ages/            # nba.com birthdates -> Player.birthdate/age at a fixed AGE_AS_OF
@@ -249,9 +278,9 @@ want a different port.
 │   │   ├── scoring/         # custom scoring formula parsed from mSettings + projection pricing
 │   │   ├── projections/     # stub: pluggable ProjectionSource layer
 │   │   ├── valuation/       # stub: current-year + dynasty value engine
-│   │   ├── ranking/         # stub: ranking sets + personal model
+│   │   ├── ranking/         # stub: consensus blending + personal model (storage: db/models/ranking)
 │   │   ├── draft/           # stub: draft board, plan, live pick following
-│   │   └── ingest/          # CSV/paste import: adp + projection kinds on one pipeline
+│   │   └── ingest/          # CSV/paste import: adp + projection + ranking kinds on one pipeline
 │   ├── alembic/             # migrations (URL injected from Settings)
 │   ├── scripts/             # sync_league / sync_ages + the two fixture recorders
 │   └── tests/               # offline suite + tests/fixtures/ recorded ESPN and nba.com JSON

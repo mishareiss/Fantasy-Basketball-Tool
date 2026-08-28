@@ -93,6 +93,27 @@ def projection_csv() -> str:
     return (FIXTURE_DIR / "projection_sample.csv").read_text(encoding="utf-8-sig")
 
 
+@pytest.fixture(scope="session")
+def ranking_csv() -> str:
+    """A synthetic ranking export WITH a rank column: gaps in the source's own numbering,
+    numeric and named tiers, an empty score, and the same awkward cast of names.
+
+    The gaps matter. A source that prints 1, 2, 3, 4, 5, 8, 12 means those numbers, and a
+    ranking that quietly renumbered them 1..7 would disagree with the board it came from.
+    """
+    return (FIXTURE_DIR / "ranking_sample.csv").read_text(encoding="utf-8-sig")
+
+
+@pytest.fixture(scope="session")
+def ranking_order_csv() -> str:
+    """A ranking with NO rank column — the order of the rows *is* the ranking.
+
+    Two of the nine names are players we carry nobody for, sitting at positions 4 and 7 on
+    purpose: their ranks have to stay empty rather than pull everyone below them up a place.
+    """
+    return (FIXTURE_DIR / "ranking_order_sample.csv").read_text(encoding="utf-8-sig")
+
+
 @pytest.fixture
 def players(db, player_pool_payload) -> Session:
     """A database holding only our canonical players — what an import resolves names against."""

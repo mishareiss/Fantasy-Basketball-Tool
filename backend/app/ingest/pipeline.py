@@ -61,7 +61,7 @@ class RowOutcome:
     line: int
     source_name: str
     status: str
-    values: dict[str, float | None] = field(default_factory=dict)
+    values: dict[str, float | str | None] = field(default_factory=dict)
     team: str | None = None
     positions: list[str] = field(default_factory=list)
 
@@ -115,6 +115,9 @@ class ImportSummary:
     rows_created: int = 0
     rows_updated: int = 0
     rows_unchanged: int = 0
+    # Whatever the handler wanted to say that the counters can't — "replaced the set 'Top 200':
+    # 14 entries -> 12". Straight through from `UpsertCounts.notes`, uninterpreted.
+    notes: list[str] = field(default_factory=list)
 
     rows: list[RowOutcome] = field(default_factory=list)
 
@@ -271,7 +274,8 @@ def run_import(
     """Import one CSV/paste of one kind from one source. Previews unless `dry_run=False`.
 
     `options` are per-kind knobs passed straight through to the handler (`{'basis':
-    'season'}` for a projection file of totals); the pipeline never interprets them.
+    'season'}` for a projection file of totals, `{'name': 'Top 200'}` to label a ranking set);
+    the pipeline never interprets them.
 
     `accept` overrides the kind's auto-accept policy for this call — pass
     `accept_only_certain` to hold a file's fuzzy matches for confirmation even for a kind that
@@ -329,6 +333,7 @@ def run_import(
     summary.rows_created = counts.created
     summary.rows_updated = counts.updated
     summary.rows_unchanged = counts.unchanged
+    summary.notes = list(counts.notes)
 
     if dry_run:
         # Nothing above wrote, but a stray autoflush would be a nasty surprise; make the

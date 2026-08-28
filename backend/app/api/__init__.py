@@ -2,10 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.api import health, imports, players, sync
+from app.api import health, imports, players, rankings, sync
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(players.router)
 api_router.include_router(sync.router)
 api_router.include_router(imports.router)
+api_router.include_router(rankings.router)

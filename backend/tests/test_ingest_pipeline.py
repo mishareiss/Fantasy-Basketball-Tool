@@ -297,18 +297,20 @@ def test_an_import_needs_a_source_to_attribute_the_rows_to(players, adp_csv):
 
 def test_an_unknown_kind_names_the_ones_that_exist_and_the_ones_planned(players, adp_csv):
     with pytest.raises(UnknownKindError) as caught:
-        run_import(players, kind="ranking", source=SOURCE, season=SEASON, text=adp_csv)
+        run_import(players, kind="market_line", source=SOURCE, season=SEASON, text=adp_csv)
 
     message = caught.value.args[0]
     assert "adp" in message
     assert "projection" in message
     assert "ranking" in message
+    assert "market_line" in message
 
 
 def test_the_registry_holds_the_built_kinds_and_documents_what_is_deferred():
-    assert kind_names() == ["adp", "projection"]
+    assert kind_names() == ["adp", "projection", "ranking"]
     assert get_kind("ADP").name == "adp"  # the kind name is case-insensitive
     assert get_kind("adp").required_fields == ("adp",)
     assert get_kind("projection").required_fields == ("PTS",)
-    assert set(PLANNED_KINDS) == {"ranking", "market_line"}
+    assert get_kind("ranking").required_fields == ()
+    assert set(PLANNED_KINDS) == {"market_line"}
     assert all(note.strip() for note in PLANNED_KINDS.values())

@@ -11,7 +11,7 @@ from app.ingest import (
     parse_table,
     split_positions,
 )
-from app.ingest.parser import ValueColumn, sniff_delimiter
+from app.ingest.parser import PARSE_TEXT, ValueColumn, parse_text, sniff_delimiter
 
 # Enough of a kind to parse against, without dragging the registry in.
 VALUE_COLUMNS = ADP_COLUMNS
@@ -208,11 +208,60 @@ def test_positions_split_on_whatever_separates_them(cell, expected):
         ("Player_Name", "player name"),
         ("  ADP.  ", "adp"),
         ("$", "$"),
+        # "#" survives folding, because on a ranking export it *is* the rank column's whole
+        # name — folded away it would normalize to "" and match no alias ever.
+        ("#", "#"),
+        ("Rank #", "rank #"),
         ("", ""),
     ],
 )
 def test_headers_normalize_to_the_form_the_alias_tables_use(header, expected):
     assert normalize_header(header) == expected
+
+
+# --- text value columns ---------------------------------------------------------------------
+
+TIER_COLUMNS = (
+    ValueColumn("adp", ("adp",), required=True),
+    ValueColumn("tier", ("tier",), parse_value=PARSE_TEXT),
+)
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("Tier 2", "Tier 2"),
+        (" Elite ", "Elite"),
+        ("1", "1"),
+        ("--", None),
+        ("n/a", None),
+        ("", None),
+    ],
+)
+def test_a_text_column_keeps_the_label_and_drops_the_nullish_ones(cell, expected):
+    assert parse_text(cell) == expected
+
+
+def test_a_text_column_is_read_as_text_while_the_rest_stay_numbers():
+    """A tier of "3" is the string "3": half of sources name their tiers, and one file can't
+    be read two ways depending on which rows happen to be numeric."""
+    table = parse_table("Player,ADP,Tier\nNikola Jokic,2.4,3\nCooper Flagg,6,Elite\n", TIER_COLUMNS)
+
+    assert table.rows[0].values == {"adp": 2.4, "tier": "3"}
+    assert table.rows[1].values == {"adp": 6.0, "tier": "Elite"}
+
+
+# --- file order -------------------------------------------------------------------------------
+
+
+def test_rows_carry_their_place_in_the_file_not_just_their_line_number(adp_csv):
+    """`index` counts data rows; `line` counts text lines. A blank line separates the two, and
+    a ranking with no rank column ranks by the first."""
+    table = parse_table(adp_csv, VALUE_COLUMNS)
+
+    assert [row.index for row in table.rows] == list(range(1, len(table.rows) + 1))
+    giannis = next(row for row in table.rows if "Giannis" in row.name)
+    assert (giannis.index, giannis.line) == (3, 5)
 
 
 def test_a_row_reports_which_required_values_it_lacks():

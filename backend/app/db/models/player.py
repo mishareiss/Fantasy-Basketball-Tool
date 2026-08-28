@@ -62,6 +62,9 @@ class Player(Base):
     adp_entries: Mapped[list["AdpEntry"]] = relationship(  # noqa: F821  # app.db.models.adp
         back_populates="player", cascade="all, delete-orphan"
     )
+    ranking_entries: Mapped[list["RankingEntry"]] = relationship(  # noqa: F821  # models.ranking
+        back_populates="player", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"Player(espn_player_id={self.espn_player_id!r}, full_name={self.full_name!r})"

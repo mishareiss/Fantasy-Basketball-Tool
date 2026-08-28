@@ -35,7 +35,7 @@ NAME_ALIASES = (
 TEAM_ALIASES = ("team", "tm", "nba team", "pro team", "teams")
 POSITION_ALIASES = ("pos", "position", "positions", "elig")
 
-_NON_ALNUM = re.compile(r"[^0-9a-z%$]+")
+_NON_ALNUM = re.compile(r"[^0-9a-z%$#]+")
 _WHITESPACE = re.compile(r"\s+")
 # What a source writes when it means "no number here".
 _NULLISH = frozenset({"", "-", "--", "n/a", "na", "none", "null", "nr", "und", "undrafted"})
@@ -55,9 +55,16 @@ class ImportParseError(ValueError):
     """The text isn't a table we can read — raised with what we saw, so it's fixable."""
 
 
+# How a value column's cells are read. Almost everything imported is a number; a tier is the
+# exception, because sources label tiers as often as they number them ("1" / "Tier 2" /
+# "Elite") and parsing "Elite" as a number throws the column away.
+PARSE_NUMBER = "number"
+PARSE_TEXT = "text"
+
+
 @dataclass(frozen=True)
 class ValueColumn:
-    """One number a kind wants off each row, and what sources call it.
+    """One value a kind wants off each row, and what sources call it.
 
     `required=True` means a row without it is not importable at all (an ADP row with no ADP is
     just a name); the pipeline reports those separately rather than storing a null.
@@ -66,8 +73,9 @@ class ValueColumn:
     field: str
     aliases: tuple[str, ...]
     required: bool = False
-    # Kept so a percentage-like column can override this later without touching the parser.
-    parse_value: str = "number"
+    # PARSE_NUMBER (the default) or PARSE_TEXT. Kept on the column rather than guessed per
+    # cell, so a tier of "3" stays the string "3" instead of becoming 3.0 in half the files.
+    parse_value: str = PARSE_NUMBER
 
 
 @dataclass(frozen=True)
@@ -105,10 +113,15 @@ class ParsedRow:
     name: str
     team: str | None = None
     positions: tuple[str, ...] = ()
-    values: dict[str, float | None] = field(default_factory=dict)
+    values: dict[str, float | str | None] = field(default_factory=dict)
+    # 1-based position among the file's *data* rows, ignoring the header and skipped blanks.
+    # `line` points at the text; this is the row's place in the list, which is what a ranking
+    # with no rank column is actually asserting. Distinct from the index among *accepted*
+    # rows on purpose: a row held for review must leave a gap, not renumber everyone below it.
+    index: int = 0
 
     def missing(self, columns: Iterable[ValueColumn]) -> list[str]:
-        """Required value columns this row has no number for."""
+        """Required value columns this row has no value for, number or label."""
         return [
             column.field
             for column in columns
@@ -130,8 +143,10 @@ class ParsedTable:
 def normalize_header(header: str) -> str:
     """Fold a header to the form the alias tables are written in.
 
-    "% Owned" -> "% owned", "Player_Name" -> "player name", "ADP." -> "adp". `%` and `$` are
-    kept because they carry the meaning in headers like "$" (auction value) and "%Own".
+    "% Owned" -> "% owned", "Player_Name" -> "player name", "ADP." -> "adp". `%`, `$` and `#`
+    are kept because they carry the whole meaning in headers like "$" (auction value), "%Own"
+    and "#" (the rank column on most ranking exports) — folded away, those headers normalize
+    to the empty string and can never match an alias.
     """
     folded = _NON_ALNUM.sub(" ", (header or "").strip().lower())
     return _WHITESPACE.sub(" ", folded).strip()
@@ -161,6 +176,23 @@ def parse_number(text: str) -> float | None:
     except ValueError:
         return None
     return -value if negative else value
+
+
+def parse_text(text: str) -> str | None:
+    """A label out of an export cell, or None if the cell says "nothing here".
+
+    The same `_NULLISH` vocabulary `parse_number` uses, so an empty tier and an empty ADP are
+    both absent rather than one being the literal string "--".
+
+    >>> parse_text(" Tier 2 ")
+    'Tier 2'
+    >>> parse_text("--") is None
+    True
+    """
+    cleaned = (text or "").strip()
+    if cleaned.lower() in _NULLISH:
+        return None
+    return _WHITESPACE.sub(" ", cleaned)
 
 
 def split_positions(text: str) -> tuple[str, ...]:
@@ -316,6 +348,7 @@ def parse_table(
     columns: ColumnMap | None = None
     rows: list[ParsedRow] = []
     skipped = 0
+    text_fields = {column.field for column in value_columns if column.parse_value == PARSE_TEXT}
 
     for line, raw in enumerate(reader, start=1):
         if not any((cell or "").strip() for cell in raw):
@@ -337,9 +370,14 @@ def parse_table(
                 team=_cell(raw, columns.team) or None,
                 positions=split_positions(_cell(raw, columns.positions)),
                 values={
-                    field_name: parse_number(_cell(raw, index))
+                    field_name: (
+                        parse_text(_cell(raw, index))
+                        if field_name in text_fields
+                        else parse_number(_cell(raw, index))
+                    )
                     for field_name, index in columns.values.items()
                 },
+                index=len(rows) + 1,
             )
         )
 

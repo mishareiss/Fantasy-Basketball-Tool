@@ -10,12 +10,16 @@ pipeline owns all of it. A *kind* only has to declare the three things that genu
 3. **How careful to be** (`accept`) — whether a fuzzy name is good enough to write without a
    human looking at it.
 
-That is the whole extension surface, and `projection` proves it: the second kind added a stat
-alias table and an upsert, and touched nothing else in this package. Its one new requirement —
-a per-file `basis` — is carried as an opaque `options` mapping on `UpsertContext`, so the
-pipeline still doesn't know what a projection is.
+That is the whole extension surface, and `projection` and `ranking` prove it: each added its
+own columns and an upsert, and neither touched the parse/match/review flow. Their new
+requirements — a per-file `basis`, a per-file set `name` — are carried as an opaque `options`
+mapping on `UpsertContext`, so the pipeline still doesn't know what either kind is.
 
-See `PLANNED_KINDS` for what the two remaining kinds need, which is deliberately *not*
+`ranking` also stretched the surface in the one place it had to: its upsert replaces a whole
+set rather than upserting rows, and says so through `UpsertCounts.notes`. Even that is a
+handler decision, not a pipeline one.
+
+See `PLANNED_KINDS` for what the one remaining kind needs, which is deliberately *not*
 pipeline work: it's a model, a migration, and some odds arithmetic.
 """
 
@@ -40,7 +44,14 @@ class ResolvedRow:
     row: ParsedRow
 
     def value(self, field_name: str) -> float | None:
-        return self.row.values.get(field_name)
+        """One numeric column off the row. None when the source left the cell empty."""
+        value = self.row.values.get(field_name)
+        return value if isinstance(value, float | int) else None
+
+    def text(self, field_name: str) -> str | None:
+        """One text column off the row (a `PARSE_TEXT` `ValueColumn`, e.g. a tier label)."""
+        value = self.row.values.get(field_name)
+        return value if isinstance(value, str) else None
 
 
 @dataclass
@@ -50,6 +61,11 @@ class UpsertCounts:
     created: int = 0
     updated: int = 0
     unchanged: int = 0
+    # Anything the three counters can't say, in the handler's own words, surfaced in the
+    # preview and the receipt. `ranking` needs it: its counters describe rows, and the fact a
+    # whole set was replaced — 14 entries out, 12 in — is about the *set*. Free text on
+    # purpose; nothing downstream parses these.
+    notes: list[str] = field(default_factory=list)
 
     @property
     def written(self) -> int:
@@ -68,10 +84,11 @@ class UpsertContext:
     dry_run: bool = False
     # Per-kind knobs, passed through from `--basis per_game` / the API's `options` body. A
     # free-form mapping rather than typed fields, because the pipeline has no business knowing
-    # what any of them mean — `projection` reads 'basis'; `adp` reads nothing. A handler that
-    # gets an option it doesn't understand should say so (see `resolve_basis`) rather than
-    # ignore it, since a silently-dropped `--basis season` imports numbers off by a factor
-    # of seventy.
+    # what any of them mean — `projection` reads 'basis', `ranking` reads 'name'; `adp` reads
+    # nothing. A handler that gets an option it doesn't understand should say so (see
+    # `resolve_basis`, `resolve_options`) rather than ignore it, since a silently-dropped
+    # `--basis season` imports numbers off by a factor of seventy, and a silently-dropped
+    # `--name` replaces the wrong ranking set.
     options: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -144,14 +161,8 @@ def kind_names() -> list[str]:
 
 # The deferred kinds, and what each one needs before it can be registered. None of it is
 # pipeline work — parsing, matching, review, and idempotency are already done and shared.
-# `adp` and `projection` are built; these two are what's left.
+# `adp`, `projection` and `ranking` are built; this one is what's left.
 PLANNED_KINDS: dict[str, str] = {
-    "ranking": (
-        "An ordered list with optional tiers -> new `RankingSet` / `RankingEntry` models "
-        "(FEATURE_SPEC 5, 10), keyed (set, player). Needs: those two models plus a migration, "
-        "a rank/tier column pair, and a decision on whether re-importing a set replaces its "
-        "entries wholesale (it should) rather than upserting row by row."
-    ),
     "market_line": (
         "Season-long sportsbook props (season totals / PPG over-unders with American odds) -> "
         "new `MarketLine` model, then de-vig: implied probability per side, remove the "
