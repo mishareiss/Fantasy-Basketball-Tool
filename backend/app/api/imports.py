@@ -27,6 +27,7 @@ from app.ingest import (
     run_import,
 )
 from app.ingest.registry import KINDS, PLANNED_KINDS
+from app.scoring import ScoringRulesNotLoaded
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -47,6 +48,11 @@ class ImportRequest(BaseModel):
         "e.g. {'name': 'PLAYER', 'adp': '3'}",
     )
     delimiter: str | None = Field(None, description="Force a delimiter instead of sniffing it")
+    options: dict[str, str] | None = Field(
+        None,
+        description="Per-kind options. `projection` takes {'basis': 'per_game'|'season'} — "
+        "whether the stat columns are per-game averages (the usual export) or season totals.",
+    )
     dry_run: bool = Field(True, description="Preview only. Set false to write.")
     strict: bool = Field(
         False,
@@ -78,6 +84,7 @@ class ImportResponse(BaseModel):
     source: str
     season: int
     dry_run: bool
+    options: dict[str, str] = {}
 
     columns: dict[str, str] = {}
     delimiter: str
@@ -135,8 +142,8 @@ def _resolve_season(season: int | None) -> int:
     if resolved is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "season is required (and ESPN_SEASON is unset): an ADP row without a season can't "
-            "be compared to anything later.",
+            "season is required (and ESPN_SEASON is unset): an imported row without a season "
+            "can't be compared to anything later.",
         )
     return resolved
 
@@ -157,12 +164,17 @@ def _run(db: Session, kind: str, **kwargs) -> ImportResponse:
     except ImportParseError as exc:
         # 422, not 400: the request is well-formed, its *content* isn't a table we can read.
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except ScoringRulesNotLoaded as exc:
+        # 409, not 500: nothing is broken and nothing was written — a projection import just
+        # can't price anything until a league sync has stored our coefficients. Fixable by the
+        # caller, in one call.
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return _to_response(summary)
 
 
 @router.post("/{kind}", response_model=ImportResponse)
 def import_paste(
-    kind: str = Path(..., description="What kind of data this is: 'adp' today"),
+    kind: str = Path(..., description="What kind of data this is: 'adp' or 'projection'"),
     payload: ImportRequest = Body(...),
     db: Session = Depends(get_db),
 ) -> ImportResponse:
@@ -182,4 +194,5 @@ def import_paste(
         delimiter=payload.delimiter,
         dry_run=payload.dry_run,
         accept=accept_only_certain if payload.strict else None,
+        options=payload.options,
     )

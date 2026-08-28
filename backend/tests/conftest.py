@@ -20,7 +20,8 @@ from app.config import get_settings
 from app.db.base import Base
 from app.db.models import Player  # noqa: F401  # registers every table on Base.metadata
 from app.espn.players import parse_player_pool
-from app.espn.sync import SyncSummary, sync_players
+from app.espn.sync import SyncSummary, sync_players, sync_scoring_settings
+from app.scoring import parse_league_settings
 
 # Ages are computed at a fixed date, never `today`, so the expected numbers below never rot.
 AGE_AS_OF = date(2026, 10, 1)
@@ -28,22 +29,29 @@ AGE_AS_OF = date(2026, 10, 1)
 # The season the fixtures are for. ESPN labels a season by the year it ends.
 SEASON = 2027
 
+# Stand-in for our real league id, which the fixture recorder strips.
+LEAGUE_ID = 999999
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True, scope="session")
 def pinned_settings():
-    """Pin AGE_AS_OF and ESPN_SEASON for the whole suite.
+    """Pin AGE_AS_OF, ESPN_SEASON and ESPN_LEAGUE_ID for the whole suite.
 
     Nobody's local `.env` should be able to move the expected ages, and the import pipeline
     falls back to `ESPN_SEASON` when a caller omits the season — so a checkout with no league
     configured would otherwise fail a test about seasons rather than one about configuration.
+    The league id is pinned for the same reason: a projection import looks up the scoring
+    coefficients for the configured league, and the fixtures are stored under `LEAGUE_ID`.
     """
     settings = get_settings()
-    original = (settings.age_as_of, settings.espn_season)
-    settings.age_as_of, settings.espn_season = AGE_AS_OF, SEASON
+    original = (settings.age_as_of, settings.espn_season, settings.espn_league_id)
+    settings.age_as_of = AGE_AS_OF
+    settings.espn_season = SEASON
+    settings.espn_league_id = LEAGUE_ID
     yield AGE_AS_OF
-    settings.age_as_of, settings.espn_season = original
+    settings.age_as_of, settings.espn_season, settings.espn_league_id = original
 
 
 def load_fixture(name: str) -> Any:
@@ -73,6 +81,18 @@ def adp_csv() -> str:
     return (FIXTURE_DIR / "adp_sample.csv").read_text(encoding="utf-8-sig")
 
 
+@pytest.fixture(scope="session")
+def projection_csv() -> str:
+    """A synthetic per-game projection export, deliberately awkward in every direction.
+
+    Header variants a real source would use (TREB, 3PTM, TOV, MPG), derived columns nothing
+    can score (FG%, FT%, Rank), and the same spread of names the ADP fixture carries — exact,
+    accented, inverted, a typo only a fuzzy match catches, two we carry nobody for, a row with
+    no points at all, one with no games count, and a duplicate.
+    """
+    return (FIXTURE_DIR / "projection_sample.csv").read_text(encoding="utf-8-sig")
+
+
 @pytest.fixture
 def players(db, player_pool_payload) -> Session:
     """A database holding only our canonical players — what an import resolves names against."""
@@ -81,6 +101,24 @@ def players(db, player_pool_payload) -> Session:
     )
     db.commit()
     return db
+
+
+@pytest.fixture
+def priced(players, msettings_payload) -> Session:
+    """The players, plus our league's stored scoring coefficients.
+
+    What a projection import needs and an ADP import doesn't: an imported stat line is priced
+    here, by us, with the same engine that prices ESPN's.
+    """
+    sync_scoring_settings(
+        players,
+        espn_league_id=LEAGUE_ID,
+        season=SEASON,
+        parsed=parse_league_settings(msettings_payload),
+        summary=SyncSummary(league_id=LEAGUE_ID, season=SEASON),
+    )
+    players.commit()
+    return players
 
 
 @pytest.fixture(scope="session")

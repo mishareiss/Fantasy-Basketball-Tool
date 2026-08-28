@@ -1,0 +1,140 @@
+# The safety net: every push and every pull request runs the checks that would otherwise only
+# run when someone remembers to.
+#
+# Three jobs, deliberately independent so a frontend typo doesn't hide a backend regression:
+#
+# * `backend`   — ruff (check + format) and the offline pytest suite, incl. the SQLite-driven
+#                 migration tests.
+# * `frontend`  — eslint and a real `next build`, so the app can't silently rot while every
+#                 feature lands in Python.
+# * `migrations`— `alembic upgrade head` against a real Postgres 16, because the migration
+#                 tests run on SQLite (via `batch_alter_table`) and SQLite will happily accept
+#                 things Postgres won't.
+#
+# NO SECRETS, and nothing here reaches ESPN or nba.com: the suite deselects the `live` and
+# `nbaapi` markers by default (see backend/pyproject.toml), which is what makes CI both
+# deterministic and safe to run on a fork's pull request.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch makes the first run irrelevant; don't pay for it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (lint + offline tests)
+    runs-on: ubuntu-latest
+    env:
+      # uv resolves this instead of whatever Python the runner ships; pyproject pins
+      # >=3.12,<3.13 and the lockfile is resolved for it.
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      # --frozen: install exactly what uv.lock says and never re-resolve. A pyproject change
+      # that wasn't relocked fails here rather than silently testing different versions.
+      - name: Install dependencies
+        run: uv --project backend sync --frozen
+
+      - name: Lint (ruff check + format --check)
+        run: make lint
+
+      - name: Test (offline suite)
+        run: make test
+
+  frontend:
+    name: frontend (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          # Next 16 wants >=20.9; 20 is the floor we support, so it's the one worth proving.
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # No NEXT_PUBLIC_API_BASE_URL on purpose: lib/api.ts falls back to localhost:8000, and a
+      # build that needs a backend URL to succeed is a build that would break on Vercel too.
+      - name: Build
+        run: npm run build
+
+  migrations:
+    name: migrations (real Postgres 16)
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.12"
+      # The one place CI needs a database. Throwaway credentials for a throwaway container —
+      # not a secret, and nothing else in this workflow reads the environment.
+      DATABASE_URL: postgresql+psycopg://fbb:fbb@localhost:5432/fbb
+      # The `adp_entry.season` migration refuses to backfill a season it wasn't given.
+      ESPN_SEASON: "2027"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fbb
+          POSTGRES_PASSWORD: fbb
+          POSTGRES_DB: fbb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fbb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv --project backend sync --frozen
+
+      # `make migrate`, but spelled out: the Makefile would also try to `include .env`, which
+      # doesn't exist here, and this job is only interesting if it fails loudly.
+      - name: alembic upgrade head
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      # Down and back up: a migration that can't be reversed is one nobody can undo at 2am.
+      - name: alembic downgrade base && upgrade head
+        working-directory: backend
+        run: |
+          uv run alembic downgrade base
+          uv run alembic upgrade head

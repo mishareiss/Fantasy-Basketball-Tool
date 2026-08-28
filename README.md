@@ -1,5 +1,7 @@
 # Fantasy-Basketball-Tool
 
+[![CI](https://github.com/mishareiss/Fantasy-Basketball-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/mishareiss/Fantasy-Basketball-Tool/actions/workflows/ci.yml)
+
 A dynasty fantasy basketball toolkit for player valuation, trade analysis, roster and draft management, and multi-season stat projections.
 
 Built for a private ESPN league with H2H points and a custom scoring formula. See
@@ -116,6 +118,62 @@ weights value by longevity lands later, on top of the ages this board now carrie
 > board is populated year-round and never mislabels a stand-in. `make sync` says so explicitly
 > when the two differ, and `/players/board` returns the season in its response.
 
+### Importing a CSV or a paste
+
+Almost nothing outside ESPN has a usable free API: consensus ADP, expert projections, ranking
+lists and season-long props are all web-only. So they arrive as an upload or a spreadsheet
+paste, and one pipeline handles all of them — it finds the columns by header alias, resolves
+every foreign name through `app/matching`, and previews the whole thing before writing a row.
+
+```bash
+# ADP: a consensus board, one number per player per season.
+make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv
+make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv COMMIT=1
+
+# Projections: per-game stat columns plus GP, priced under OUR scoring.
+make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game
+make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game COMMIT=1
+```
+
+**Dry run by default.** Without `COMMIT=1` nothing is stored: you get the columns it found,
+the matched rows, and two worklists — names it couldn't confidently place (`review`) and names
+we carry nobody for (`unmatched`). Fix one with a hand-made alias and re-import:
+
+```bash
+curl -X POST localhost:8000/players/1234/aliases \
+  -d '{"source":"hashtag","source_name":"Their Spelling"}' -H 'Content-Type: application/json'
+```
+
+Committing twice is a no-op — the second run reports every row `unchanged` and creates no new
+aliases, which is the cheap way to confirm a file has already landed. The same two phases are
+available over HTTP for a paste: `POST /import/projection` with `{"source", "text", "season",
+"options": {"basis": "per_game"}}`, and `GET /import/kinds` lists what can be imported.
+
+#### Projections are priced by us, not by the source
+
+An imported projection is a **stat line**, not a fantasy-point number. Only counting stats come
+in — PTS, REB/OREB/DREB, AST, STL, BLK, TO, 3PM/3PA, FGM/FGA, FTM/FTA, MIN, PF, DD/TD and GP,
+under whatever the source calls them (`TREB`, `3PTM`, `TOV`, `MPG`, `Games Played`). Columns
+nothing can multiply (`FG%`, `FT%`, rank, tier, ADP) are ignored outright, because scoring a
+percentage is silently wrong rather than loudly wrong. Rebounds implied by an OREB/DREB split,
+and misses implied by attempts minus makes, are filled in exactly — FTMI is worth -0.5 in our
+league, so dropping it would be a real error.
+
+Those stats then go through **the same `score_projection` that prices ESPN's**, with the same
+coefficients. That is what makes the two comparable: switch the board's `source` and the only
+thing that changed is whose stat line you're looking at.
+
+```bash
+curl "localhost:8000/players/board?limit=20&source=hashtag"   # ranked by the import
+curl "localhost:8000/players/board?limit=20"                  # ranked by ESPN, untouched
+```
+
+`BASIS` says what the file's numbers are. `per_game` (the default, and what almost every export
+is) multiplies through by GP to get season totals; `season` divides instead. Either way both
+lines are stored, because the board reads per-game and a draft plan budgets totals. A row with
+no usable games count keeps its per-game value and stores no season total — the projection
+still ranks, and nobody invented an 82-game season for a player who may not play at all.
+
 ### Tests
 
 `make test` is fully offline: it runs against recorded responses under
@@ -129,6 +187,21 @@ cookies) and `nbaapi` (nba.com, needs nothing but a network). Run them deliberat
 `make test-live` and `make test-nba` — they are the canary for an upstream change the recorded
 fixtures cannot see.
 
+### Continuous integration
+
+Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): the
+backend's `make lint` and `make test`, the frontend's `npm run lint` and `npm run build`, and
+`alembic upgrade head` (then down and back up) against a real Postgres 16 service — the
+migrations are SQLite-tested here, and Postgres is where they actually run.
+
+CI uses **no secrets and reaches no third party**. The `live` and `nbaapi` markers are
+deselected by default, so the suite is the same offline suite you run locally. Keep it that
+way: a check that needs cookies is a check that goes red for reasons nobody can fix.
+
+> Enable branch protection on `main` in GitHub (Settings -> Branches) requiring the CI checks
+> to pass before merge. That's a repo setting, not code — CI can report, but only branch
+> protection makes it a gate.
+
 ### Make targets
 
 | Target | What it does |
@@ -141,6 +214,7 @@ fixtures cannot see.
 | `make frontend` | `next dev` on :3000 |
 | `make sync` | Pull ESPN scoring settings, players, projections + ADP into the DB (idempotent) |
 | `make sync-ages` | Match nba.com's roster to our players; fill in birthdates + ages (idempotent) |
+| `make import KIND=... SOURCE=... FILE=...` | Import a CSV/paste (`KIND=adp\|projection`, `BASIS=`, `COMMIT=1` to write) |
 | `make fixtures` | Re-record the sanitized ESPN test fixtures from a live pull |
 | `make nba-fixtures` | Re-record the offline nba.com fixtures (roster + birthdates) |
 | `make test` | pytest (offline — recorded fixtures, no ESPN cookies needed) |
@@ -177,7 +251,7 @@ want a different port.
 │   │   ├── valuation/       # stub: current-year + dynasty value engine
 │   │   ├── ranking/         # stub: ranking sets + personal model
 │   │   ├── draft/           # stub: draft board, plan, live pick following
-│   │   └── ingest/          # stub: CSV/paste import (will reuse app/matching)
+│   │   └── ingest/          # CSV/paste import: adp + projection kinds on one pipeline
 │   ├── alembic/             # migrations (URL injected from Settings)
 │   ├── scripts/             # sync_league / sync_ages + the two fixture recorders
 │   └── tests/               # offline suite + tests/fixtures/ recorded ESPN and nba.com JSON

@@ -258,3 +258,92 @@ def test_an_unknown_need_lists_the_ones_that_work(api, synced):
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert "age" in detail and "adp" in detail
+
+
+def test_an_imported_projection_ranks_the_board_and_leaves_espn_untouched(
+    api, db, synced, projection_csv
+):
+    """Two sources, one board endpoint, one `source=` away from each other.
+
+    This is what the whole import kind is for: rank by Hashtag's numbers priced under our
+    coefficients, then flip back to ESPN's and find the players the two disagree about.
+    """
+    espn_before = {
+        row["espn_player_id"]: row["fantasy_points_per_game"]
+        for row in api.get("/players/board?limit=1000").json()["players"]
+    }
+
+    run_import(
+        db,
+        kind="projection",
+        source="hashtag",
+        season=SEASON,
+        text=projection_csv,
+        dry_run=False,
+        options={"basis": "per_game"},
+    )
+
+    imported = api.get("/players/board?limit=1000&source=hashtag").json()
+
+    assert imported["source"] == "hashtag"
+    assert imported["season"] == SEASON
+    # Only the players that file carried, ranked by our pricing of *its* numbers.
+    assert imported["total_ranked"] == 12
+    per_game = [row["fantasy_points_per_game"] for row in imported["players"]]
+    assert per_game == sorted(per_game, reverse=True)
+    assert per_game[0] > 0
+
+    # ESPN's board is byte-for-byte what it was: the two coexist, keyed by source.
+    espn_after = {
+        row["espn_player_id"]: row["fantasy_points_per_game"]
+        for row in api.get("/players/board?limit=1000").json()["players"]
+    }
+    assert espn_after == espn_before
+    assert len(espn_after) > imported["total_ranked"]
+
+    # ...and both are stored, for the same player, under the same key but a different source.
+    rows = db.scalars(select(Projection).where(Projection.player_id == 3112335)).all()
+    assert {row.source for row in rows} == {"espn", "hashtag"}
+
+
+def test_an_imported_projection_prices_a_player_espn_has_no_read_on(
+    api, db, synced, projection_csv
+):
+    """D.J. Carton has no ESPN projection; the import gives us one, and a rankable player."""
+    carton = 4432820
+    assert (
+        db.scalar(
+            select(Projection).where(Projection.player_id == carton, Projection.source == "espn")
+        )
+        is None
+    )
+
+    run_import(
+        db,
+        kind="projection",
+        source="hashtag",
+        season=SEASON,
+        text=projection_csv,
+        dry_run=False,
+    )
+
+    board = api.get("/players/board?limit=1000&source=hashtag").json()
+
+    assert carton in {row["espn_player_id"] for row in board["players"]}
+    assert carton not in {
+        row["espn_player_id"] for row in api.get("/players/board?limit=1000").json()["players"]
+    }
+
+
+def test_the_adp_column_is_still_espn_when_the_ranking_source_is_imported(
+    api, db, synced, projection_csv
+):
+    """Rank on someone else's projection, read ESPN's market — the gap is the whole point."""
+    run_import(
+        db, kind="projection", source="hashtag", season=SEASON, text=projection_csv, dry_run=False
+    )
+
+    top = api.get("/players/board?limit=1&source=hashtag").json()
+
+    assert top["adp_source"] == "espn"
+    assert top["players"][0]["adp"] is not None

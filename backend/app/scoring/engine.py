@@ -10,7 +10,7 @@ from typing import Protocol, runtime_checkable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import LeagueSettings, ScoringRule
+from app.db.models import LeagueSettings
 from app.scoring.stats import STAT_ID_TO_NAME
 
 
@@ -86,18 +86,40 @@ class ScoringRulesNotLoaded(RuntimeError):
 
 def load_scoring_engine(db: Session, espn_league_id: int, season: int) -> ScoringEngine:
     """Build a `ScoringEngine` from the rules a previous sync stored."""
-    rules = db.scalars(
-        select(ScoringRule)
-        .join(LeagueSettings)
+    return load_scoring_engine_for_season(db, season, espn_league_id=espn_league_id)
+
+
+def load_scoring_engine_for_season(
+    db: Session, season: int, *, espn_league_id: int | None = None
+) -> ScoringEngine:
+    """The engine for a season, for callers that don't carry a league id around.
+
+    An import knows its season and nothing else — the CSV came from Hashtag, not from a
+    league. Passing `espn_league_id` (from Settings, when it's configured) pins the answer;
+    without it we take the newest `league_settings` row for that season, which in a
+    single-league tool is the same row. Resolving the settings row *first* and reading its
+    rules through the relationship, rather than joining and collecting rules, is what keeps a
+    second league from silently contributing a second PTS coefficient.
+    """
+    settings_row = db.scalars(
+        select(LeagueSettings)
         .where(
-            LeagueSettings.espn_league_id == espn_league_id,
             LeagueSettings.season == season,
+            *(
+                [LeagueSettings.espn_league_id == espn_league_id]
+                if espn_league_id is not None
+                else []
+            ),
         )
-        .order_by(ScoringRule.stat_id)
-    ).all()
+        .order_by(LeagueSettings.id.desc())
+        .limit(1)
+    ).first()
+
+    rules = sorted(settings_row.scoring_rules, key=lambda r: r.stat_id) if settings_row else []
     if not rules:
+        league = f"league {espn_league_id} " if espn_league_id is not None else ""
         raise ScoringRulesNotLoaded(
-            f"No scoring rules stored for league {espn_league_id} season {season}; "
+            f"No scoring rules stored for {league}season {season}; "
             "run POST /sync/league (or `make sync`) first."
         )
     return ScoringEngine(rules)

@@ -41,10 +41,13 @@ sync-ages: ## Match nba.com's roster to our players and fill in birthdates + age
 # Dry run by default (prints what it *would* write); add COMMIT=1 to store it.
 #   make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv
 #   make import KIND=adp SOURCE=hashtag FILE=adp.csv COMMIT=1 ARGS="--strict"
-import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [COMMIT=1] [ARGS=...])
+#   make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=proj.csv BASIS=per_game
+# BASIS is projection-only: per_game (the usual export: averages plus a GP column) or season.
+import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [BASIS=] [COMMIT=1] [ARGS=...])
 	cd backend && uv run python -m scripts.import_data \
 		--kind "$(KIND)" --source "$(SOURCE)" \
 		$(if $(SEASON),--season "$(SEASON)",) $(if $(FILE),--file "$(FILE)",) \
+		$(if $(BASIS),--basis "$(BASIS)",) \
 		$(if $(COMMIT),--commit,) $(ARGS)
 
 fixtures: ## Re-record the sanitized ESPN test fixtures from a live pull

@@ -10,13 +10,17 @@ pipeline owns all of it. A *kind* only has to declare the three things that genu
 3. **How careful to be** (`accept`) — whether a fuzzy name is good enough to write without a
    human looking at it.
 
-That is the whole extension surface. See `PLANNED_KINDS` for what the three deferred kinds
-still need, which is deliberately *not* pipeline work: it's a model, a stat mapping, and some
-odds arithmetic.
+That is the whole extension surface, and `projection` proves it: the second kind added a stat
+alias table and an upsert, and touched nothing else in this package. Its one new requirement —
+a per-file `basis` — is carried as an opaque `options` mapping on `UpsertContext`, so the
+pipeline still doesn't know what a projection is.
+
+See `PLANNED_KINDS` for what the two remaining kinds need, which is deliberately *not*
+pipeline work: it's a model, a migration, and some odds arithmetic.
 """
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
@@ -62,6 +66,13 @@ class UpsertContext:
     # counts are the real ones rather than a guess. Handlers honour this instead of the
     # pipeline trying to roll a transaction back.
     dry_run: bool = False
+    # Per-kind knobs, passed through from `--basis per_game` / the API's `options` body. A
+    # free-form mapping rather than typed fields, because the pipeline has no business knowing
+    # what any of them mean — `projection` reads 'basis'; `adp` reads nothing. A handler that
+    # gets an option it doesn't understand should say so (see `resolve_basis`) rather than
+    # ignore it, since a silently-dropped `--basis season` imports numbers off by a factor
+    # of seventy.
+    options: Mapping[str, str] = field(default_factory=dict)
 
 
 UpsertFn = Callable[[Session, Sequence[ResolvedRow], UpsertContext], UpsertCounts]
@@ -133,15 +144,8 @@ def kind_names() -> list[str]:
 
 # The deferred kinds, and what each one needs before it can be registered. None of it is
 # pipeline work — parsing, matching, review, and idempotency are already done and shared.
+# `adp` and `projection` are built; these two are what's left.
 PLANNED_KINDS: dict[str, str] = {
-    "projection": (
-        "Per-stat columns (PTS/REB/AST/3PM/STL/BLK/TO/FG%/FT%/MIN/GP) mapped onto our stat "
-        "names via app.scoring.stats, then priced with app.scoring.projections.score_projection "
-        "under the league's coefficients, into the existing `projection` table "
-        "(source, kind='projected_season', season). Needs: a stat-name alias table, a "
-        "totals-vs-per-game decision per file, and a scoring engine loaded in the handler. "
-        "No new model."
-    ),
     "ranking": (
         "An ordered list with optional tiers -> new `RankingSet` / `RankingEntry` models "
         "(FEATURE_SPEC 5, 10), keyed (set, player). Needs: those two models plus a migration, "

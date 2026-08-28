@@ -3,6 +3,9 @@
     uv run python -m scripts.import_data --kind adp --source hashtag --season 2027 \
         --file ~/Downloads/adp.csv [--commit] [--map name=PLAYER,adp="Avg Pick"] [--strict]
 
+    uv run python -m scripts.import_data --kind projection --source hashtag --season 2027 \
+        --file ~/Downloads/projections.csv --basis per_game [--commit]
+
 Dry run by default: it parses, matches, and prints exactly what it *would* write, including
 the review and unmatched worklists. Nothing is stored until `--commit`.
 
@@ -32,7 +35,9 @@ from app.ingest import (
     kind_names,
     run_import,
 )
+from app.ingest.projection import BASES, BASIS_PER_GAME
 from app.ingest.registry import PLANNED_KINDS
+from app.scoring import ScoringRulesNotLoaded
 
 # How many rows of each kind to print. The worklists are meant to be worked through, so they
 # get more room than the matched rows, which are only there to eyeball a few for sanity.
@@ -79,9 +84,10 @@ def _print_rows(label: str, rows, limit: int, *, show_candidates: bool) -> None:
 def report(summary: ImportSummary) -> None:
     """Print the preview or the receipt. Same shape either way."""
     mode = "DRY RUN (nothing written)" if summary.dry_run else "COMMITTED"
+    options = "".join(f"  {key}={value}" for key, value in sorted(summary.options.items()))
     print(
         f"{mode}  kind={summary.kind}  source={summary.source}  season={summary.season}  "
-        f"delimiter={summary.delimiter!r}"
+        f"delimiter={summary.delimiter!r}{options}"
     )
     print(f"  columns: {summary.columns}")
     print(
@@ -168,6 +174,13 @@ def main() -> int:
     )
     parser.add_argument("--delimiter", default=None, help="force a delimiter instead of sniffing")
     parser.add_argument(
+        "--basis",
+        choices=BASES,
+        default=None,
+        help="projection files only: are the stat columns per-game averages (the usual "
+        f"export, and the default: {BASIS_PER_GAME}) or season totals?",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="hold fuzzy matches for confirmation instead of auto-accepting them",
@@ -208,6 +221,9 @@ def main() -> int:
             delimiter=args.delimiter,
             dry_run=not args.commit,
             accept=accept_only_certain if args.strict else None,
+            # Only what was actually asked for: an ADP import has no basis, and echoing a
+            # default it never read would be a lie in the receipt.
+            options={"basis": args.basis} if args.basis else None,
         )
     except UnknownKindError as exc:
         print(exc.args[0], file=sys.stderr)
@@ -215,6 +231,11 @@ def main() -> int:
     except ImportParseError as exc:
         print(f"Can't read that table: {exc}", file=sys.stderr)
         return 1
+    except ScoringRulesNotLoaded as exc:
+        # A projection import prices its rows with our coefficients; without them it would
+        # store a board's worth of zeroes. Nothing was written.
+        print(exc, file=sys.stderr)
+        return 2
     finally:
         db.close()
 

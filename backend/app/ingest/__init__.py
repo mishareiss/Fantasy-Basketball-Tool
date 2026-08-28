@@ -10,7 +10,7 @@ The pieces, in the order a row travels through them:
 * `app.matching` — resolve each foreign name to a `Player`. Not reimplemented here; the
   matcher, the normalization rules and the `PlayerAlias` memory all live there.
 * `registry` — per-kind handlers. A kind declares its value columns, how to store a resolved
-  row, and how careful to be about fuzzy matches. `adp` is implemented; `projection`,
+  row, and how careful to be about fuzzy matches. `adp` and `projection` are implemented;
   `ranking` and `market_line` are documented in `PLANNED_KINDS`.
 * `pipeline` — the two-phase run: a dry run that previews everything and writes nothing, and
   a commit that persists rows plus the aliases that make the next import instant.
@@ -44,6 +44,18 @@ from app.ingest.pipeline import (
     match_rows,
     run_import,
 )
+from app.ingest.projection import (
+    BASES,
+    BASIS_PER_GAME,
+    BASIS_SEASON,
+    PROJECTION_COLUMNS,
+    PROJECTION_IMPORT_KIND,
+    PROJECTION_KIND,
+    PROJECTION_STAT_ALIASES,
+    StatLines,
+    resolve_basis,
+    stat_lines,
+)
 from app.ingest.registry import (
     KINDS,
     PLANNED_KINDS,
@@ -62,11 +74,18 @@ from app.ingest.registry import (
 __all__ = [
     "ADP_COLUMNS",
     "ADP_KIND",
+    "BASES",
+    "BASIS_PER_GAME",
+    "BASIS_SEASON",
     "KINDS",
     "MAX_CANDIDATES",
     "NAME_ALIASES",
     "PLANNED_KINDS",
     "POSITION_ALIASES",
+    "PROJECTION_COLUMNS",
+    "PROJECTION_IMPORT_KIND",
+    "PROJECTION_KIND",
+    "PROJECTION_STAT_ALIASES",
     "STATUS_DUPLICATE",
     "STATUS_INVALID",
     "STATUS_MATCHED",
@@ -81,6 +100,7 @@ __all__ = [
     "ParsedTable",
     "ResolvedRow",
     "RowOutcome",
+    "StatLines",
     "UnknownKindError",
     "UpsertContext",
     "UpsertCounts",
@@ -95,6 +115,8 @@ __all__ = [
     "parse_number",
     "parse_table",
     "register",
+    "resolve_basis",
     "run_import",
     "split_positions",
+    "stat_lines",
 ]

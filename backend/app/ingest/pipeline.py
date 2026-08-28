@@ -88,6 +88,10 @@ class ImportSummary:
     source: str
     season: int
     dry_run: bool
+    # The per-kind options this run used, e.g. {'basis': 'per_game'}. Echoed back because a
+    # projection imported on the wrong basis looks perfectly plausible until you notice
+    # everyone is projected for 2,300 points a game.
+    options: dict[str, str] = field(default_factory=dict)
 
     # Which column played which role, `field -> the header it was found under`. Worth showing:
     # a silently mis-detected column is the one failure mode a row-by-row list won't reveal.
@@ -262,8 +266,12 @@ def run_import(
     delimiter: str | None = None,
     dry_run: bool = True,
     accept=None,
+    options: Mapping[str, str] | None = None,
 ) -> ImportSummary:
     """Import one CSV/paste of one kind from one source. Previews unless `dry_run=False`.
+
+    `options` are per-kind knobs passed straight through to the handler (`{'basis':
+    'season'}` for a projection file of totals); the pipeline never interprets them.
 
     `accept` overrides the kind's auto-accept policy for this call — pass
     `accept_only_certain` to hold a file's fuzzy matches for confirmation even for a kind that
@@ -286,12 +294,14 @@ def run_import(
     if not source:
         raise ImportParseError("an import needs a source name; it's how the rows are attributed")
 
+    options = dict(options or {})
     table = parse_table(text, handler.columns, overrides=column_map, delimiter=delimiter)
     summary = ImportSummary(
         kind=handler.name,
         source=source,
         season=season,
         dry_run=dry_run,
+        options=options,
         columns=table.columns.as_dict(),
         delimiter=table.delimiter,
         rows_parsed=len(table.rows),
@@ -305,9 +315,17 @@ def run_import(
 
     _record_aliases(db, accepted, outcomes, source=source, summary=summary, dry_run=dry_run)
 
-    counts: UpsertCounts = handler.upsert(
-        db, accepted, UpsertContext(source=source, season=season, dry_run=dry_run)
-    )
+    try:
+        counts: UpsertCounts = handler.upsert(
+            db,
+            accepted,
+            UpsertContext(source=source, season=season, dry_run=dry_run, options=options),
+        )
+    except Exception:
+        # A handler that refuses (an unusable option, no scoring rules loaded) must not leave
+        # this run's aliases half-written. All or nothing, both phases.
+        db.rollback()
+        raise
     summary.rows_created = counts.created
     summary.rows_updated = counts.updated
     summary.rows_unchanged = counts.unchanged
