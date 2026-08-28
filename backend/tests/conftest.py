@@ -19,21 +19,31 @@ from app.ages import NbaPlayer, birthdate_from_payload
 from app.config import get_settings
 from app.db.base import Base
 from app.db.models import Player  # noqa: F401  # registers every table on Base.metadata
+from app.espn.players import parse_player_pool
+from app.espn.sync import SyncSummary, sync_players
 
 # Ages are computed at a fixed date, never `today`, so the expected numbers below never rot.
 AGE_AS_OF = date(2026, 10, 1)
+
+# The season the fixtures are for. ESPN labels a season by the year it ends.
+SEASON = 2027
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True, scope="session")
-def pinned_age_as_of():
-    """Pin AGE_AS_OF for the whole suite, so nobody's local .env can move the expected ages."""
+def pinned_settings():
+    """Pin AGE_AS_OF and ESPN_SEASON for the whole suite.
+
+    Nobody's local `.env` should be able to move the expected ages, and the import pipeline
+    falls back to `ESPN_SEASON` when a caller omits the season — so a checkout with no league
+    configured would otherwise fail a test about seasons rather than one about configuration.
+    """
     settings = get_settings()
-    original = settings.age_as_of
-    settings.age_as_of = AGE_AS_OF
+    original = (settings.age_as_of, settings.espn_season)
+    settings.age_as_of, settings.espn_season = AGE_AS_OF, SEASON
     yield AGE_AS_OF
-    settings.age_as_of = original
+    settings.age_as_of, settings.espn_season = original
 
 
 def load_fixture(name: str) -> Any:
@@ -50,6 +60,27 @@ def msettings_payload() -> dict[str, Any]:
 def player_pool_payload() -> list[dict[str, Any]]:
     """A sanitized slice of our real `kona_player_info` response."""
     return load_fixture("espn_player_pool.json")
+
+
+@pytest.fixture(scope="session")
+def adp_csv() -> str:
+    """A synthetic ADP export: exact, accented, inverted, fuzzy, unmatched and unusable rows.
+
+    Hand-written rather than recorded, because the point of it is the awkward cases — a typo
+    only a fuzzy match catches, a name we don't carry, a row with no ADP at all — and a real
+    export happens to contain whichever of those it contains.
+    """
+    return (FIXTURE_DIR / "adp_sample.csv").read_text(encoding="utf-8-sig")
+
+
+@pytest.fixture
+def players(db, player_pool_payload) -> Session:
+    """A database holding only our canonical players — what an import resolves names against."""
+    sync_players(
+        db, parse_player_pool(player_pool_payload), SyncSummary(league_id=0, season=SEASON)
+    )
+    db.commit()
+    return db
 
 
 @pytest.fixture(scope="session")

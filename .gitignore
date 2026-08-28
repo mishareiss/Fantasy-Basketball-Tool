@@ -244,6 +244,9 @@ next-env.d.ts
 # Local data, imports, and caches
 data/
 *.csv
+# ...but the synthetic import fixtures are test code, not data: the suite can't run without
+# them. They are hand-written, not a real export, so there's nothing here to leak.
+!backend/tests/fixtures/*.csv
 .cache/
 
 # OS files

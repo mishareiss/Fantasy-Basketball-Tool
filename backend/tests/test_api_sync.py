@@ -48,7 +48,7 @@ def test_returns_a_summary_of_what_it_stored(
             ScoringEngine(settings_row.scoring_rules),
             summary,
         )
-        sync_adp(session, parse_ownership(player_pool_payload), summary)
+        sync_adp(session, parse_ownership(player_pool_payload), summary, season=2027)
         session.commit()
         return summary
 

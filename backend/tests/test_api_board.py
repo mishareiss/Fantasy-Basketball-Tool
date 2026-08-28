@@ -17,12 +17,12 @@ from app.espn.sync import (
     sync_projections,
     sync_scoring_settings,
 )
+from app.ingest import run_import
 from app.main import app
 from app.scoring import ScoringEngine, parse_league_settings
-from tests.conftest import AGE_AS_OF
+from tests.conftest import AGE_AS_OF, SEASON
 
 LEAGUE_ID = 999999
-SEASON = 2027
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def synced(db, msettings_payload, player_pool_payload) -> SyncSummary:
         ScoringEngine(settings_row.scoring_rules),
         summary,
     )
-    sync_adp(db, parse_ownership(player_pool_payload), summary)
+    sync_adp(db, parse_ownership(player_pool_payload), summary, season=SEASON)
     db.commit()
     return summary
 
@@ -78,7 +78,7 @@ def test_rows_carry_the_player_and_the_market(api, synced):
     assert top["projected_games"] > 0
     assert top["per_game_basis"] == "projected_games"
     # ESPN's redraft ADP, alongside our number — the whole point of the board.
-    assert top["espn_adp"] is not None
+    assert top["adp"] is not None
 
 
 def test_limit_defaults_to_fifty_and_is_respected(api, synced):
@@ -112,7 +112,7 @@ def test_a_player_without_adp_still_makes_the_board(api, db, synced):
     top = api.get("/players/board?limit=1").json()["players"][0]
 
     assert top["espn_player_id"] == top_id
-    assert top["espn_adp"] is None
+    assert top["adp"] is None
 
 
 def test_an_unsynced_database_says_so_instead_of_returning_nothing(api, db):
@@ -155,3 +155,106 @@ def test_a_player_with_no_age_still_makes_the_board(api, synced):
 
     assert body["players"]
     assert all(row["age"] is None for row in body["players"])
+
+
+def test_two_seasons_of_adp_do_not_duplicate_a_board_row(api, db, synced):
+    """The reason the ADP join pins a season: without it, this player joins twice."""
+    before = api.get("/players/board?limit=1000").json()
+    sga = db.scalar(select(AdpEntry).where(AdpEntry.player_id == 4278073))
+    db.add(AdpEntry(player_id=4278073, source=sga.source, season=SEASON - 1, adp=sga.adp + 30))
+    db.commit()
+
+    body = api.get("/players/board?limit=1000").json()
+
+    assert body["total_ranked"] == before["total_ranked"]
+    ids = [row["espn_player_id"] for row in body["players"]]
+    assert len(ids) == len(set(ids))
+
+
+def test_the_board_shows_the_newest_adp_season_by_default(api, db, synced):
+    old_adp = 130.0
+    db.add(AdpEntry(player_id=4278073, source="espn", season=SEASON - 1, adp=old_adp))
+    db.commit()
+
+    body = api.get("/players/board?limit=1000").json()
+    row = next(row for row in body["players"] if row["espn_player_id"] == 4278073)
+
+    assert body["adp_season"] == SEASON
+    assert row["adp"] != old_adp
+
+    # ...and last year's read is still there to ask for, which is the dynasty trend.
+    older = api.get(f"/players/board?limit=1000&adp_season={SEASON - 1}").json()
+    assert older["adp_season"] == SEASON - 1
+    assert (
+        next(row for row in older["players"] if row["espn_player_id"] == 4278073)["adp"] == old_adp
+    )
+
+
+def test_adp_source_picks_whose_market_is_displayed(api, db, synced):
+    """Rank by ESPN's projection, read someone else's ADP — the whole point of the param."""
+    db.add(AdpEntry(player_id=4278073, source="hashtag", season=SEASON, adp=2.0))
+    db.commit()
+
+    body = api.get("/players/board?limit=1000&adp_source=hashtag").json()
+
+    assert body["source"] == "espn"  # still ranked by ESPN's projection
+    assert body["adp_source"] == "hashtag"
+    assert body["adp_season"] == SEASON
+    rows = {row["espn_player_id"]: row for row in body["players"]}
+    assert rows[4278073]["adp"] == 2.0
+    # Nobody else was imported from that source, so their ADP column is empty, not ESPN's.
+    assert rows[3112335]["adp"] is None
+    assert body["total_ranked"] == api.get("/players/board?limit=1000").json()["total_ranked"]
+
+
+def test_an_adp_source_we_hold_nothing_for_empties_the_column_without_breaking_the_board(
+    api, synced
+):
+    body = api.get("/players/board?limit=1000&adp_source=nobody").json()
+
+    assert body["adp_season"] is None
+    assert body["total_ranked"] == api.get("/players/board?limit=1000").json()["total_ranked"]
+    assert all(row["adp"] is None for row in body["players"])
+
+
+def test_the_adp_worklist_is_empty_when_every_board_player_has_a_market(api, synced):
+    """`need=adp` asks the complement of the importer's own review list, from our side."""
+    body = api.get("/players/unresolved?need=adp").json()
+
+    assert (body["source"], body["season"]) == ("espn", SEASON)
+    assert body["total"] == 0
+
+
+def test_the_adp_worklist_names_the_board_players_an_import_missed(api, db, synced, adp_csv):
+    run_import(db, kind="adp", source="hashtag", season=SEASON, text=adp_csv, dry_run=False)
+
+    body = api.get("/players/unresolved?need=adp&source=hashtag").json()
+
+    imported = set(db.scalars(select(AdpEntry.player_id).where(AdpEntry.source == "hashtag")))
+    assert imported
+    listed = {row["espn_player_id"] for row in body["players"]}
+    assert not (listed & imported), "a player we imported is not missing an ADP"
+    assert 4278073 in imported and 4278073 not in listed
+    # Only players we can price are on the board, so only they are on its worklist.
+    assert listed <= set(db.scalars(select(Projection.player_id)))
+    # Most valuable first: that's the order to work down.
+    values = [row["fantasy_points_per_game"] or 0.0 for row in body["players"]]
+    assert values == sorted(values, reverse=True)
+
+
+def test_the_adp_worklist_is_per_season(api, db, synced, adp_csv):
+    run_import(db, kind="adp", source="hashtag", season=SEASON, text=adp_csv, dry_run=False)
+
+    this_season = api.get("/players/unresolved?need=adp&source=hashtag").json()
+    last_season = api.get(f"/players/unresolved?need=adp&source=hashtag&season={SEASON - 1}").json()
+
+    assert last_season["season"] == SEASON - 1
+    assert last_season["total"] > this_season["total"], "we imported nothing for last season"
+
+
+def test_an_unknown_need_lists_the_ones_that_work(api, synced):
+    response = api.get("/players/unresolved?need=height")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "age" in detail and "adp" in detail

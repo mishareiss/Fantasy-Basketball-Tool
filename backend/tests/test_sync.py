@@ -36,7 +36,7 @@ def _sync(db, msettings_payload, player_pool_payload) -> SyncSummary:
         ScoringEngine(settings_row.scoring_rules),
         summary,
     )
-    sync_adp(db, parse_ownership(player_pool_payload), summary)
+    sync_adp(db, parse_ownership(player_pool_payload), summary, season=SEASON)
     db.commit()
     return summary
 

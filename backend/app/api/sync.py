@@ -43,6 +43,7 @@ class SyncLeagueResponse(BaseModel):
     projection_season: int | None = None
 
     adp_seen: int
+    adp_season: int | None = None
     adp_created: int
     adp_updated: int
     adp_unchanged: int

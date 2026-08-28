@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-ages fixtures nba-fixtures test test-live test-nba lint fmt
+.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-ages import fixtures nba-fixtures test test-live test-nba lint fmt
 
 # Load the local .env (gitignored) and pass it to every recipe, so the frontend gets
 # NEXT_PUBLIC_API_BASE_URL and docker compose gets the POSTGRES_* values.
@@ -37,6 +37,15 @@ sync: ## Pull scoring settings + player pool from ESPN into the DB (idempotent)
 
 sync-ages: ## Match nba.com's roster to our players and fill in birthdates + ages (idempotent)
 	cd backend && uv run python -m scripts.sync_ages
+
+# Dry run by default (prints what it *would* write); add COMMIT=1 to store it.
+#   make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv
+#   make import KIND=adp SOURCE=hashtag FILE=adp.csv COMMIT=1 ARGS="--strict"
+import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [COMMIT=1] [ARGS=...])
+	cd backend && uv run python -m scripts.import_data \
+		--kind "$(KIND)" --source "$(SOURCE)" \
+		$(if $(SEASON),--season "$(SEASON)",) $(if $(FILE),--file "$(FILE)",) \
+		$(if $(COMMIT),--commit,) $(ARGS)
 
 fixtures: ## Re-record the sanitized ESPN test fixtures from a live pull
 	cd backend && uv run python -m scripts.record_fixtures

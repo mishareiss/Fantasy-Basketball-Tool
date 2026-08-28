@@ -77,6 +77,8 @@ class SyncSummary:
     projection_season: int | None = None
 
     adp_seen: int = 0
+    # The season the stored ADP is FOR — always the season we synced, unlike projections.
+    adp_season: int | None = None
     adp_created: int = 0
     adp_updated: int = 0
     adp_unchanged: int = 0
@@ -298,10 +300,18 @@ def sync_adp(
     records: list[OwnershipRecord],
     summary: SyncSummary,
     *,
+    season: int,
     source: str = ESPN_SOURCE,
 ) -> None:
-    """Upsert one ADP row per player for this source. Values are stored exactly as sent."""
+    """Upsert one ADP row per player for this source and season. Values stored exactly as sent.
+
+    `season` is required rather than defaulted: an ADP row without one is a number nobody can
+    interpret next August, and the season is always to hand at the call site (it is the season
+    the client is pointed at). Keyed on (player, source, season), so next season's ESPN sync
+    adds rows beside this season's instead of overwriting the history the dynasty trend needs.
+    """
     summary.adp_seen = len(records)
+    summary.adp_season = season
     if not records:
         return
 
@@ -309,7 +319,11 @@ def sync_adp(
     existing = {
         row.player_id: row
         for row in db.scalars(
-            select(AdpEntry).where(AdpEntry.source == source, AdpEntry.player_id.in_(known))
+            select(AdpEntry).where(
+                AdpEntry.source == source,
+                AdpEntry.season == season,
+                AdpEntry.player_id.in_(known),
+            )
         )
     }
     now = datetime.now(UTC)
@@ -326,7 +340,15 @@ def sync_adp(
 
         row = existing.get(record.espn_player_id)
         if row is None:
-            db.add(AdpEntry(player_id=record.espn_player_id, source=source, as_of=now, **values))
+            db.add(
+                AdpEntry(
+                    player_id=record.espn_player_id,
+                    source=source,
+                    season=season,
+                    as_of=now,
+                    **values,
+                )
+            )
             summary.adp_created += 1
             continue
 
@@ -370,7 +392,7 @@ def sync_league(db: Session, client: ESPNClient | None = None) -> SyncSummary:
     # the same sync that picked it up.
     engine = ScoringEngine(settings_row.scoring_rules)
     sync_projections(db, parse_projections(entries, client.season), engine, summary)
-    sync_adp(db, parse_ownership(entries), summary)
+    sync_adp(db, parse_ownership(entries), summary, season=client.season)
 
     db.commit()
     return summary

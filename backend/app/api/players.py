@@ -8,6 +8,7 @@ from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import false as sa_false
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,9 +23,10 @@ router = APIRouter(prefix="/players", tags=["players"])
 
 DEFAULT_LIMIT = 50
 
-# What `GET /players/unresolved?need=` accepts. Only ages have a source today; the CSV import
-# pipeline adds its own needs here rather than growing a second endpoint.
+# What `GET /players/unresolved?need=` accepts. One endpoint per *question* ("who is our
+# board still missing X for"), not one per source — a new imported kind adds a need here.
 NEED_AGE = "age"
+NEED_ADP = "adp"
 
 
 class BoardRow(BaseModel):
@@ -46,10 +48,11 @@ class BoardRow(BaseModel):
     # How the per-game number was derived — see app.scoring.projections.
     per_game_basis: str
 
-    # ESPN's REDRAFT average draft position, under ESPN's default scoring, not ours. The gap
-    # between this and the rank on the left is the thing worth staring at.
-    espn_adp: float | None = None
-    espn_auction_value: float | None = None
+    # The market's REDRAFT average draft position from `adp_source` (ESPN's is under ESPN's
+    # default scoring, not ours). The gap between this and the rank on the left is the thing
+    # worth staring at. Not named `espn_adp` any more: the source is now a query parameter.
+    adp: float | None = None
+    auction_value: float | None = None
     percent_owned: float | None = None
 
 
@@ -59,6 +62,11 @@ class BoardResponse(BaseModel):
     source: str
     kind: str
     season: int
+    # Which source's draft market is in the `adp` column, and for which season. Displayed ADP
+    # is deliberately independent of the projection source doing the ranking: ESPN prices the
+    # players, an imported consensus can price the room.
+    adp_source: str
+    adp_season: int | None = None
     total_ranked: int
     position: str | None = None
     # The date every `age` on this board was computed at. Ages are stored as a number, so the
@@ -77,6 +85,10 @@ def player_board(
     season: int | None = Query(
         None, description="Projection season; defaults to the newest stored for this source"
     ),
+    adp_source: str = Query(ESPN_SOURCE, description="Whose ADP to display in the adp column"),
+    adp_season: int | None = Query(
+        None, description="ADP season; defaults to the newest stored for that ADP source"
+    ),
 ) -> BoardResponse:
     """Players ranked by projected fantasy points per game under our custom scoring."""
     kind = SEASON_PROJECTION_KIND
@@ -94,15 +106,30 @@ def player_board(
             f"No {source!r} projections stored yet; run POST /sync/league (or `make sync`) first.",
         )
 
+    # ADP is keyed by season, so the join has to pin one. Without that, a player whose ADP we
+    # hold for two seasons joins twice and fans out into duplicate board rows — the board must
+    # be exactly one row per player. Newest by default: that is this year's market.
+    if adp_season is None:
+        adp_season = db.scalar(
+            select(AdpEntry.season)
+            .where(AdpEntry.source == adp_source)
+            .order_by(AdpEntry.season.desc())
+            .limit(1)
+        )
+
+    adp_match = (AdpEntry.player_id == Projection.player_id) & (AdpEntry.source == adp_source)
+    if adp_season is None:
+        # No ADP stored for that source at all: nothing to join, and the column reads null.
+        adp_match = adp_match & sa_false()
+    else:
+        adp_match = adp_match & (AdpEntry.season == adp_season)
+
     rows = db.execute(
         select(Projection, Player, AdpEntry)
         .join(Player, Player.espn_player_id == Projection.player_id)
-        # Outer join: a player we can price but ESPN has no market for still belongs on the
+        # Outer join: a player we can price but the market has no read on still belongs on the
         # board — that is exactly the player we want to find.
-        .outerjoin(
-            AdpEntry,
-            (AdpEntry.player_id == Projection.player_id) & (AdpEntry.source == source),
-        )
+        .outerjoin(AdpEntry, adp_match)
         .where(
             Projection.source == source,
             Projection.kind == kind,
@@ -122,6 +149,8 @@ def player_board(
         source=source,
         kind=kind,
         season=season,
+        adp_source=adp_source,
+        adp_season=adp_season,
         total_ranked=len(rows),
         position=position.strip().upper() if position else None,
         age_as_of=get_settings().resolved_age_as_of(),
@@ -137,8 +166,8 @@ def player_board(
                 fantasy_points_total=projection.fantasy_points_total,
                 projected_games=projection.projected_games,
                 per_game_basis=projection.per_game_basis,
-                espn_adp=adp.adp if adp else None,
-                espn_auction_value=adp.auction_value if adp else None,
+                adp=adp.adp if adp else None,
+                auction_value=adp.auction_value if adp else None,
                 percent_owned=adp.percent_owned if adp else None,
             )
             for rank, (projection, player, adp) in enumerate(rows[:limit], start=1)
@@ -153,7 +182,9 @@ class UnresolvedPlayer(BaseModel):
     name: str
     nba_team: str | None = None
     positions: list[str] = []
-    # True when a `nba_api` alias exists but the birthdate fetch hasn't run or came back empty.
+    # True when an alias for the source already exists — so the gap is not a naming problem.
+    # For 'age' that means the birthdate fetch hasn't run or came back empty; for 'adp' it
+    # means we've imported that source before and this player simply wasn't in the file.
     has_alias: bool
     # Their projected value, so the worklist is ordered by who actually matters.
     fantasy_points_per_game: float | None = None
@@ -164,35 +195,88 @@ class UnresolvedResponse(BaseModel):
 
     need: str
     source: str
+    # Only meaningful for season-keyed needs ('adp'); null for 'age'.
+    season: int | None = None
     total: int
     players: list[UnresolvedPlayer]
 
 
-@router.get("/unresolved", response_model=UnresolvedResponse)
-def unresolved_players(
-    db: Session = Depends(get_db),
-    need: str = Query(NEED_AGE, description="What's missing. Only 'age' today."),
-    limit: int = Query(100, ge=1, le=1000),
-) -> UnresolvedResponse:
-    """Players missing an age, most valuable first — the list to hand-resolve.
-
-    Two kinds of row show up here. Most have no `nba_api` alias at all: nba.com has never
-    heard of them (a draft-and-stash prospect, a G-League call-up, or a rookie newer than the
-    installed `nba_api` roster). A few have an alias but no birthdate, meaning the fetch
-    hasn't reached them yet. Fix the first kind with `POST /players/{id}/aliases`, the second
-    by re-running the age sync.
-    """
-    if need != NEED_AGE:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Unknown need {need!r}; only {NEED_AGE!r} is supported."
-        )
-
-    aliased = set(db.scalars(select(PlayerAlias.player_id).where(PlayerAlias.source == NBA_SOURCE)))
+def _best_per_game(db: Session) -> dict[int, float]:
+    """Each player's best projected fantasy points per game, across every stored projection."""
     best: dict[int, float] = {}
     for player_id, per_game in db.execute(
         select(Projection.player_id, Projection.fantasy_points_per_game)
     ):
         best[player_id] = max(best.get(player_id, 0.0), per_game)
+    return best
+
+
+@router.get("/unresolved", response_model=UnresolvedResponse)
+def unresolved_players(
+    db: Session = Depends(get_db),
+    need: str = Query(NEED_AGE, description=f"What's missing: {NEED_AGE!r} or {NEED_ADP!r}"),
+    source: str | None = Query(
+        None, description=f"For {NEED_ADP!r}: which ADP source. Defaults to {ESPN_SOURCE!r}."
+    ),
+    season: int | None = Query(
+        None, description=f"For {NEED_ADP!r}: which season. Defaults to the newest stored."
+    ),
+    limit: int = Query(100, ge=1, le=1000),
+) -> UnresolvedResponse:
+    """Players a source has nothing for, most valuable first — the list to hand-resolve.
+
+    `need=age`: players with no birthdate. Two kinds of row show up. Most have no `nba_api`
+    alias at all: nba.com has never heard of them (a draft-and-stash prospect, a G-League
+    call-up, or a rookie newer than the installed `nba_api` roster). A few have an alias but
+    no birthdate, meaning the fetch hasn't reached them yet. Fix the first kind with
+    `POST /players/{id}/aliases`, the second by re-running the age sync.
+
+    `need=adp`: players on the board (anyone we can price) with no `adp_entry` for that source
+    and season. That is the other half of an import's own review list: the importer tells you
+    which of *its* names it couldn't place, this tells you which of *our* players ended up with
+    nothing — a name spelled so differently the file's row went to review, or a player the
+    source genuinely doesn't rank. Same fix, same re-import.
+    """
+    if need not in (NEED_AGE, NEED_ADP):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown need {need!r}; supported: {NEED_AGE!r}, {NEED_ADP!r}.",
+        )
+
+    if need == NEED_AGE:
+        alias_source = source or NBA_SOURCE
+        aliased = set(
+            db.scalars(select(PlayerAlias.player_id).where(PlayerAlias.source == alias_source))
+        )
+        best = _best_per_game(db)
+        candidates = list(db.scalars(select(Player).where(Player.age.is_(None))))
+    else:
+        alias_source = source or ESPN_SOURCE
+        if season is None:
+            season = db.scalar(
+                select(AdpEntry.season)
+                .where(AdpEntry.source == alias_source)
+                .order_by(AdpEntry.season.desc())
+                .limit(1)
+            )
+        aliased = set(
+            db.scalars(select(PlayerAlias.player_id).where(PlayerAlias.source == alias_source))
+        )
+        best = _best_per_game(db)
+        priced = set(
+            db.scalars(
+                select(AdpEntry.player_id).where(
+                    AdpEntry.source == alias_source, AdpEntry.season == season
+                )
+            )
+        )
+        # "On the board" means "we can price him" — a player with no projection has no place on
+        # a worklist about the draft board.
+        candidates = [
+            player
+            for player in db.scalars(select(Player).where(Player.espn_player_id.in_(best.keys())))
+            if player.espn_player_id not in priced
+        ]
 
     missing = [
         UnresolvedPlayer(
@@ -203,13 +287,17 @@ def unresolved_players(
             has_alias=player.espn_player_id in aliased,
             fantasy_points_per_game=best.get(player.espn_player_id),
         )
-        for player in db.scalars(select(Player).where(Player.age.is_(None)))
+        for player in candidates
     ]
     # Projected value first, then name, so the same call twice gives the same order.
     missing.sort(key=lambda row: (-(row.fantasy_points_per_game or 0.0), row.name))
 
     return UnresolvedResponse(
-        need=need, source=NBA_SOURCE, total=len(missing), players=missing[:limit]
+        need=need,
+        source=alias_source,
+        season=season if need == NEED_ADP else None,
+        total=len(missing),
+        players=missing[:limit],
     )
 
 
