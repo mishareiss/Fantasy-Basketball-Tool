@@ -15,13 +15,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.ages import NbaPlayer, birthdate_from_payload
+from app.ages import NbaPlayer, birthdate_from_payload, sync_ages
 from app.config import get_settings
 from app.db.base import Base
 from app.db.models import Player  # noqa: F401  # registers every table on Base.metadata
+from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
-from app.espn.sync import SyncSummary, sync_players, sync_scoring_settings
-from app.scoring import parse_league_settings
+from app.espn.statsplits import parse_projections
+from app.espn.sync import (
+    SyncSummary,
+    sync_adp,
+    sync_players,
+    sync_projections,
+    sync_scoring_settings,
+)
+from app.scoring import ScoringEngine, parse_league_settings
 
 # Ages are computed at a fixed date, never `today`, so the expected numbers below never rot.
 AGE_AS_OF = date(2026, 10, 1)
@@ -43,31 +51,43 @@ DYNASTY_CURVE = {
     "dynasty_min_multiplier": 0.40,
 }
 
+# The tiering parameters the suite expects, pinned for the same reason the curve is: these
+# are env vars, and someone's locally-calibrated TIER_* would otherwise re-cut a board a test
+# is asserting the tiers of. Keep in step with the `Settings` defaults.
+TIER_PARAMS = {
+    "tier_gap_multiple": 2.0,
+    "tier_min_size": 2,
+    "tier_max": 15,
+    "tier_pool": 150,
+}
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True, scope="session")
 def pinned_settings():
-    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID and the DYNASTY_* curve for the whole suite.
+    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID, the DYNASTY_* curve and the TIER_* params.
 
     Nobody's local `.env` should be able to move the expected ages, and the import pipeline
     falls back to `ESPN_SEASON` when a caller omits the season — so a checkout with no league
     configured would otherwise fail a test about seasons rather than one about configuration.
     The league id is pinned for the same reason: a projection import looks up the scoring
     coefficients for the configured league, and the fixtures are stored under `LEAGUE_ID`.
-    And the dynasty curve, for the same reason again: it is what orders the dynasty board.
+    And the dynasty curve, for the same reason again: it is what orders the dynasty board —
+    as the tier parameters are what cuts it up.
     """
     settings = get_settings()
+    pinned = DYNASTY_CURVE | TIER_PARAMS
     original = (settings.age_as_of, settings.espn_season, settings.espn_league_id)
-    original_curve = {field: getattr(settings, field) for field in DYNASTY_CURVE}
+    original_pinned = {field: getattr(settings, field) for field in pinned}
     settings.age_as_of = AGE_AS_OF
     settings.espn_season = SEASON
     settings.espn_league_id = LEAGUE_ID
-    for field, value in DYNASTY_CURVE.items():
+    for field, value in pinned.items():
         setattr(settings, field, value)
     yield AGE_AS_OF
     settings.age_as_of, settings.espn_season, settings.espn_league_id = original
-    for field, value in original_curve.items():
+    for field, value in original_pinned.items():
         setattr(settings, field, value)
 
 
@@ -221,3 +241,45 @@ def db() -> Session:
     finally:
         session.close()
         engine.dispose()
+
+
+@pytest.fixture
+def synced(db, msettings_payload, player_pool_payload) -> SyncSummary:
+    """A database in the state a real sync leaves it in: scoring, players, projections, ADP.
+
+    Lives here rather than beside the board tests because the board is no longer the only
+    endpoint built on it — `/valuation/tiers` reads the same ranking, and two copies of this
+    setup would be two boards to keep in step.
+    """
+    summary = SyncSummary(league_id=LEAGUE_ID, season=SEASON)
+    settings_row = sync_scoring_settings(
+        db,
+        espn_league_id=LEAGUE_ID,
+        season=SEASON,
+        parsed=parse_league_settings(msettings_payload),
+        summary=summary,
+    )
+    sync_players(db, parse_player_pool(player_pool_payload), summary)
+    sync_projections(
+        db,
+        parse_projections(player_pool_payload, SEASON),
+        ScoringEngine(settings_row.scoring_rules),
+        summary,
+    )
+    sync_adp(db, parse_ownership(player_pool_payload), summary, season=SEASON)
+    db.commit()
+    return summary
+
+
+@pytest.fixture
+def aged(db, synced, nba_players, fetch_recorded_birthdate) -> Session:
+    """The synced board, with nba.com ages filled in — what the dynasty horizon needs."""
+    sync_ages(
+        db,
+        as_of=AGE_AS_OF,
+        nba_players=nba_players,
+        fetch=fetch_recorded_birthdate,
+        delay=0,
+        sleep=lambda _: None,
+    )
+    return db

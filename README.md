@@ -107,6 +107,7 @@ A hand-made alias wins over every matcher forever after, so each of those is a o
 curl "localhost:8000/players/board?limit=20"                      # top 20 by DYNASTY value
 curl "localhost:8000/players/board?limit=20&horizon=current_year" # ...by win-now value
 curl "localhost:8000/players/board?position=C"                    # centers only
+curl "localhost:8000/players/board?tiers=off"                     # no tier column
 ```
 
 Players ranked by projected fantasy points per game **under our scoring**, each shown next to
@@ -121,11 +122,48 @@ Every row carries **both value horizons**, always:
 | `dynasty_value` | The same number through the age/longevity curve — youth rewarded, age discounted. |
 | `age_multiplier` | The factor the curve applied. |
 | `age_adjusted` | `false` when we hold no birthdate, so the 1.0 above it means "nothing to adjust by", not "in his prime". |
+| `tier` | Which draft tier of the selected horizon he lands in, 1 at the top. `null` below the tiered pool. |
 
 `horizon` picks which of the two **orders** the board (`dynasty`, the default, or
 `current_year`) — never which one is computed. Flipping it re-ranks the same numbers, which is
 the Current-Year ⇄ Dynasty toggle from FEATURE_SPEC 4. A player with no age keeps a 1.0
 multiplier and therefore sits exactly where his production puts him on either board.
+
+#### Draft tiers
+
+A ranked list says who is better; a **tiered** list says who is interchangeable — "draft
+anyone still on the board in this tier" — which is the only form the information is usable in
+with 90 seconds on the clock. The board tiers itself by default:
+
+```bash
+curl "localhost:8000/valuation/tiers"                        # the breaks, with their gaps
+curl "localhost:8000/valuation/tiers?horizon=current_year"   # ...for the win-now ranking
+```
+
+Walking the selected horizon's values downward, a new tier opens wherever the drop to the next
+player is more than `TIER_GAP_MULTIPLE` times the **median** drop. Median rather than mean is
+the whole trick: the top of a dynasty board has two or three enormous cliffs in it, a mean is
+dragged upward by exactly those, and the ordinary-but-real breaks further down get swallowed
+into one 40-man blob.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `TIER_GAP_MULTIPLE` | `2.0` | A break is a drop bigger than this many typical drops. Higher -> fewer, larger tiers |
+| `TIER_MIN_SIZE` | `2` | No tier smaller than this — unless the gap is genuinely huge (a real outlier gets to stand alone) |
+| `TIER_MAX` | `15` | Hard cap; past about fifteen a tiered board is a list again. Overflow merges the *least* significant breaks |
+| `TIER_POOL` | `150` | How many top-ranked players get tiered. Below that, `tier` is `null` — untiered, not last |
+
+Tiers are cut over the **overall** ranking, so they are identical whether you ask for 20 rows
+or 200, and a `position` filter narrows who is shown without changing anyone's tier: a point
+guard keeps his tier on the board, not his tier among point guards. A player with no birthdate
+is tiered on his projection, exactly where the board ranks him.
+
+`GET /valuation/tiers` shows each tier's size, value range, leader, and the gap that opened it
+— including that gap as a multiple of the typical one. Reading that column down the page is
+the fastest way to tell whether `TIER_GAP_MULTIPLE` is anywhere near right.
+
+> **Deferred to the UI:** manual/drag tier breaks and per-position tiers. Imported ranking sets
+> already carry their own source's tier column, separately from this.
 
 #### The dynasty curve
 
@@ -305,14 +343,14 @@ want a different port.
 │   ├── app/
 │   │   ├── main.py          # app factory: routers + CORS
 │   │   ├── config.py        # pydantic-settings, reads the root .env
-│   │   ├── api/             # routers (health, sync, players/board, rankings, valuation/curve)
+│   │   ├── api/             # routers (health, sync, players/board, rankings, valuation/curve+tiers)
 │   │   ├── db/              # engine/session, declarative Base, models/
 │   │   ├── espn/            # ESPN v3 client, cookie auth, player/projection/ADP parsing, sync
 │   │   ├── ages/            # nba.com birthdates -> Player.birthdate/age at a fixed AGE_AS_OF
 │   │   ├── matching/        # name normalization + fuzzy matcher; every source resolves here
 │   │   ├── scoring/         # custom scoring formula parsed from mSettings + projection pricing
 │   │   ├── projections/     # stub: pluggable ProjectionSource layer
-│   │   ├── valuation/       # age/longevity curve + the two value horizons (computed on read)
+│   │   ├── valuation/       # age curve, the two value horizons, and gap-clustered tiers (on read)
 │   │   ├── ranking/         # stub: consensus blending + personal model (storage: db/models/ranking)
 │   │   ├── draft/           # stub: draft board, plan, live pick following
 │   │   └── ingest/          # CSV/paste import: adp + projection + ranking kinds on one pipeline

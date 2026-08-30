@@ -4,6 +4,7 @@ It answers the only question that matters two weeks before a dynasty startup: un
 scoring, who is worth the most per game — and where does ESPN's redraft room have them?
 """
 
+from dataclasses import dataclass
 from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
@@ -18,7 +19,7 @@ from app.db.models import AdpEntry, Player, PlayerAlias, Projection
 from app.db.session import get_db
 from app.espn.sync import ESPN_SOURCE, SEASON_PROJECTION_KIND
 from app.matching import MANUAL_SOURCE, record_alias
-from app.valuation import value_player
+from app.valuation import PlayerValue, Tiering, tier_structure, value_player
 
 router = APIRouter(prefix="/players", tags=["players"])
 
@@ -35,6 +36,13 @@ HORIZONS = (HORIZON_CURRENT_YEAR, HORIZON_DYNASTY)
 # board still missing X for"), not one per source — a new imported kind adds a need here.
 NEED_AGE = "age"
 NEED_ADP = "adp"
+
+# Whether the board cuts itself into tiers (FEATURE_SPEC 6). `auto` is the default because a
+# flat 1,095-row list is not a draft plan; `off` is for a client that draws its own breaks —
+# and, once the UI can drag dividers, for the board those manual breaks are applied to.
+TIERS_AUTO = "auto"
+TIERS_OFF = "off"
+TIER_MODES = (TIERS_AUTO, TIERS_OFF)
 
 
 class BoardRow(BaseModel):
@@ -76,6 +84,28 @@ class BoardRow(BaseModel):
     # Those two are the same number and mean opposite things, so the board says which it is.
     age_adjusted: bool
 
+    # Which tier of the SELECTED horizon he lands in, 1 being the top. None means he is below
+    # the tiered pool (TIER_POOL players deep) or that `tiers=off` — either way, untiered
+    # rather than last. Tiers are cut from the OVERALL ranking, so a filtered board still
+    # shows a player his real tier, not his tier among the centers.
+    tier: int | None = None
+
+
+class TierSummaryRow(BaseModel):
+    """One tier on this board — enough for a client to draw the dividers itself."""
+
+    tier: int
+    size: int
+    # The band, in the selected horizon's units: the first and last player's value.
+    value_high: float
+    value_low: float
+    # 1-based overall rank the tier starts at.
+    start_rank: int
+    # The drop that opened it, and that drop as a multiple of the typical (median) drop. Null
+    # for tier 1, which the top of the board opens rather than a break.
+    gap: float | None = None
+    gap_ratio: float | None = None
+
 
 class BoardResponse(BaseModel):
     """A ranked slice of the board, plus what it was built from."""
@@ -96,39 +126,85 @@ class BoardResponse(BaseModel):
     # board has to say what date that number is true on, or it means nothing three months
     # from now.
     age_as_of: date
+    # 'auto' or 'off'.
+    tiers: str
+    # How many players were tiered — the top TIER_POOL of the OVERALL ranking, so this does
+    # not shrink when a position filter or a small `limit` narrows what is returned. 0 when
+    # tiering is off.
+    tier_pool: int = 0
+    # The tier structure behind the `tier` column, so a client can draw dividers without
+    # recomputing them (and without being able to disagree with the board about where they
+    # are). Describes the overall board, not the filtered page.
+    tier_summary: list[TierSummaryRow] = []
     players: list[BoardRow]
 
 
-@router.get("/board", response_model=BoardResponse)
-def player_board(
-    db: Session = Depends(get_db),
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=1000, description="How many rows to return"),
-    position: str | None = Query(None, description="Filter to one position: PG, SG, SF, PF, or C"),
-    source: str = Query(ESPN_SOURCE, description="Projection source to rank by"),
-    season: int | None = Query(
-        None, description="Projection season; defaults to the newest stored for this source"
-    ),
-    adp_source: str = Query(ESPN_SOURCE, description="Whose ADP to display in the adp column"),
-    adp_season: int | None = Query(
-        None, description="ADP season; defaults to the newest stored for that ADP source"
-    ),
-    horizon: str = Query(
-        HORIZON_DYNASTY,
-        description=f"Which value horizon ranks the board: {HORIZON_CURRENT_YEAR!r} or "
-        f"{HORIZON_DYNASTY!r}",
-    ),
-) -> BoardResponse:
-    """Players ranked by projected fantasy points per game under our custom scoring.
+@dataclass(frozen=True)
+class RankedEntry:
+    """One player, valued and placed — what both the board and the tier endpoint work from."""
 
-    `horizon=current_year` ranks by that number as-is (win-now). `horizon=dynasty`, the default
-    because this is a dynasty startup, ranks by the same number through the age/longevity
-    curve. Both values are on every row regardless.
+    projection: Projection
+    player: Player
+    adp: AdpEntry | None
+    value: PlayerValue
+    tier: int | None
+
+
+@dataclass(frozen=True)
+class RankedBoard:
+    """The whole board under one horizon: every player in order, and how it was tiered."""
+
+    source: str
+    season: int
+    adp_source: str
+    adp_season: int | None
+    horizon: str
+    tiers: str
+    # Ordered by the selected horizon, every player we can price. Unfiltered and unsliced:
+    # `position` and `limit` are presentation, applied by the route after the fact.
+    entries: list[RankedEntry]
+    # None when tiering is off.
+    tiering: Tiering | None
+
+
+def horizon_value(value: PlayerValue, horizon: str) -> float:
+    """The one number a horizon ranks by — and therefore the one tiers are cut from.
+
+    Single-sourced on purpose. The whole point of tiering the board is that the breaks fall in
+    the values the board is ordered by; a second expression of "which number is this horizon"
+    is a second board waiting to disagree with the first.
+    """
+    return value.dynasty if horizon == HORIZON_DYNASTY else value.current_year
+
+
+def ranked_board(
+    db: Session,
+    *,
+    source: str = ESPN_SOURCE,
+    season: int | None = None,
+    adp_source: str = ESPN_SOURCE,
+    adp_season: int | None = None,
+    horizon: str = HORIZON_DYNASTY,
+    tiers: str = TIERS_AUTO,
+) -> RankedBoard:
+    """Build the full board: query, value, order by the horizon, and cut it into tiers.
+
+    Everything that decides *what the board is* lives here, so `GET /players/board` and
+    `GET /valuation/tiers` are two views of one computation rather than two computations that
+    have to be kept in agreement.
     """
     if horizon not in HORIZONS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown horizon {horizon!r}; supported: "
             + ", ".join(repr(name) for name in HORIZONS)
+            + ".",
+        )
+    if tiers not in TIER_MODES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown tiers mode {tiers!r}; supported: "
+            + ", ".join(repr(name) for name in TIER_MODES)
             + ".",
         )
 
@@ -179,13 +255,6 @@ def player_board(
         .order_by(Projection.fantasy_points_per_game.desc(), Player.full_name)
     ).all()
 
-    # Positions live in a JSON column, and JSON containment is spelled differently in Postgres
-    # and the SQLite the tests run on. The pool is ~1k rows, so filtering here costs nothing
-    # and keeps one code path.
-    if position:
-        wanted = position.strip().upper()
-        rows = [row for row in rows if wanted in (row.Player.positions or [])]
-
     settings = get_settings()
     # One curve for the whole response: every row on a board must be priced by the same
     # parameters, or the ranking compares numbers that don't mean the same thing.
@@ -212,37 +281,131 @@ def player_board(
     # came back ordered by exactly that. Leaving the rows untouched is what makes
     # `horizon=current_year` byte-for-byte the board we had before this endpoint had horizons.
 
-    return BoardResponse(
+    tiering: Tiering | None = None
+    assignments: list[int | None] = [None] * len(valued)
+    if tiers == TIERS_AUTO:
+        # Tier the numbers the board is ALREADY ordered by — never a value recomputed some
+        # other way — over the whole ranking, before any position filter. A point guard's tier
+        # is his tier on the board, not his tier among point guards.
+        tiering = tier_structure(
+            [horizon_value(entry[3], horizon) for entry in valued], settings.tier_params()
+        )
+        assignments = tiering.assignments
+
+    return RankedBoard(
         source=source,
-        kind=kind,
         season=season,
         adp_source=adp_source,
         adp_season=adp_season,
-        total_ranked=len(valued),
-        position=position.strip().upper() if position else None,
         horizon=horizon,
-        age_as_of=settings.resolved_age_as_of(),
+        tiers=tiers,
+        entries=[
+            RankedEntry(projection=projection, player=player, adp=adp, value=value, tier=tier)
+            for (projection, player, adp, value), tier in zip(valued, assignments, strict=True)
+        ],
+        tiering=tiering,
+    )
+
+
+@router.get("/board", response_model=BoardResponse)
+def player_board(
+    db: Session = Depends(get_db),
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=1000, description="How many rows to return"),
+    position: str | None = Query(None, description="Filter to one position: PG, SG, SF, PF, or C"),
+    source: str = Query(ESPN_SOURCE, description="Projection source to rank by"),
+    season: int | None = Query(
+        None, description="Projection season; defaults to the newest stored for this source"
+    ),
+    adp_source: str = Query(ESPN_SOURCE, description="Whose ADP to display in the adp column"),
+    adp_season: int | None = Query(
+        None, description="ADP season; defaults to the newest stored for that ADP source"
+    ),
+    horizon: str = Query(
+        HORIZON_DYNASTY,
+        description=f"Which value horizon ranks the board: {HORIZON_CURRENT_YEAR!r} or "
+        f"{HORIZON_DYNASTY!r}",
+    ),
+    tiers: str = Query(
+        TIERS_AUTO,
+        description=f"Auto-tier the board by score gaps: {TIERS_AUTO!r} or {TIERS_OFF!r}",
+    ),
+) -> BoardResponse:
+    """Players ranked by projected fantasy points per game under our custom scoring.
+
+    `horizon=current_year` ranks by that number as-is (win-now). `horizon=dynasty`, the default
+    because this is a dynasty startup, ranks by the same number through the age/longevity
+    curve. Both values are on every row regardless.
+
+    `tiers=auto` (the default) also cuts the top TIER_POOL players into tiers wherever the drop
+    to the next player is unusually large — the line between "draft anyone still here" and
+    "reach". The tiers are computed over the overall ranking and are therefore identical
+    whether you ask for 20 rows or 200; a `position` filter narrows who is shown, never what
+    tier they are in. See GET /valuation/tiers for the structure and the gaps behind it.
+    """
+    board = ranked_board(
+        db,
+        source=source,
+        season=season,
+        adp_source=adp_source,
+        adp_season=adp_season,
+        horizon=horizon,
+        tiers=tiers,
+    )
+
+    entries = board.entries
+    # Positions live in a JSON column, and JSON containment is spelled differently in Postgres
+    # and the SQLite the tests run on. The pool is ~1k rows, so filtering here costs nothing
+    # and keeps one code path. It happens AFTER tiering, on purpose: see `ranked_board`.
+    if position:
+        wanted = position.strip().upper()
+        entries = [entry for entry in entries if wanted in (entry.player.positions or [])]
+
+    return BoardResponse(
+        source=board.source,
+        kind=SEASON_PROJECTION_KIND,
+        season=board.season,
+        adp_source=board.adp_source,
+        adp_season=board.adp_season,
+        total_ranked=len(entries),
+        position=position.strip().upper() if position else None,
+        horizon=board.horizon,
+        age_as_of=get_settings().resolved_age_as_of(),
+        tiers=board.tiers,
+        tier_pool=board.tiering.pool_size if board.tiering else 0,
+        tier_summary=[
+            TierSummaryRow(
+                tier=tier.tier,
+                size=tier.size,
+                value_high=tier.value_high,
+                value_low=tier.value_low,
+                start_rank=tier.start_index + 1,
+                gap=tier.gap,
+                gap_ratio=tier.gap_ratio,
+            )
+            for tier in (board.tiering.tiers if board.tiering else [])
+        ],
         players=[
             BoardRow(
                 rank=rank,
-                espn_player_id=player.espn_player_id,
-                name=player.full_name,
-                nba_team=player.nba_team,
-                positions=player.positions or [],
-                age=player.age,
-                fantasy_points_per_game=projection.fantasy_points_per_game,
-                fantasy_points_total=projection.fantasy_points_total,
-                projected_games=projection.projected_games,
-                per_game_basis=projection.per_game_basis,
-                adp=adp.adp if adp else None,
-                auction_value=adp.auction_value if adp else None,
-                percent_owned=adp.percent_owned if adp else None,
-                current_year_value=value.current_year,
-                dynasty_value=value.dynasty,
-                age_multiplier=value.multiplier,
-                age_adjusted=value.age_adjusted,
+                espn_player_id=entry.player.espn_player_id,
+                name=entry.player.full_name,
+                nba_team=entry.player.nba_team,
+                positions=entry.player.positions or [],
+                age=entry.player.age,
+                fantasy_points_per_game=entry.projection.fantasy_points_per_game,
+                fantasy_points_total=entry.projection.fantasy_points_total,
+                projected_games=entry.projection.projected_games,
+                per_game_basis=entry.projection.per_game_basis,
+                adp=entry.adp.adp if entry.adp else None,
+                auction_value=entry.adp.auction_value if entry.adp else None,
+                percent_owned=entry.adp.percent_owned if entry.adp else None,
+                current_year_value=entry.value.current_year,
+                dynasty_value=entry.value.dynasty,
+                age_multiplier=entry.value.multiplier,
+                age_adjusted=entry.value.age_adjusted,
+                tier=entry.tier,
             )
-            for rank, (projection, player, adp, value) in enumerate(valued[:limit], start=1)
+            for rank, entry in enumerate(entries[:limit], start=1)
         ],
     )
 

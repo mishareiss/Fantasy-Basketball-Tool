@@ -8,19 +8,8 @@ from app.ages import sync_ages
 from app.config import get_settings
 from app.db.models import AdpEntry, Projection
 from app.db.session import get_db
-from app.espn.ownership import parse_ownership
-from app.espn.players import parse_player_pool
-from app.espn.statsplits import parse_projections
-from app.espn.sync import (
-    SyncSummary,
-    sync_adp,
-    sync_players,
-    sync_projections,
-    sync_scoring_settings,
-)
 from app.ingest import run_import
 from app.main import app
-from app.scoring import ScoringEngine, parse_league_settings
 from tests.conftest import AGE_AS_OF, SEASON
 
 LEAGUE_ID = 999999
@@ -33,29 +22,6 @@ def api(db):
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def synced(db, msettings_payload, player_pool_payload) -> SyncSummary:
-    """A database in the state a real sync leaves it in."""
-    summary = SyncSummary(league_id=LEAGUE_ID, season=SEASON)
-    settings_row = sync_scoring_settings(
-        db,
-        espn_league_id=LEAGUE_ID,
-        season=SEASON,
-        parsed=parse_league_settings(msettings_payload),
-        summary=summary,
-    )
-    sync_players(db, parse_player_pool(player_pool_payload), summary)
-    sync_projections(
-        db,
-        parse_projections(player_pool_payload, SEASON),
-        ScoringEngine(settings_row.scoring_rules),
-        summary,
-    )
-    sync_adp(db, parse_ownership(player_pool_payload), summary, season=SEASON)
-    db.commit()
-    return summary
 
 
 def test_ranks_by_projected_points_per_game(api, synced):
@@ -353,20 +319,6 @@ def test_the_adp_column_is_still_espn_when_the_ranking_source_is_imported(
 # --- the value horizons (FEATURE_SPEC 4) -------------------------------------------------
 
 
-@pytest.fixture
-def aged(db, synced, nba_players, fetch_recorded_birthdate):
-    """The synced board, with nba.com ages filled in — what the dynasty horizon needs."""
-    sync_ages(
-        db,
-        as_of=AGE_AS_OF,
-        nba_players=nba_players,
-        fetch=fetch_recorded_birthdate,
-        delay=0,
-        sleep=lambda _: None,
-    )
-    return db
-
-
 def test_the_board_is_dynasty_by_default(api, aged):
     """It's a dynasty startup: the win-now lens is the one you have to ask for."""
     body = api.get("/players/board").json()
@@ -500,3 +452,194 @@ def test_a_steeper_decline_setting_re_ranks_the_dynasty_board(api, aged):
         row["name"]
         for row in api.get("/players/board?limit=1000&horizon=current_year").json()["players"]
     ]
+
+
+# --- draft tiers (FEATURE_SPEC 6) ---------------------------------------------------------
+
+
+def test_the_board_is_tiered_by_default(api, aged):
+    """A flat 1,095-row list is not a draft plan, so the tiers are what you get unasked."""
+    body = api.get("/players/board?limit=1000").json()
+
+    assert body["tiers"] == "auto"
+    assert body["tier_pool"] == body["total_ranked"], "the fixture board fits inside TIER_POOL"
+    assert body["tier_summary"]
+    assert body["players"][0]["tier"] == 1
+
+
+def test_tiers_only_ever_go_down_the_page(api, aged):
+    """The invariant a divider is drawn from: worth less can never mean a better tier."""
+    rows = api.get("/players/board?limit=1000").json()["players"]
+
+    tiers = [row["tier"] for row in rows]
+    assert tiers == sorted(tiers)
+    assert set(tiers) == set(range(1, max(tiers) + 1)), "no tier number is skipped"
+
+
+def test_a_break_falls_where_the_value_drop_is_unusual(api, aged):
+    """Every boundary is a real drop, bigger than the bar the settings set."""
+    body = api.get("/players/board?limit=1000").json()
+    rows = body["players"]
+    threshold = api.get("/valuation/tiers").json()["break_threshold"]
+
+    assert body["tier_summary"][0]["gap"] is None, "the top of the board opens tier 1"
+    for tier in body["tier_summary"][1:]:
+        start = tier["start_rank"] - 1
+        drop = rows[start - 1]["dynasty_value"] - rows[start]["dynasty_value"]
+        assert tier["gap"] == pytest.approx(drop, abs=1e-4)
+        assert tier["gap"] > threshold
+        assert tier["gap_ratio"] > get_settings().tier_gap_multiple
+
+
+def test_the_summary_describes_the_same_tiers_the_rows_carry(api, aged):
+    """So a client can draw the dividers without recomputing — or disagreeing."""
+    body = api.get("/players/board?limit=1000").json()
+    rows = body["players"]
+
+    for tier in body["tier_summary"]:
+        members = [row for row in rows if row["tier"] == tier["tier"]]
+        assert len(members) == tier["size"]
+        assert members[0]["rank"] == tier["start_rank"]
+        assert members[0]["dynasty_value"] == pytest.approx(tier["value_high"])
+        assert members[-1]["dynasty_value"] == pytest.approx(tier["value_low"])
+    assert sum(tier["size"] for tier in body["tier_summary"]) == body["tier_pool"]
+
+
+def test_tiers_are_the_same_whether_you_ask_for_twenty_rows_or_two_hundred(api, aged):
+    """They are cut over the pool, not over the page. A tier that changed with `limit` would
+    mean the divider moved because you scrolled."""
+    page = api.get("/players/board?limit=20").json()
+    full = api.get("/players/board?limit=1000").json()
+
+    assert page["tier_summary"] == full["tier_summary"]
+    assert page["tier_pool"] == full["tier_pool"]
+    by_id = {row["espn_player_id"]: row["tier"] for row in full["players"]}
+    assert all(by_id[row["espn_player_id"]] == row["tier"] for row in page["players"])
+
+
+def test_tiers_off_leaves_every_row_untiered(api, aged):
+    body = api.get("/players/board?limit=1000&tiers=off").json()
+
+    assert body["tiers"] == "off"
+    assert body["tier_pool"] == 0
+    assert body["tier_summary"] == []
+    assert all(row["tier"] is None for row in body["players"])
+    # ...and nothing else about the board moved.
+    auto = api.get("/players/board?limit=1000").json()
+    assert [row["espn_player_id"] for row in body["players"]] == [
+        row["espn_player_id"] for row in auto["players"]
+    ]
+
+
+def test_a_filtered_board_still_shows_a_player_his_overall_tier(api, aged):
+    """A point guard's tier is his tier on the board, not his tier among point guards."""
+    overall = {
+        row["espn_player_id"]: row["tier"]
+        for row in api.get("/players/board?limit=1000").json()["players"]
+    }
+    body = api.get("/players/board?limit=1000&position=C").json()
+
+    assert body["players"]
+    assert all(overall[row["espn_player_id"]] == row["tier"] for row in body["players"])
+    # The filtered page skips tiers nobody in it belongs to — which is the honest answer.
+    shown = [row["tier"] for row in body["players"]]
+    assert shown == sorted(shown)
+    # The summary describes the board, not the page, so it is the unfiltered one either way.
+    assert body["tier_summary"] == api.get("/players/board?limit=1000").json()["tier_summary"]
+    assert body["tier_pool"] == len(overall) > len(body["players"])
+
+
+def test_the_two_horizons_tier_differently(api, aged):
+    """They rank different numbers, so they break in different places — that's the point."""
+    dynasty = api.get("/players/board?limit=1000&horizon=dynasty").json()
+    current = api.get("/players/board?limit=1000&horizon=current_year").json()
+
+    assert dynasty["tier_summary"] != current["tier_summary"]
+    dynasty_tier = {row["name"]: row["tier"] for row in dynasty["players"]}
+    current_tier = {row["name"]: row["tier"] for row in current["players"]}
+    assert any(dynasty_tier[name] != current_tier[name] for name in dynasty_tier)
+    # LeBron is the extreme case: a top-tier win-now player and a bottom-tier dynasty asset.
+    assert dynasty_tier["LeBron James"] > current_tier["LeBron James"]
+
+
+def test_each_horizon_tiers_the_number_it_ranks_by(api, aged):
+    for horizon, column in (("dynasty", "dynasty_value"), ("current_year", "current_year_value")):
+        body = api.get(f"/players/board?limit=1000&horizon={horizon}").json()
+        rows = body["players"]
+
+        for tier in body["tier_summary"]:
+            members = [row for row in rows if row["tier"] == tier["tier"]]
+            assert members[0][column] == pytest.approx(tier["value_high"])
+            assert members[-1][column] == pytest.approx(tier["value_low"])
+
+
+def test_a_player_below_the_tiered_pool_is_untiered_not_last(api, aged):
+    """TIER_POOL bounds the tiered set: gaps among players nobody drafts are noise."""
+    settings = get_settings()
+    original = settings.tier_pool
+    try:
+        settings.tier_pool = 10
+        body = api.get("/players/board?limit=1000").json()
+    finally:
+        settings.tier_pool = original
+
+    assert body["tier_pool"] == 10
+    assert body["total_ranked"] > 10
+    assert all(row["tier"] is not None for row in body["players"][:10])
+    assert all(row["tier"] is None for row in body["players"][10:])
+
+
+def test_a_higher_gap_multiple_re_cuts_the_board(api, aged):
+    """Proof the board reads the settings, not a constant: move one, the tiers move."""
+    settings = get_settings()
+    before = api.get("/players/board?limit=1000").json()
+    original = settings.tier_gap_multiple
+    try:
+        settings.tier_gap_multiple = 6.0
+        body = api.get("/players/board?limit=1000").json()
+    finally:
+        settings.tier_gap_multiple = original
+
+    assert len(body["tier_summary"]) < len(before["tier_summary"]), "a higher bar, fewer breaks"
+    assert body["players"][0]["tier"] == 1
+    # ...and the ranking underneath is untouched: only the dividers moved.
+    assert [row["espn_player_id"] for row in body["players"]] == [
+        row["espn_player_id"] for row in before["players"]
+    ]
+
+
+def test_the_maximum_caps_how_many_tiers_a_board_can_have(api, aged):
+    settings = get_settings()
+    original = settings.tier_max
+    try:
+        settings.tier_max = 3
+        body = api.get("/players/board?limit=1000").json()
+    finally:
+        settings.tier_max = original
+
+    assert len(body["tier_summary"]) == 3
+    assert max(row["tier"] for row in body["players"]) == 3
+
+
+def test_an_unknown_tiers_mode_lists_the_ones_that_work(api, synced):
+    response = api.get("/players/board?tiers=manual")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "auto" in detail and "off" in detail
+
+
+def test_a_board_with_no_ages_is_still_tiered(api, synced):
+    """No birthdate means no age adjustment, not no tier: he is tiered on his projection."""
+    body = api.get("/players/board?limit=1000").json()
+
+    assert all(row["age"] is None for row in body["players"])
+    assert body["tier_summary"]
+    assert body["players"][0]["tier"] == 1
+    # With nothing to age by, the dynasty tiers are the win-now tiers.
+    assert (
+        body["tier_summary"]
+        == api.get("/players/board?limit=1000&tiers=auto&horizon=current_year").json()[
+            "tier_summary"
+        ]
+    )

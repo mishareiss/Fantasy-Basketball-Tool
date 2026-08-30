@@ -12,6 +12,11 @@ Nothing here touches the database and nothing is stored. Value is computed on re
 projection row and the player's age, with the curve parameters from `Settings.dynasty_curve()`.
 A `Valuation` table (value history, for dynasty trends over time) waits until we need to look
 at how a player's value moved, rather than what it is now.
+
+`tiers` sits one level above the two horizons: given the board's ranked values under whichever
+horizon is selected, it cuts them into draftable tiers by score-gap clustering (FEATURE_SPEC 6).
+It is pure and stateless for the same reason — no Tier table, because a tier is a read of the
+values, and the values are themselves a read.
 """
 
 from app.valuation.curve import (
@@ -34,6 +39,14 @@ from app.valuation.engine import (
     dynasty_value,
     value_player,
 )
+from app.valuation.tiers import (
+    HUGE_GAP_FACTOR,
+    Tier,
+    Tiering,
+    TierParams,
+    assign_tiers,
+    tier_structure,
+)
 
 __all__ = [
     "BAND_DECLINE",
@@ -41,15 +54,21 @@ __all__ = [
     "BAND_PRIME",
     "BAND_UNKNOWN",
     "BAND_YOUTH",
+    "HUGE_GAP_FACTOR",
     "PRECISION",
     "SAMPLE_MAX_AGE",
     "SAMPLE_MIN_AGE",
     "CurvePoint",
     "DynastyCurve",
     "PlayerValue",
+    "Tier",
+    "TierParams",
+    "Tiering",
     "age_multiplier",
+    "assign_tiers",
     "current_year_value",
     "dynasty_value",
     "sample_table",
+    "tier_structure",
     "value_player",
 ]

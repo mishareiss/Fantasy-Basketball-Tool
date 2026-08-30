@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.valuation import DynastyCurve
+from app.valuation import DynastyCurve, TierParams
 
 # backend/app/config.py -> backend/app -> backend -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +60,23 @@ class Settings(BaseSettings):
     # win-now value in a startup, and a curve that took him to zero would be lying about it.
     dynasty_min_multiplier: float = 0.40
 
+    # --- Draft tiers ------------------------------------------------------------------------
+    # Auto-tiering by score-gap clustering (FEATURE_SPEC 6), tunable for the same reason the
+    # curve is: how coarse the tiers should be is a judgement about our draft, not a constant.
+    # `GET /valuation/tiers` prints what these come to on the live board.
+    #
+    # A break opens where the drop to the next player exceeds this multiple of the MEDIAN drop
+    # across the tiered pool. Higher -> fewer, larger tiers.
+    tier_gap_multiple: float = 2.0
+    # No tier smaller than this, unless the gap that opened it is genuinely huge (a true
+    # outlier at the top of the board is allowed to stand alone). A tier of one is a ranking.
+    tier_min_size: int = 2
+    # Hard cap. Past about fifteen, a tiered board is a list again.
+    tier_max: int = 15
+    # How many top-ranked players get tiered at all. Gaps among players nobody will draft are
+    # noise, and they would drag the median that every break is measured against.
+    tier_pool: int = 150
+
     # Future projection / odds sources
     balldontlie_api_key: str | None = None
     the_odds_api_key: str | None = None
@@ -92,6 +109,20 @@ class Settings(BaseSettings):
             youth_bonus_per_year=self.dynasty_youth_bonus_per_year,
             decline_per_year=self.dynasty_decline_per_year,
             min_multiplier=self.dynasty_min_multiplier,
+        )
+
+    def tier_params(self) -> TierParams:
+        """The active tiering parameters, built from the TIER_* settings.
+
+        Per call, not cached, for the same reason as `dynasty_curve()`: a setting changed in a
+        test or a REPL has to take effect the way an env var would, and construction validates
+        the numbers so a nonsense set fails at the request that would have tiered by it.
+        """
+        return TierParams(
+            gap_multiple=self.tier_gap_multiple,
+            min_size=self.tier_min_size,
+            max_tiers=self.tier_max,
+            pool=self.tier_pool,
         )
 
 
