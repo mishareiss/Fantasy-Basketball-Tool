@@ -104,14 +104,49 @@ A hand-made alias wins over every matcher forever after, so each of those is a o
 ### The board
 
 ```bash
-curl "localhost:8000/players/board?limit=20"        # top 20 by projected points per game
-curl "localhost:8000/players/board?position=C"      # centers only
+curl "localhost:8000/players/board?limit=20"                      # top 20 by DYNASTY value
+curl "localhost:8000/players/board?limit=20&horizon=current_year" # ...by win-now value
+curl "localhost:8000/players/board?position=C"                    # centers only
 ```
 
 Players ranked by projected fantasy points per game **under our scoring**, each shown next to
 their age and ESPN's redraft ADP — the gap between our number and ESPN's is the edge, and age
-is what turns a redraft edge into a dynasty one. ADP is stored raw; the age *curve* that
-weights value by longevity lands later, on top of the ages this board now carries.
+is what turns a redraft edge into a dynasty one.
+
+Every row carries **both value horizons**, always:
+
+| Column | What it is |
+| --- | --- |
+| `current_year_value` | Win-now value: the projected points per game itself, age-agnostic. Identical to `fantasy_points_per_game`. |
+| `dynasty_value` | The same number through the age/longevity curve — youth rewarded, age discounted. |
+| `age_multiplier` | The factor the curve applied. |
+| `age_adjusted` | `false` when we hold no birthdate, so the 1.0 above it means "nothing to adjust by", not "in his prime". |
+
+`horizon` picks which of the two **orders** the board (`dynasty`, the default, or
+`current_year`) — never which one is computed. Flipping it re-ranks the same numbers, which is
+the Current-Year ⇄ Dynasty toggle from FEATURE_SPEC 4. A player with no age keeps a 1.0
+multiplier and therefore sits exactly where his production puts him on either board.
+
+#### The dynasty curve
+
+One transparent multiplier on the current projection — not a multi-year model. Five numbers,
+all from the environment, all inspectable:
+
+```bash
+curl "localhost:8000/valuation/curve"   # the active params + an age -> multiplier table
+```
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `DYNASTY_PRIME_START` | `24` | Start of the prime band (multiplier 1.0) |
+| `DYNASTY_PRIME_END` | `27` | End of the prime band |
+| `DYNASTY_YOUTH_BONUS_PER_YEAR` | `0.04` | Added per year under prime start (age 20 -> 1.16x) |
+| `DYNASTY_DECLINE_PER_YEAR` | `0.05` | Subtracted per year over prime end (age 32 -> 0.75x) |
+| `DYNASTY_MIN_MULTIPLIER` | `0.40` | Floor the decline can't pass (bites at 39+) |
+
+The defaults are a **moderate** curve — a starting point to calibrate against, not a
+conviction. Change one in `.env`, restart, and the board re-ranks; nothing needs a code change
+and nothing is stored, because value is computed on read.
 
 > ESPN only publishes a season's projections once its preseason is under way. Out of season the
 > sync stores ESPN's newest available projection and records the season it is really for, so the
@@ -270,14 +305,14 @@ want a different port.
 │   ├── app/
 │   │   ├── main.py          # app factory: routers + CORS
 │   │   ├── config.py        # pydantic-settings, reads the root .env
-│   │   ├── api/             # routers (health, sync, players/board, rankings; features next)
+│   │   ├── api/             # routers (health, sync, players/board, rankings, valuation/curve)
 │   │   ├── db/              # engine/session, declarative Base, models/
 │   │   ├── espn/            # ESPN v3 client, cookie auth, player/projection/ADP parsing, sync
 │   │   ├── ages/            # nba.com birthdates -> Player.birthdate/age at a fixed AGE_AS_OF
 │   │   ├── matching/        # name normalization + fuzzy matcher; every source resolves here
 │   │   ├── scoring/         # custom scoring formula parsed from mSettings + projection pricing
 │   │   ├── projections/     # stub: pluggable ProjectionSource layer
-│   │   ├── valuation/       # stub: current-year + dynasty value engine
+│   │   ├── valuation/       # age/longevity curve + the two value horizons (computed on read)
 │   │   ├── ranking/         # stub: consensus blending + personal model (storage: db/models/ranking)
 │   │   ├── draft/           # stub: draft board, plan, live pick following
 │   │   └── ingest/          # CSV/paste import: adp + projection + ranking kinds on one pipeline

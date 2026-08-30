@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.ages import sync_ages
+from app.config import get_settings
 from app.db.models import AdpEntry, Projection
 from app.db.session import get_db
 from app.espn.ownership import parse_ownership
@@ -347,3 +348,155 @@ def test_the_adp_column_is_still_espn_when_the_ranking_source_is_imported(
 
     assert top["adp_source"] == "espn"
     assert top["players"][0]["adp"] is not None
+
+
+# --- the value horizons (FEATURE_SPEC 4) -------------------------------------------------
+
+
+@pytest.fixture
+def aged(db, synced, nba_players, fetch_recorded_birthdate):
+    """The synced board, with nba.com ages filled in — what the dynasty horizon needs."""
+    sync_ages(
+        db,
+        as_of=AGE_AS_OF,
+        nba_players=nba_players,
+        fetch=fetch_recorded_birthdate,
+        delay=0,
+        sleep=lambda _: None,
+    )
+    return db
+
+
+def test_the_board_is_dynasty_by_default(api, aged):
+    """It's a dynasty startup: the win-now lens is the one you have to ask for."""
+    body = api.get("/players/board").json()
+
+    assert body["horizon"] == "dynasty"
+    assert body == api.get("/players/board?horizon=dynasty").json()
+
+
+def test_current_year_reproduces_the_board_we_had_before_horizons(api, aged):
+    """The regression check on the refactor: win-now ordering is the old fppg ordering."""
+    body = api.get("/players/board?limit=1000&horizon=current_year").json()
+
+    per_game = [row["fantasy_points_per_game"] for row in body["players"]]
+    assert per_game == sorted(per_game, reverse=True)
+    assert [row["current_year_value"] for row in body["players"]] == per_game
+    assert [row["rank"] for row in body["players"]] == list(range(1, len(per_game) + 1))
+
+
+def test_every_row_carries_both_horizons(api, aged):
+    body = api.get("/players/board?limit=1000&horizon=dynasty").json()
+
+    for row in body["players"]:
+        assert row["current_year_value"] == row["fantasy_points_per_game"]
+        assert row["dynasty_value"] == pytest.approx(
+            row["current_year_value"] * row["age_multiplier"]
+        )
+        assert row["age_adjusted"] is (row["age"] is not None)
+
+
+def test_the_dynasty_board_is_ordered_by_dynasty_value(api, aged):
+    body = api.get("/players/board?limit=1000&horizon=dynasty").json()
+
+    values = [row["dynasty_value"] for row in body["players"]]
+    assert values == sorted(values, reverse=True)
+    # ...and it is genuinely a different board, not the same one relabelled.
+    current = api.get("/players/board?limit=1000&horizon=current_year").json()
+    assert [row["espn_player_id"] for row in body["players"]] != [
+        row["espn_player_id"] for row in current["players"]
+    ]
+
+
+def test_the_youth_weighting_lifts_the_young_and_drops_the_old(api, aged):
+    """Equal production, twelve years apart: the dynasty board has to separate them."""
+    dynasty = {row["name"]: row for row in api.get("/players/board?limit=1000").json()["players"]}
+    current = {
+        row["name"]: row
+        for row in api.get("/players/board?limit=1000&horizon=current_year").json()["players"]
+    }
+
+    # LeBron at 41 is the extreme case: real win-now value, floored dynasty value.
+    lebron = dynasty["LeBron James"]
+    assert lebron["age"] == 41
+    assert lebron["age_multiplier"] == 0.4
+    assert lebron["rank"] > current["LeBron James"]["rank"], "an aging star must fall"
+
+    risers = [
+        name
+        for name, row in dynasty.items()
+        if row["age"] is not None and row["age"] <= 21 and row["rank"] < current[name]["rank"]
+    ]
+    assert risers, "someone under 22 has to rise when youth is rewarded"
+
+
+def test_a_player_with_no_age_is_ranked_on_his_projection_and_says_so(api, synced):
+    """No birthdate is missing information: rank him where his production puts him, flagged."""
+    body = api.get("/players/board?limit=1000&horizon=dynasty").json()
+
+    assert all(row["age"] is None for row in body["players"])
+    assert all(row["age_multiplier"] == 1.0 for row in body["players"])
+    assert all(row["age_adjusted"] is False for row in body["players"])
+    # With nothing to adjust by, the dynasty board IS the current-year board.
+    assert [row["espn_player_id"] for row in body["players"]] == [
+        row["espn_player_id"]
+        for row in api.get("/players/board?limit=1000&horizon=current_year").json()["players"]
+    ]
+
+
+def test_a_dynasty_board_is_still_one_row_per_player(api, aged):
+    body = api.get("/players/board?limit=1000&horizon=dynasty").json()
+
+    ids = [row["espn_player_id"] for row in body["players"]]
+    assert len(ids) == len(set(ids))
+    assert body["total_ranked"] == len(ids)
+
+
+def test_the_horizon_reorders_without_changing_who_is_on_the_board(api, aged):
+    dynasty = api.get("/players/board?limit=1000&horizon=dynasty").json()
+    current = api.get("/players/board?limit=1000&horizon=current_year").json()
+
+    assert dynasty["total_ranked"] == current["total_ranked"]
+    assert {row["espn_player_id"] for row in dynasty["players"]} == {
+        row["espn_player_id"] for row in current["players"]
+    }
+
+
+def test_the_horizon_composes_with_the_position_filter(api, aged):
+    body = api.get("/players/board?limit=1000&position=C&horizon=dynasty").json()
+
+    assert body["players"]
+    assert all("C" in row["positions"] for row in body["players"])
+    values = [row["dynasty_value"] for row in body["players"]]
+    assert values == sorted(values, reverse=True)
+
+
+def test_an_unknown_horizon_lists_the_ones_that_work(api, synced):
+    response = api.get("/players/board?horizon=next_decade")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "current_year" in detail and "dynasty" in detail
+
+
+def test_a_steeper_decline_setting_re_ranks_the_dynasty_board(api, aged):
+    """Proof the board reads the settings, not a constant: move one, the board moves."""
+    settings = get_settings()
+    before = [row["name"] for row in api.get("/players/board?limit=1000").json()["players"]]
+    original = settings.dynasty_decline_per_year
+    try:
+        settings.dynasty_decline_per_year = 0.15
+        body = api.get("/players/board?limit=1000").json()
+    finally:
+        settings.dynasty_decline_per_year = original
+
+    assert [row["name"] for row in body["players"]] != before
+    lebron = next(row for row in body["players"] if row["name"] == "LeBron James")
+    assert lebron["age_multiplier"] == 0.4, "the floor still holds"
+    veteran = next(row for row in body["players"] if row["age"] == 29)
+    assert veteran["age_multiplier"] == pytest.approx(0.7)
+    # ...and the win-now board is untouched by any of it.
+    assert [row["name"] for row in body["players"]] != [
+        row["name"]
+        for row in api.get("/players/board?limit=1000&horizon=current_year").json()["players"]
+    ]

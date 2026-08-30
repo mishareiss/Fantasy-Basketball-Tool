@@ -18,10 +18,18 @@ from app.db.models import AdpEntry, Player, PlayerAlias, Projection
 from app.db.session import get_db
 from app.espn.sync import ESPN_SOURCE, SEASON_PROJECTION_KIND
 from app.matching import MANUAL_SOURCE, record_alias
+from app.valuation import value_player
 
 router = APIRouter(prefix="/players", tags=["players"])
 
 DEFAULT_LIMIT = 50
+
+# The two value horizons the board can be ranked by (FEATURE_SPEC 4). Both are computed for
+# every row either way; the horizon only decides the ORDER, so flipping the toggle re-ranks the
+# same numbers rather than fetching a different board.
+HORIZON_CURRENT_YEAR = "current_year"
+HORIZON_DYNASTY = "dynasty"
+HORIZONS = (HORIZON_CURRENT_YEAR, HORIZON_DYNASTY)
 
 # What `GET /players/unresolved?need=` accepts. One endpoint per *question* ("who is our
 # board still missing X for"), not one per source — a new imported kind adds a need here.
@@ -55,6 +63,19 @@ class BoardRow(BaseModel):
     auction_value: float | None = None
     percent_owned: float | None = None
 
+    # Both value horizons, always (FEATURE_SPEC 4) — the toggle picks which one ranks the
+    # board, never which one is computed. Current-year IS `fantasy_points_per_game`: win-now
+    # value is the projection, and repeating it under a value name is what lets the two
+    # columns sit side by side and be compared.
+    current_year_value: float
+    # Current-year value through the age curve: see GET /valuation/curve for the active shape.
+    dynasty_value: float
+    age_multiplier: float
+    # False when we hold no birthdate for him, in which case the multiplier is 1.0 because
+    # there was nothing to adjust with — NOT because the curve judged him to be in his prime.
+    # Those two are the same number and mean opposite things, so the board says which it is.
+    age_adjusted: bool
+
 
 class BoardResponse(BaseModel):
     """A ranked slice of the board, plus what it was built from."""
@@ -69,6 +90,8 @@ class BoardResponse(BaseModel):
     adp_season: int | None = None
     total_ranked: int
     position: str | None = None
+    # Which horizon's value the rows are ordered by.
+    horizon: str
     # The date every `age` on this board was computed at. Ages are stored as a number, so the
     # board has to say what date that number is true on, or it means nothing three months
     # from now.
@@ -89,8 +112,26 @@ def player_board(
     adp_season: int | None = Query(
         None, description="ADP season; defaults to the newest stored for that ADP source"
     ),
+    horizon: str = Query(
+        HORIZON_DYNASTY,
+        description=f"Which value horizon ranks the board: {HORIZON_CURRENT_YEAR!r} or "
+        f"{HORIZON_DYNASTY!r}",
+    ),
 ) -> BoardResponse:
-    """Players ranked by projected fantasy points per game under our custom scoring."""
+    """Players ranked by projected fantasy points per game under our custom scoring.
+
+    `horizon=current_year` ranks by that number as-is (win-now). `horizon=dynasty`, the default
+    because this is a dynasty startup, ranks by the same number through the age/longevity
+    curve. Both values are on every row regardless.
+    """
+    if horizon not in HORIZONS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown horizon {horizon!r}; supported: "
+            + ", ".join(repr(name) for name in HORIZONS)
+            + ".",
+        )
+
     kind = SEASON_PROJECTION_KIND
 
     if season is None:
@@ -145,15 +186,42 @@ def player_board(
         wanted = position.strip().upper()
         rows = [row for row in rows if wanted in (row.Player.positions or [])]
 
+    settings = get_settings()
+    # One curve for the whole response: every row on a board must be priced by the same
+    # parameters, or the ranking compares numbers that don't mean the same thing.
+    curve = settings.dynasty_curve()
+    # Per-game is the basis the board ranks on, so that is what the horizons are computed from.
+    valued = [
+        (
+            projection,
+            player,
+            adp,
+            value_player(projection.fantasy_points_per_game, player.age, curve),
+        )
+        for projection, player, adp in rows
+    ]
+
+    if horizon == HORIZON_DYNASTY:
+        # Re-rank in Python rather than in SQL: the multiplier depends on `Player.age` through
+        # the curve, and pushing a piecewise function into SQLite-and-Postgres-compatible SQL
+        # would buy nothing on a ~1k-row pool except a second definition of the curve to keep
+        # in step with this one. Same tie-break as the SQL order — full_name — so the board is
+        # stable between identical calls.
+        valued.sort(key=lambda entry: (-entry[3].dynasty, entry[1].full_name))
+    # current_year needs no sort at all: it IS the per-game projection, and the query already
+    # came back ordered by exactly that. Leaving the rows untouched is what makes
+    # `horizon=current_year` byte-for-byte the board we had before this endpoint had horizons.
+
     return BoardResponse(
         source=source,
         kind=kind,
         season=season,
         adp_source=adp_source,
         adp_season=adp_season,
-        total_ranked=len(rows),
+        total_ranked=len(valued),
         position=position.strip().upper() if position else None,
-        age_as_of=get_settings().resolved_age_as_of(),
+        horizon=horizon,
+        age_as_of=settings.resolved_age_as_of(),
         players=[
             BoardRow(
                 rank=rank,
@@ -169,8 +237,12 @@ def player_board(
                 adp=adp.adp if adp else None,
                 auction_value=adp.auction_value if adp else None,
                 percent_owned=adp.percent_owned if adp else None,
+                current_year_value=value.current_year,
+                dynasty_value=value.dynasty,
+                age_multiplier=value.multiplier,
+                age_adjusted=value.age_adjusted,
             )
-            for rank, (projection, player, adp) in enumerate(rows[:limit], start=1)
+            for rank, (projection, player, adp, value) in enumerate(valued[:limit], start=1)
         ],
     )
 
