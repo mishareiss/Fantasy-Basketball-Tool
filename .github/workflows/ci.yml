@@ -5,8 +5,8 @@
 #
 # * `backend`   — ruff (check + format) and the offline pytest suite, incl. the SQLite-driven
 #                 migration tests.
-# * `frontend`  — eslint and a real `next build`, so the app can't silently rot while every
-#                 feature lands in Python.
+# * `frontend`  — eslint, a real `next build`, and the Vitest component tests for the board,
+#                 so the UI can't silently rot while every feature lands in Python.
 # * `migrations`— `alembic upgrade head` against a real Postgres 16, because the migration
 #                 tests run on SQLite (via `batch_alter_table`) and SQLite will happily accept
 #                 things Postgres won't.
@@ -61,7 +61,7 @@ jobs:
         run: make test
 
   frontend:
-    name: frontend (lint + build)
+    name: frontend (lint + build + tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -86,6 +86,11 @@ jobs:
       # build that needs a backend URL to succeed is a build that would break on Vercel too.
       - name: Build
         run: npm run build
+
+      # Component tests for the board, with the api client mocked — deterministic, and it
+      # reaches neither the backend nor ESPN, same as the Python suite above.
+      - name: Test (Vitest component tests)
+        run: npm test
 
   migrations:
     name: migrations (real Postgres 16)

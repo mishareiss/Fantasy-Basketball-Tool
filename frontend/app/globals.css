@@ -22,5 +22,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Geist, loaded in app/layout.tsx. The board leans on its tabular figures, so the
+     fallbacks are the system stacks rather than Arial. */
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }

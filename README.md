@@ -33,8 +33,14 @@ make backend              # FastAPI on http://localhost:8000  (docs at /docs)
 make frontend             # Next.js on http://localhost:3000
 ```
 
-Open <http://localhost:3000>. The placeholder page calls the backend and should show
-**API: ok** and **Database: connected**.
+Open <http://localhost:3000>. That is the **draft board**: every player we can price,
+ranked by the selected horizon and cut into tiers, with a horizon / position / depth / tiers
+toggle above it and a read-only "curve & tiers" inspector showing the two dials the ranking
+depends on. The reachability check that used to live there is now the footer strip, and in
+full at <http://localhost:3000/status> (**API: ok**, **Database: connected**).
+
+An unsynced backend gives the board an explicit "run `make sync`" state, and a stopped one a
+"can't reach the API" state — neither is a blank table.
 
 Quick check from the shell:
 
@@ -292,7 +298,8 @@ fixtures cannot see.
 ### Continuous integration
 
 Every push and pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): the
-backend's `make lint` and `make test`, the frontend's `npm run lint` and `npm run build`, and
+backend's `make lint` and `make test`, the frontend's `npm run lint`, `npm run build`, and
+`npm test` (Vitest component tests for the board, with the api client mocked), and
 `alembic upgrade head` (then down and back up) against a real Postgres 16 service — the
 migrations are SQLite-tested here, and Postgres is where they actually run.
 
@@ -358,8 +365,10 @@ want a different port.
 │   ├── scripts/             # sync_league / sync_ages + the two fixture recorders
 │   └── tests/               # offline suite + tests/fixtures/ recorded ESPN and nba.com JSON
 ├── frontend/                # Next.js App Router + TypeScript + Tailwind
-│   ├── app/                 # layout + placeholder health page
-│   └── lib/api.ts           # typed backend client
+│   ├── app/                 # / is the draft board; /status is the reachability check
+│   ├── components/board/    # controls, table + tier dividers, states, curve/tier inspector
+│   ├── lib/api.ts           # typed backend client (types mirror the pydantic models)
+│   └── __tests__/           # Vitest + React Testing Library, api client mocked
 ├── docs/                    # PLAN.md, FEATURE_SPEC.md, prompts/
 ├── docker-compose.yml       # Postgres 16
 ├── .env.example

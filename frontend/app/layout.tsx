@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
+
+import { BackendStatusStrip } from "@/components/BackendStatus";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +26,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        {children}
+        {/* The reachability probe, demoted to a strip: still the fastest way to tell an
+            empty board from a stopped backend, without owning the page any more. */}
+        <footer className="mt-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-zinc-200 px-4 py-3 sm:px-6 dark:border-zinc-800">
+          <BackendStatusStrip />
+          <Link
+            href="/status"
+            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          >
+            Status
+          </Link>
+        </footer>
+      </body>
     </html>
   );
 }
