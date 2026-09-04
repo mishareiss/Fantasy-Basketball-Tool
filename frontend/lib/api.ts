@@ -6,8 +6,9 @@
  *
  * The response types below MIRROR the backend's pydantic models — `BoardResponse` /
  * `BoardRow` / `TierSummaryRow` from app/api/players.py, `CurveResponse` / `TiersResponse`
- * from app/api/valuation.py. Field names and nullability are copied, not invented: if the
- * backend renames a field, the compiler is supposed to notice.
+ * from app/api/valuation.py, `ImportResponse` / `RowOutcomeResponse` / `KindInfo` from
+ * app/api/imports.py. Field names and nullability are copied, not invented: if the backend
+ * renames a field, the compiler is supposed to notice.
  */
 
 export const API_BASE_URL =
@@ -170,6 +171,148 @@ export type TiersResponse = {
   tiers: TierRow[];
 };
 
+/* -------------------------------------------------------------------------------------- *
+ * Imports — app/api/imports.py, app/ingest, and the alias escape hatch in app/api/players.py
+ * -------------------------------------------------------------------------------------- */
+
+/** One import kind, built or planned — app/api/imports.py: KindInfo. */
+export type ImportKindInfo = {
+  kind: string;
+  label: string;
+  /** False for a kind that is designed but not built; `label` says what it is waiting on. */
+  implemented: boolean;
+  /** field -> the header aliases that find it, e.g. `{ adp: ["adp", "avg pick", ...] }`. */
+  value_columns: Record<string, string[]>;
+  /** Fields a row must carry a value in, or it comes back `invalid`. */
+  required: string[];
+};
+
+/**
+ * A player a source name could be — app/matching/matcher.py: `MatchCandidate.as_dict()`.
+ *
+ * The backend declares `candidates: list[dict]` rather than a model, so this is the one type
+ * here that mirrors a serializer instead of a pydantic class. Every entry comes from that one
+ * `as_dict`, so the shape is exact even though FastAPI doesn't publish it.
+ */
+export type MatchCandidate = {
+  player_id: number;
+  full_name: string;
+  nba_team: string | null;
+  /** 0..1, how well the name scored. 1.0 for an alias or an exact hit. */
+  score: number;
+};
+
+/** Where a parsed row ended up — app/ingest/pipeline.py: the STATUS_* constants. */
+export const IMPORT_STATUSES = [
+  "matched",
+  "review",
+  "unmatched",
+  "duplicate",
+  "invalid",
+] as const;
+export type ImportRowStatus = (typeof IMPORT_STATUSES)[number];
+
+/** One row of the file and what became of it — imports.py: RowOutcomeResponse. */
+export type ImportRowOutcome = {
+  line: number;
+  source_name: string;
+  /** One of IMPORT_STATUSES. Typed as the backend types it (`str`), so a status we don't
+      know about yet renders as itself rather than failing to compile. */
+  status: string;
+  values: Record<string, number | string | null>;
+  team: string | null;
+  positions: string[];
+  player_id: number | null;
+  player_name: string | null;
+  confidence: number;
+  /** 'alias' | 'exact' | 'normalized' | 'fuzzy' | 'ambiguous' | 'unmatched' | ''. */
+  method: string;
+  candidates: MatchCandidate[];
+  note: string | null;
+};
+
+/** The preview or the receipt — imports.py: ImportResponse. `dry_run` says which. */
+export type ImportResponse = {
+  kind: string;
+  source: string;
+  season: number;
+  dry_run: boolean;
+  options: Record<string, string>;
+
+  /** field -> the header it was detected under. The one mis-detection a row list can't show. */
+  columns: Record<string, string>;
+  delimiter: string;
+
+  rows_parsed: number;
+  rows_skipped_blank: number;
+
+  matched: number;
+  review: number;
+  unmatched: number;
+  duplicate: number;
+  invalid: number;
+
+  aliases_created: number;
+  aliases_existing: number;
+
+  rows_created: number;
+  rows_updated: number;
+  rows_unchanged: number;
+  /** Whatever the handler wanted to say that the counters can't. Free text. */
+  notes: string[];
+
+  rows: ImportRowOutcome[];
+};
+
+/** The body of POST /import/{kind} — imports.py: ImportRequest, minus `dry_run`.
+ *  The two callers below set that, so a preview can never be sent as a commit by accident. */
+export type ImportRequestBody = {
+  source: string;
+  text: string;
+  season?: number | null;
+  column_map?: Record<string, string> | null;
+  delimiter?: string | null;
+  options?: Record<string, string> | null;
+  strict?: boolean;
+};
+
+/** The `basis` option a projection import takes — app/ingest/projection.py: BASES. */
+export const PROJECTION_BASES = ["per_game", "season"] as const;
+export type ProjectionBasis = (typeof PROJECTION_BASES)[number];
+
+/**
+ * The `horizon` option a ranking import REQUIRES — app/db/models/ranking.py.
+ *
+ * Deliberately not the board's `Horizon` above: that one names a computed lens over
+ * production, this one names what a rank-only list already is. A ranking has no stats to
+ * age-adjust, so it declares its horizon at import; a projection derives both from the curve.
+ */
+export const RANKING_HORIZONS = ["dynasty", "redraft"] as const;
+export type RankingHorizon = (typeof RANKING_HORIZONS)[number];
+
+/** POST /players/{id}/aliases — app/api/players.py: AliasRequest. */
+export type AliasRequestBody = {
+  source: string;
+  source_name: string;
+  source_id?: string | null;
+};
+
+/** app/api/players.py: AliasResponse. */
+export type AliasResponse = {
+  espn_player_id: number;
+  name: string;
+  source: string;
+  source_name: string;
+  source_id: string | null;
+  confidence: number | null;
+  match_method: string | null;
+  /** False when the alias already existed — resolving the same row twice is a no-op. */
+  created: boolean;
+  /** ISO date, when the alias immediately gave us one. */
+  birthdate: string | null;
+  age: number | null;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -225,6 +368,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** A JSON POST through the same error shaping. */
+async function post<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export const api = {
   info: () => request<ServiceInfo>("/"),
   health: () => request<HealthResponse>("/health"),
@@ -251,4 +403,24 @@ export const api = {
   /** Where the board breaks into tiers, and the gap arithmetic that put them there. */
   valuationTiers: (horizon?: Horizon) =>
     request<TiersResponse>(`/valuation/tiers${query({ horizon })}`),
+
+  /** What can be imported today, and what is designed but not built. */
+  importKinds: () => request<ImportKindInfo[]>("/import/kinds"),
+
+  /** Parse, match and report — writes nothing. This is what the preview table renders. */
+  importPreview: (kind: string, body: ImportRequestBody) =>
+    post<ImportResponse>(`/import/${encodeURIComponent(kind)}`, { ...body, dry_run: true }),
+
+  /** The same run, persisted. Rows held for review are still never written. */
+  importCommit: (kind: string, body: ImportRequestBody) =>
+    post<ImportResponse>(`/import/${encodeURIComponent(kind)}`, { ...body, dry_run: false }),
+
+  /**
+   * Record by hand what the matcher couldn't place: "this source calls our player that".
+   *
+   * The half of the import loop that makes a review row go away — after this, re-previewing
+   * the same file lands that row as `method: 'alias'` at confidence 1.0, for good.
+   */
+  addPlayerAlias: (espnPlayerId: number, body: AliasRequestBody) =>
+    post<AliasResponse>(`/players/${espnPlayerId}/aliases`, body),
 };

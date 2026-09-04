@@ -30,6 +30,10 @@ class RankingSetSummary(BaseModel):
     source: str
     name: str
     season: int
+    # 'dynasty' or 'redraft' — declared at import, because a rank-only list carries no stats
+    # to age-adjust and nothing downstream could work it out. Part of the set's identity, so
+    # one source's two boards for one season are two rows here.
+    horizon: str
     entry_count: int
     # When the set was last imported — a board's age is the first thing to know about it.
     as_of: datetime
@@ -60,6 +64,7 @@ def list_ranking_sets(
     db: Session = Depends(get_db),
     source: str | None = Query(None, description="Only sets published by this source"),
     season: int | None = Query(None, description="Only sets for this season"),
+    horizon: str | None = Query(None, description="Only 'dynasty' or only 'redraft' sets"),
 ) -> list[RankingSetSummary]:
     """Every stored ranking set, newest import first."""
     counts = (
@@ -78,6 +83,8 @@ def list_ranking_sets(
         statement = statement.where(RankingSet.source == source)
     if season is not None:
         statement = statement.where(RankingSet.season == season)
+    if horizon is not None:
+        statement = statement.where(RankingSet.horizon == horizon)
 
     return [
         RankingSetSummary(
@@ -85,6 +92,7 @@ def list_ranking_sets(
             source=ranking_set.source,
             name=ranking_set.name,
             season=ranking_set.season,
+            horizon=ranking_set.horizon,
             entry_count=entry_count,
             as_of=ranking_set.as_of,
         )
@@ -124,6 +132,7 @@ def get_ranking_set(
         source=ranking_set.source,
         name=ranking_set.name,
         season=ranking_set.season,
+        horizon=ranking_set.horizon,
         # The size of the *set*, not of this page — `limit` narrows what you read, not what
         # the list is.
         entry_count=db.scalar(

@@ -15,6 +15,7 @@ from tests.conftest import SEASON
 
 SOURCE = "hashtag"
 SET_NAME = "Dynasty Top 200"
+HORIZON = "dynasty"
 
 
 @pytest.fixture
@@ -26,7 +27,7 @@ def api(players):
         app.dependency_overrides.clear()
 
 
-def _import(api, csv, *, name: str | None = SET_NAME, **overrides) -> dict:
+def _import(api, csv, *, name: str | None = SET_NAME, horizon: str = HORIZON, **overrides) -> dict:
     body = {
         "source": SOURCE,
         "season": SEASON,
@@ -34,8 +35,10 @@ def _import(api, csv, *, name: str | None = SET_NAME, **overrides) -> dict:
         "dry_run": False,
         **overrides,
     }
+    options = {"horizon": horizon}
     if name is not None:
-        body.setdefault("options", {"name": name})
+        options["name"] = name
+    body.setdefault("options", options)
     response = api.post("/import/ranking", json=body)
     assert response.status_code == 200, response.text
     return response.json()
@@ -44,11 +47,38 @@ def _import(api, csv, *, name: str | None = SET_NAME, **overrides) -> dict:
 # --- the import endpoint's half -------------------------------------------------------------
 
 
-def test_the_set_name_flows_through_the_options_body(api, ranking_csv):
+def test_the_set_name_and_horizon_flow_through_the_options_body(api, ranking_csv):
     body = _import(api, ranking_csv, dry_run=True)
 
-    assert body["options"] == {"name": SET_NAME}
-    assert f"set {SET_NAME!r}" in body["notes"][0]
+    assert body["options"] == {"horizon": HORIZON, "name": SET_NAME}
+    assert f"set {SET_NAME!r} ({SOURCE}, {HORIZON}, season {SEASON})" in body["notes"][0]
+
+
+def test_a_ranking_with_no_horizon_is_a_422_that_says_what_it_wanted(api, ranking_csv):
+    """The one option this kind refuses to default: a rank-only list has no stats to adjust."""
+    response = api.post(
+        "/import/ranking",
+        json={"source": SOURCE, "season": SEASON, "text": ranking_csv, "options": {"name": "x"}},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "horizon" in detail and "dynasty" in detail and "redraft" in detail
+
+
+def test_an_invalid_horizon_is_a_422_too(api, ranking_csv):
+    response = api.post(
+        "/import/ranking",
+        json={
+            "source": SOURCE,
+            "season": SEASON,
+            "text": ranking_csv,
+            "options": {"name": SET_NAME, "horizon": "keeper"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "keeper" in response.json()["detail"]
 
 
 def test_the_dry_run_preview_says_where_rank_came_from(api, ranking_csv, ranking_order_csv):
@@ -66,7 +96,7 @@ def test_an_option_the_kind_does_not_know_is_a_422(api, ranking_csv):
             "source": SOURCE,
             "season": SEASON,
             "text": ranking_csv,
-            "options": {"basis": "season"},
+            "options": {"basis": "season", "horizon": HORIZON},
         },
     )
 
@@ -95,6 +125,7 @@ def test_listing_the_sets_we_hold(api, ranking_csv, ranking_order_csv):
         (SET_NAME, 11),
         ("Our Board", 7),
     }
+    assert {entry["horizon"] for entry in sets} == {HORIZON}
     assert {entry["source"] for entry in sets} == {SOURCE}
     assert {entry["season"] for entry in sets} == {SEASON}
     assert all(entry["as_of"] for entry in sets)
@@ -106,6 +137,28 @@ def test_the_list_can_be_narrowed_by_source_and_season(api, ranking_csv):
     assert api.get("/rankings", params={"source": SOURCE}).json() != []
     assert api.get("/rankings", params={"source": "nobody"}).json() == []
     assert api.get("/rankings", params={"season": SEASON + 1}).json() == []
+
+
+def test_the_two_horizons_of_one_name_are_two_listed_sets(api, ranking_csv):
+    """End to end: the same name and season, imported twice, read back as two boards."""
+    _import(api, ranking_csv, name="Top 200", horizon="dynasty")
+    _import(api, ranking_csv, name="Top 200", horizon="redraft")
+
+    sets = api.get("/rankings").json()
+
+    assert sorted(entry["horizon"] for entry in sets) == ["dynasty", "redraft"]
+    assert {entry["name"] for entry in sets} == {"Top 200"}
+    assert len({entry["id"] for entry in sets}) == 2
+    assert [
+        entry["name"] for entry in api.get("/rankings", params={"horizon": "dynasty"}).json()
+    ] == ["Top 200"]
+
+
+def test_the_detail_view_says_which_horizon_the_board_is(api, ranking_csv):
+    _import(api, ranking_csv, horizon="redraft")
+    set_id = api.get("/rankings").json()[0]["id"]
+
+    assert api.get(f"/rankings/{set_id}").json()["horizon"] == "redraft"
 
 
 def test_an_empty_database_lists_nothing_rather_than_failing(api):

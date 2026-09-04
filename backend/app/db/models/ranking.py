@@ -17,6 +17,11 @@ season); `RankingEntry` is a player's place on it. The consequences that matter 
   take its entries with it, from either end.
 * **Rank is stored, not derived.** A source that prints 1..200 with gaps, or that ranks by
   tier, means what it printed; re-deriving order from `value` would quietly disagree with it.
+* **A set declares its horizon.** A rank-only list carries no production numbers, so nothing
+  downstream can age-adjust it the way a projection is adjusted — the only way to know whether
+  "Top 200" means dynasty or redraft is for the list to say so at import. Value sources
+  (`Projection`, and the market lines to come) need no such column: they hold per-player
+  production, and both horizons are derived from it by the age curve.
 """
 
 from datetime import datetime
@@ -27,13 +32,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.db.models.player import Player
 
+# The two horizons a rank-only list can be about. Deliberately NOT the board's
+# `current_year`/`dynasty` vocabulary (app/api/players.py: HORIZONS): that names a *computed*
+# lens over production, this names what an imported list already is.
+HORIZON_DYNASTY = "dynasty"
+HORIZON_REDRAFT = "redraft"
+RANKING_HORIZONS = (HORIZON_DYNASTY, HORIZON_REDRAFT)
+
 
 class RankingSet(Base):
-    """One named ordered list, from one source, for one season."""
+    """One named ordered list, from one source, for one season, on one horizon."""
 
     __tablename__ = "ranking_set"
     __table_args__ = (
-        UniqueConstraint("source", "name", "season", name="uq_ranking_set_source_name_season"),
+        UniqueConstraint(
+            "source",
+            "name",
+            "season",
+            "horizon",
+            name="uq_ranking_set_source_name_season_horizon",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,6 +64,10 @@ class RankingSet(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # The season the list is FOR, labelled as `AdpEntry.season` is (the year the season ends).
     season: Mapped[int] = mapped_column(nullable=False)
+    # 'dynasty' or 'redraft' — which question the list answers. Part of the identity, not a
+    # caption: the same source publishes both under the same name for the same season, and
+    # keying without it would have the second import silently eat the first.
+    horizon: Mapped[str] = mapped_column(String(16), nullable=False)
 
     # When the set was last (re)imported. Unlike `as_of` on AdpEntry/Projection this does move
     # on every import, changed contents or not: a ranking's freshness is a property of the
@@ -63,7 +85,7 @@ class RankingSet(Base):
     def __repr__(self) -> str:
         return (
             f"RankingSet(id={self.id!r}, source={self.source!r}, name={self.name!r}, "
-            f"season={self.season!r})"
+            f"season={self.season!r}, horizon={self.horizon!r})"
         )
 
 

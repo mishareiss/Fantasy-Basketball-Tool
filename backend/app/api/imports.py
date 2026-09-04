@@ -52,9 +52,12 @@ class ImportRequest(BaseModel):
         None,
         description="Per-kind options. `projection` takes {'basis': 'per_game'|'season'} — "
         "whether the stat columns are per-game averages (the usual export) or season totals. "
-        "`ranking` takes {'name': 'Dynasty Top 200'} — the set's label, which together with "
-        "(source, season) decides which stored set this import replaces; it defaults to the "
-        "source name. An option a kind doesn't know is a 422, never a silent default.",
+        "`ranking` takes {'name': 'Dynasty Top 200', 'horizon': 'dynasty'|'redraft'} — the "
+        "set's label, which defaults to the source name, and which question the list answers, "
+        "which is REQUIRED because a rank-only list has no stats to age-adjust. Together with "
+        "(source, season) the two decide which stored set this import replaces. An option a "
+        "kind doesn't know, and a missing or invalid horizon, are a 422 — never a silent "
+        "default.",
     )
     dry_run: bool = Field(True, description="Preview only. Set false to write.")
     strict: bool = Field(

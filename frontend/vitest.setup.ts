@@ -6,9 +6,10 @@ import { afterEach } from "vitest";
  * tests explicitly, or every test after the first renders into a document that still holds
  * the previous board.
  *
- * No jest-dom matchers here on purpose: it declares `node >=22` and the CI frontend job is
- * pinned to Node 20, so the assertions stay on Vitest's own (a `getBy*` query already throws
- * when the element is missing, which is most of what `toBeInTheDocument` was doing).
+ * No jest-dom matchers here: the assertions stay on Vitest's own, because a `getBy*` query
+ * already throws when the element is missing, which is most of what `toBeInTheDocument` was
+ * doing. (This used to be forced — jest-dom declares `node >=22` and CI was pinned to 20 —
+ * but CI now runs 22 for Vitest's sake, so it is a choice again rather than a constraint.)
  */
 afterEach(() => {
   cleanup();

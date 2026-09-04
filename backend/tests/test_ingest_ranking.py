@@ -6,8 +6,11 @@ nothing here re-tests them. What is specific to this kind:
 * rank comes from the column when the file has one, and from the file's order when it doesn't
   — and a row we couldn't place leaves a *gap*, rather than promoting everyone below it;
 * tier is a label (text) and value is a number, both optional;
-* a set is identified by (source, name, season), and importing it again REPLACES its entries:
-  the players who fell off are gone, the rest are re-ranked, and nothing is duplicated.
+* a set is identified by (source, name, season, horizon), and importing it again REPLACES its
+  entries: the players who fell off are gone, the rest are re-ranked, and nothing is
+  duplicated;
+* the horizon is required and part of that identity, so one source's dynasty board and its
+  redraft board coexist instead of eating each other.
 """
 
 import pytest
@@ -27,6 +30,7 @@ from tests.conftest import SEASON
 
 SOURCE = "hashtag"
 SET_NAME = "Dynasty Top 200"
+HORIZON = "dynasty"
 
 SGA_ID = 4278073
 JOKIC_ID = 3112335
@@ -62,7 +66,7 @@ EXPECTED_ORDER_RANKS = {
 
 def _import(db, csv, **kwargs):
     kwargs.setdefault("season", SEASON)
-    kwargs.setdefault("options", {"name": SET_NAME})
+    kwargs.setdefault("options", {"name": SET_NAME, "horizon": HORIZON})
     kwargs.setdefault("dry_run", False)
     return run_import(db, kind="ranking", source=SOURCE, text=csv, **kwargs)
 
@@ -220,15 +224,22 @@ def test_a_file_with_neither_tier_nor_value_imports_anyway(players, ranking_orde
 # --- set identity and wholesale replace ---------------------------------------------------
 
 
-def test_the_set_is_named_by_the_option_and_keyed_with_source_and_season(players, ranking_csv):
+def test_the_set_is_named_by_the_option_and_keyed_with_source_season_and_horizon(
+    players, ranking_csv
+):
     _import(players, ranking_csv)
 
     (stored,) = _sets(players)
-    assert (stored.source, stored.name, stored.season) == (SOURCE, SET_NAME, SEASON)
+    assert (stored.source, stored.name, stored.season, stored.horizon) == (
+        SOURCE,
+        SET_NAME,
+        SEASON,
+        HORIZON,
+    )
 
 
 def test_without_a_name_the_set_is_the_source(players, ranking_csv):
-    _import(players, ranking_csv, options=None)
+    _import(players, ranking_csv, options={"horizon": HORIZON})
 
     (stored,) = _sets(players)
     assert stored.name == SOURCE
@@ -236,10 +247,71 @@ def test_without_a_name_the_set_is_the_source(players, ranking_csv):
 
 def test_a_different_name_is_a_different_set_not_a_replacement(players, ranking_csv):
     _import(players, ranking_csv)
-    _import(players, ranking_csv, options={"name": "Redraft Top 200"})
+    _import(players, ranking_csv, options={"name": "Redraft Top 200", "horizon": HORIZON})
 
     assert [stored.name for stored in _sets(players)] == [SET_NAME, "Redraft Top 200"]
     assert players.scalar(select(func.count()).select_from(RankingEntry)) == 22
+
+
+def test_a_dynasty_and_a_redraft_list_of_one_name_are_two_sets(players, ranking_csv):
+    """The reason the horizon is in the key. Yahoo publishes both, under one name, per season.
+
+    Keyed without it, the second import would silently replace the first — wholesale, since
+    that is how this kind writes — and the list it ate would be gone.
+    """
+    _import(players, ranking_csv, options={"name": "Top 200", "horizon": "dynasty"})
+    _import(players, ranking_csv, options={"name": "Top 200", "horizon": "redraft"})
+
+    assert [(stored.name, stored.horizon) for stored in _sets(players)] == [
+        ("Top 200", "dynasty"),
+        ("Top 200", "redraft"),
+    ]
+    assert players.scalar(select(func.count()).select_from(RankingEntry)) == 22
+
+
+def test_a_re_import_lands_on_the_set_with_its_own_horizon(players, ranking_csv):
+    """Replacing one horizon's board leaves the other one's entries exactly where they were."""
+    _import(players, ranking_csv, options={"name": "Top 200", "horizon": "dynasty"})
+    _import(players, ranking_csv, options={"name": "Top 200", "horizon": "redraft"})
+    thinner = "\n".join(line for line in ranking_csv.splitlines() if "Jokić" not in line)
+
+    _import(players, thinner, options={"name": "Top 200", "horizon": "redraft"})
+
+    dynasty, redraft = _sets(players)
+    assert len(_entries(players, dynasty)) == 11
+    assert len(_entries(players, redraft)) == 10
+    assert "Nikola Jokic" in _entries(players, dynasty)
+
+
+def test_a_ranking_without_a_horizon_is_refused_rather_than_guessed(players, ranking_csv):
+    """A rank-only list has no stats to age-adjust; filing it under the wrong lens is silent."""
+    with pytest.raises(ImportParseError, match="horizon"):
+        _import(players, ranking_csv, options={"name": SET_NAME})
+
+    assert players.scalar(select(func.count()).select_from(RankingSet)) == 0
+
+
+@pytest.mark.parametrize("horizon", ["", "keeper", "DYNASTY?", "current_year"])
+def test_a_horizon_the_kind_does_not_know_is_refused(players, ranking_csv, horizon):
+    """'current_year' is the *board's* vocabulary, and deliberately not this one."""
+    with pytest.raises(ImportParseError, match="horizon"):
+        _import(players, ranking_csv, options={"name": SET_NAME, "horizon": horizon})
+
+    assert players.scalar(select(func.count()).select_from(RankingSet)) == 0
+
+
+def test_the_horizon_is_read_case_insensitively(players, ranking_csv):
+    _import(players, ranking_csv, options={"name": SET_NAME, "horizon": " Redraft "})
+
+    assert _sets(players)[0].horizon == "redraft"
+
+
+def test_the_resolved_horizon_is_in_the_note_so_the_preview_names_the_right_set(
+    players, ranking_csv
+):
+    summary = _import(players, ranking_csv, dry_run=True)
+
+    assert f"set {SET_NAME!r} ({SOURCE}, {HORIZON}, season {SEASON})" in summary.notes[0]
 
 
 def test_the_same_name_replaces_the_set_wholesale(players, ranking_csv):
@@ -299,7 +371,11 @@ def test_an_import_that_resolved_nothing_leaves_the_set_alone(players, ranking_c
 def test_an_unknown_option_is_refused_rather_than_ignored(players, ranking_csv):
     """A dropped `--name` would replace the wrong list, and the entries it ate are gone."""
     with pytest.raises(ImportParseError, match="unknown option"):
-        _import(players, ranking_csv, options={"basis": "season", "name": SET_NAME})
+        _import(
+            players,
+            ranking_csv,
+            options={"basis": "season", "name": SET_NAME, "horizon": HORIZON},
+        )
 
     assert players.scalar(select(func.count()).select_from(RankingSet)) == 0
 

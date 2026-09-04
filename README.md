@@ -42,6 +42,13 @@ full at <http://localhost:3000/status> (**API: ok**, **Database: connected**).
 An unsynced backend gives the board an explicit "run `make sync`" state, and a stopped one a
 "can't reach the API" state — neither is a blank table.
 
+<http://localhost:3000/import> is the same import pipeline in the browser: pick a kind, paste
+the table or drop a CSV on it (read in the *browser* — there is no upload endpoint), fill in
+the source and the per-kind options, and **Preview**. You get the counts, the columns it
+detected, the handler's notes and every row colour-coded by status; a row it couldn't place
+shows its candidates, and clicking the right one records the alias and re-previews so the row
+lands as `alias`. **Commit** writes, and links back to the board.
+
 Quick check from the shell:
 
 ```bash
@@ -213,10 +220,13 @@ make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv COMMIT=
 make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game
 make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv BASIS=per_game COMMIT=1
 
-# Rankings: an ordered board with optional tiers. NAME labels the set.
-make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" FILE=~/Downloads/top200.csv
-make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" FILE=~/Downloads/top200.csv COMMIT=1
+# Rankings: an ordered board with optional tiers. NAME labels the set; HORIZON is required.
+make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" HORIZON=dynasty FILE=~/Downloads/top200.csv
+make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" HORIZON=dynasty FILE=~/Downloads/top200.csv COMMIT=1
 ```
+
+All of it is also a form at <http://localhost:3000/import>, which is usually the easier way in
+— same endpoint, same two phases, and the review worklist is clickable there.
 
 **Dry run by default.** Without `COMMIT=1` nothing is stored: you get the columns it found,
 the matched rows, and two worklists — names it couldn't confidently place (`review`) and names
@@ -238,9 +248,18 @@ ADP and projections store *a number about a player*. A ranking is a **list**, so
 tables (`ranking_set` / `ranking_entry`): the interesting facts about a board are collective —
 who is on it, who fell off it, where the tiers break.
 
-A set is identified by **(source, `NAME`, season)**, which is what `NAME=` is for: it lets one
-source publish several boards, and it decides which stored board an import lands on. `NAME`
-defaults to the source, which is right for a source with exactly one list.
+A set is identified by **(source, `NAME`, season, `HORIZON`)**, which is what `NAME=` is for: it
+lets one source publish several boards, and it decides which stored board an import lands on.
+`NAME` defaults to the source, which is right for a source with exactly one list.
+
+**`HORIZON=dynasty|redraft` is required**, and it is the one option the importer refuses to
+default. A ranking is *rank-only*: it carries no production numbers, so nothing downstream can
+age-adjust it the way a projection is adjusted, and there is no arithmetic that turns a redraft
+Top 200 into a dynasty board. The only moment the answer is known is the import. It is part of
+the key for the same reason — a source publishes both lists under one name for one season, and
+keyed without it the second import would silently replace the first, wholesale. Value kinds
+(`projection`, and `market_line` when it lands) take no horizon: they hold production, and both
+horizons come off the age curve. `GET /rankings` reports each set's horizon and can filter on it.
 
 Re-importing that identity **replaces the set wholesale** — the old entries are deleted and the
 file's are written. Version two of a list is a different list: players drop off it and the rest

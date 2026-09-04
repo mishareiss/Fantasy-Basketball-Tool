@@ -71,8 +71,10 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          # Next 16 wants >=20.9; 20 is the floor we support, so it's the one worth proving.
-          node-version: "20"
+          # 22, not 20: the Vitest 4 / Vite 8 toolchain needs it, and a frontend job whose
+          # tests can't start is a job that proves nothing. Next 16 only wants >=20.9, so 20
+          # remains fine for `next build` — it is the test runner that sets the floor now.
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 

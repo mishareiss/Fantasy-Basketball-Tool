@@ -30,6 +30,9 @@ UNDER_TEST = "637150ee8d91"
 RANKING_BEFORE = UNDER_TEST
 RANKING = "b9e3dada060f"
 
+# The revision that put `horizon` on `ranking_set` and re-keyed the table with it.
+HORIZON = "c41d9a7e5b30"
+
 
 @pytest.fixture
 def migrated(tmp_path, monkeypatch):
@@ -243,17 +246,9 @@ def test_a_from_scratch_apply_reaches_the_ranking_tables(migrated):
 
 
 def _seed_ranking(engine) -> None:
-    """One set with two entries, inserted the way the importer would."""
+    """One set with two entries, inserted the way the importer would (pre-horizon shape)."""
     with engine.begin() as connection:
-        for player_id in (1, 2):
-            connection.execute(
-                text(
-                    "INSERT OR IGNORE INTO player "
-                    "(espn_player_id, full_name, positions, injured, created_at, updated_at) "
-                    f"VALUES ({player_id}, 'Player {player_id}', '[]', 0, '2026-01-01', "
-                    "'2026-01-01')"
-                )
-            )
+        _seed_players(connection, (1, 2))
         connection.execute(
             text(
                 "INSERT INTO ranking_set (id, source, name, season, as_of) "
@@ -267,3 +262,141 @@ def _seed_ranking(engine) -> None:
                     f"VALUES (1, {player_id}, {rank}, 'Tier 1')"
                 )
             )
+
+
+def _seed_players(connection, player_ids) -> None:
+    for player_id in player_ids:
+        connection.execute(
+            text(
+                "INSERT OR IGNORE INTO player "
+                "(espn_player_id, full_name, positions, injured, created_at, updated_at) "
+                f"VALUES ({player_id}, 'Player {player_id}', '[]', 0, '2026-01-01', "
+                "'2026-01-01')"
+            )
+        )
+
+
+# --- ranking_set.horizon --------------------------------------------------------------------
+
+
+def _ranking_sets(engine) -> list[tuple]:
+    with engine.begin() as connection:
+        return list(
+            connection.execute(
+                text(
+                    "SELECT id, source, name, season, horizon FROM ranking_set "
+                    "ORDER BY name, horizon"
+                )
+            )
+        )
+
+
+def _seed_horizon_set(engine, set_id: int, *, name: str, horizon: str, as_of: str) -> None:
+    """One post-migration set, so the new key can be exercised."""
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        connection.execute(
+            text(
+                "INSERT INTO ranking_set (id, source, name, season, horizon, as_of) VALUES "
+                f"({set_id}, 'hashtag', '{name}', 2027, '{horizon}', '{as_of}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO ranking_entry (ranking_set_id, player_id, rank) "
+                f"VALUES ({set_id}, 1, 1)"
+            )
+        )
+
+
+def test_an_existing_set_is_backfilled_as_redraft(migrated):
+    """Near enough every published rank list is redraft, and a dynasty one re-imports in a call."""
+    config, engine = migrated
+    command.upgrade(config, RANKING)
+    _seed_ranking(engine)
+
+    command.upgrade(config, HORIZON)
+
+    assert _ranking_sets(engine) == [(1, "hashtag", "Top 200", 2027, "redraft")]
+
+
+def test_the_new_key_lets_both_horizons_of_one_name_coexist(migrated):
+    config, engine = migrated
+    command.upgrade(config, HORIZON)
+
+    _seed_horizon_set(engine, 1, name="Top 200", horizon="dynasty", as_of="2026-08-01")
+    _seed_horizon_set(engine, 2, name="Top 200", horizon="redraft", as_of="2026-08-02")
+
+    assert [row[4] for row in _ranking_sets(engine)] == ["dynasty", "redraft"]
+    assert {
+        constraint["name"] for constraint in inspect(engine).get_unique_constraints("ranking_set")
+    } == {"uq_ranking_set_source_name_season_horizon"}
+
+
+def test_the_old_key_is_gone_so_a_second_horizon_is_not_a_conflict(migrated):
+    """Belt and braces: the same insert would have been an IntegrityError one revision back."""
+    config, engine = migrated
+    command.upgrade(config, RANKING)
+    _seed_ranking(engine)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO ranking_set (id, source, name, season, as_of) "
+                "VALUES (2, 'hashtag', 'Top 200', 2027, '2026-08-02')"
+            )
+        )
+
+    command.upgrade(config, HORIZON)
+    _seed_horizon_set(engine, 2, name="Top 200", horizon="dynasty", as_of="2026-08-02")
+
+    assert len(_ranking_sets(engine)) == 2
+
+
+def test_the_horizon_downgrade_keeps_the_newest_set_of_each_name(migrated):
+    """Lossy on purpose: the old key has nowhere to put a second horizon."""
+    config, engine = migrated
+    command.upgrade(config, HORIZON)
+    _seed_horizon_set(engine, 1, name="Top 200", horizon="dynasty", as_of="2026-08-01")
+    _seed_horizon_set(engine, 2, name="Top 200", horizon="redraft", as_of="2026-08-02")
+    _seed_horizon_set(engine, 3, name="Our Board", horizon="dynasty", as_of="2026-08-03")
+
+    command.downgrade(config, RANKING)
+
+    with engine.begin() as connection:
+        rows = list(
+            connection.execute(text("SELECT id, name FROM ranking_set ORDER BY id")),
+        )
+        orphans = connection.scalar(
+            text(
+                "SELECT count(*) FROM ranking_entry WHERE ranking_set_id NOT IN "
+                "(SELECT id FROM ranking_set)"
+            )
+        )
+    assert rows == [(2, "Top 200"), (3, "Our Board")]
+    # The entries of the set that lost went with it, rather than being left dangling.
+    assert orphans == 0
+    columns = {column["name"] for column in inspect(engine).get_columns("ranking_set")}
+    assert "horizon" not in columns
+
+
+def test_a_from_scratch_apply_reaches_the_horizon_column(migrated):
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    columns = {column["name"] for column in inspect(engine).get_columns("ranking_set")}
+    assert "horizon" in columns
+
+
+def test_the_horizon_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, RANKING)
+    _seed_ranking(engine)
+
+    command.upgrade(config, HORIZON)
+    command.downgrade(config, RANKING)
+    command.upgrade(config, HORIZON)
+
+    assert _ranking_sets(engine) == [(1, "hashtag", "Top 200", 2027, "redraft")]

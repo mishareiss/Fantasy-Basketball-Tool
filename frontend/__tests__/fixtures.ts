@@ -1,7 +1,11 @@
 import type {
+  AliasResponse,
   BoardResponse,
   BoardRow,
   CurveResponse,
+  ImportKindInfo,
+  ImportResponse,
+  ImportRowOutcome,
   TierSummaryRow,
   TiersResponse,
 } from "@/lib/api";
@@ -133,5 +137,150 @@ export function tiersResponse(): TiersResponse {
       { ...TIER_SUMMARY[0], leader: "Victor Wembanyama" },
       { ...TIER_SUMMARY[1], leader: "Cade Cunningham" },
     ],
+  };
+}
+
+
+/* ---------------------------------------------------------------------------------------- *
+ * Imports — app/api/imports.py shapes: the kind listing, and a preview with one row of each
+ * interesting status (a clean match, a fuzzy hit with candidates, an unmatched name nothing
+ * resembles). That mix is what the importer's states are made of.
+ * ---------------------------------------------------------------------------------------- */
+
+export function importKinds(): ImportKindInfo[] {
+  return [
+    {
+      kind: "adp",
+      label: "Where a source says players are being drafted",
+      implemented: true,
+      value_columns: { adp: ["adp", "avg pick", "average pick", "rank"] },
+      required: ["adp"],
+    },
+    {
+      kind: "projection",
+      label: "A source's projected stat line per player",
+      implemented: true,
+      value_columns: { PTS: ["pts", "points"], REB: ["reb", "trb"], GP: ["gp", "games"] },
+      required: ["PTS"],
+    },
+    {
+      kind: "ranking",
+      label: "An ordered list of players from one source — a board, with optional tiers",
+      implemented: true,
+      value_columns: { rank: ["rank", "rk", "#"], tier: ["tier", "grp"], value: ["value"] },
+      required: [],
+    },
+    {
+      kind: "market_line",
+      label: "Season-long sportsbook props -> new `MarketLine` model, then de-vig. Needs: …",
+      implemented: false,
+      value_columns: {},
+      required: [],
+    },
+  ];
+}
+
+function outcome(
+  overrides: Partial<ImportRowOutcome> & Pick<ImportRowOutcome, "line" | "source_name" | "status">,
+): ImportRowOutcome {
+  return {
+    values: { adp: overrides.line },
+    team: "OKC",
+    positions: ["PG"],
+    player_id: null,
+    player_name: null,
+    confidence: 0,
+    method: "",
+    candidates: [],
+    note: null,
+    ...overrides,
+  };
+}
+
+export const IMPORT_ROWS: ImportRowOutcome[] = [
+  outcome({
+    line: 2,
+    source_name: "Gilgeous-Alexander, Shai",
+    status: "matched",
+    player_id: 4278073,
+    player_name: "Shai Gilgeous-Alexander",
+    confidence: 1,
+    method: "normalized",
+  }),
+  outcome({
+    line: 3,
+    source_name: "Victor Wembanyma",
+    status: "review",
+    team: "SAS",
+    method: "ambiguous",
+    candidates: [
+      { player_id: 5104157, full_name: "Victor Wembanyama", nba_team: "SAS", score: 0.94 },
+      { player_id: 3032977, full_name: "Victor Oladipo", nba_team: null, score: 0.61 },
+    ],
+  }),
+  outcome({
+    line: 4,
+    source_name: "Nikola Topić",
+    status: "unmatched",
+    method: "unmatched",
+  }),
+];
+
+/** The same file after the review row has been aliased: it lands as `alias` at 1.0. */
+export const RESOLVED_ROWS: ImportRowOutcome[] = IMPORT_ROWS.map((row) =>
+  row.line === 3
+    ? {
+        ...row,
+        status: "matched",
+        method: "alias",
+        confidence: 1,
+        player_id: 5104157,
+        player_name: "Victor Wembanyama",
+        candidates: [],
+      }
+    : row,
+);
+
+export function importResponse(overrides: Partial<ImportResponse> = {}): ImportResponse {
+  const rows = overrides.rows ?? IMPORT_ROWS;
+  return {
+    kind: "adp",
+    source: "hashtag",
+    season: 2027,
+    dry_run: true,
+    options: {},
+    columns: { name: "PLAYER", team: "TEAM", adp: "Avg Pick" },
+    delimiter: ",",
+    rows_parsed: rows.length,
+    rows_skipped_blank: 0,
+    matched: rows.filter((row) => row.status === "matched").length,
+    review: rows.filter((row) => row.status === "review").length,
+    unmatched: rows.filter((row) => row.status === "unmatched").length,
+    duplicate: 0,
+    invalid: 0,
+    aliases_created: 1,
+    aliases_existing: 0,
+    rows_created: 1,
+    rows_updated: 0,
+    rows_unchanged: 0,
+    notes: [],
+    ...overrides,
+    rows,
+  };
+}
+
+export function aliasResponse(overrides: Partial<AliasResponse> = {}): AliasResponse {
+  return {
+    espn_player_id: 5104157,
+    name: "Victor Wembanyama",
+    source: "hashtag",
+    source_name: "Victor Wembanyma",
+    source_id: null,
+    confidence: 1,
+    match_method: "manual",
+    created: true,
+    birthdate: "2004-01-04",
+    age: 23,
+    ...overrides,
   };
 }

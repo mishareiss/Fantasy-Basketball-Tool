@@ -8,10 +8,16 @@ so it gets `RankingSet` / `RankingEntry` (FEATURE_SPEC 5, 10) rather than a colu
 
 Three consequences run through everything below:
 
-* **A set has an identity: (source, name, season).** `--name "Dynasty Top 200"` is what makes
-  a re-import land on the same list, and what lets one source publish several lists that don't
-  overwrite each other. Absent, the name falls back to the source, which is right for the
-  common case of a source with exactly one board.
+* **A set has an identity: (source, name, season, horizon).** `--name "Dynasty Top 200"` is
+  what makes a re-import land on the same list, and what lets one source publish several lists
+  that don't overwrite each other. Absent, the name falls back to the source, which is right
+  for the common case of a source with exactly one board.
+* **The horizon is REQUIRED, and part of that identity.** A rank-only list has no production
+  numbers on it, so nothing downstream can work out whether it is a dynasty board or a redraft
+  one — the file has to say. Making it part of the key is what lets Yahoo publish "Top 200"
+  twice for one season, once per horizon, without the second import replacing the first.
+  Value kinds (`projection`, and `market_line` when it lands) take no horizon: they carry
+  production, and the age curve derives both horizons from it.
 * **Re-importing REPLACES the set.** Version two of a list is a different list: players drop
   off it and the rest shift. Upserting row by row would leave last week's fallen players
   sitting in the set at their old ranks, which is worse than not importing at all — so the
@@ -31,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import RankingEntry, RankingSet
+from app.db.models.ranking import RANKING_HORIZONS
 from app.ingest.parser import PARSE_TEXT, ImportParseError, ValueColumn
 from app.ingest.registry import (
     ImportKind,
@@ -41,9 +48,11 @@ from app.ingest.registry import (
     register,
 )
 
-# The set's label, read off `context.options`. The only option this kind takes.
+# The set's label and its horizon, both read off `context.options`. `name` is optional (it
+# falls back to the source); `horizon` is not — see the module docstring.
 NAME_OPTION = "name"
-RANKING_OPTIONS = (NAME_OPTION,)
+HORIZON_OPTION = "horizon"
+RANKING_OPTIONS = (NAME_OPTION, HORIZON_OPTION)
 
 # How a row's rank was arrived at, reported in the preview so the two cases are never confused.
 RANK_FROM_COLUMN = "column"
@@ -74,24 +83,38 @@ RANKING_COLUMNS = (
 )
 
 
-def resolve_options(options: Mapping[str, str] | None, *, source: str) -> str:
-    """Validate this kind's options and return the set name. Rejects anything it can't use.
+def resolve_options(options: Mapping[str, str] | None, *, source: str) -> tuple[str, str]:
+    """Validate this kind's options and return `(set name, horizon)`. Rejects what it can't use.
 
     Refusing an unknown option rather than ignoring it, for the reason `resolve_basis` does:
     `--nmae "Top 200"` that silently becomes the source's default name doesn't fail, it
     replaces the wrong list — and the entries it overwrote are gone.
+
+    The horizon gets no default for the same reason in reverse: guessing 'redraft' for an
+    expert's dynasty board would file it under the wrong lens, and a wrong answer that looks
+    right is worse than a refusal the caller fixes in one keystroke.
     """
     unknown = sorted(set(options or {}) - set(RANKING_OPTIONS))
     if unknown:
         raise ImportParseError(
             f"unknown option(s) for a ranking import: {unknown}. "
             f"Supported: {list(RANKING_OPTIONS)} — {NAME_OPTION!r} is the set's label "
-            f'(e.g. "Dynasty Top 200"), and defaults to the source name.'
+            f'(e.g. "Dynasty Top 200"), and defaults to the source name; '
+            f"{HORIZON_OPTION!r} is one of {list(RANKING_HORIZONS)} and is required."
+        )
+
+    horizon = ((options or {}).get(HORIZON_OPTION) or "").strip().lower()
+    if horizon not in RANKING_HORIZONS:
+        raise ImportParseError(
+            f"a ranking import needs {HORIZON_OPTION}={list(RANKING_HORIZONS)}, got "
+            f"{((options or {}).get(HORIZON_OPTION))!r}. A rank-only list carries no stats to "
+            "age-adjust, so it has to declare which question it answers; projections and other "
+            "value sources derive both horizons from the age curve and take no horizon."
         )
 
     name = ((options or {}).get(NAME_OPTION) or "").strip()
     # A source with one board doesn't need to name it twice; a source with several does.
-    return name or source
+    return name or source, horizon
 
 
 def _rank_of(resolved: ResolvedRow) -> tuple[int, str]:
@@ -112,7 +135,7 @@ def _rank_of(resolved: ResolvedRow) -> tuple[int, str]:
 def upsert_ranking(
     db: Session, rows: Sequence[ResolvedRow], context: UpsertContext
 ) -> UpsertCounts:
-    """Find-or-create the (source, name, season) set, then replace its entries wholesale.
+    """Find-or-create the (source, name, season, horizon) set, then replace its entries.
 
     Not an upsert per row, despite the name the registry gives the hook: see the module
     docstring. The counters still describe players — created (new to the set), updated (moved,
@@ -123,8 +146,8 @@ def upsert_ranking(
     preview's numbers (including "2 players would drop off") are the real ones.
     """
     counts = UpsertCounts()
-    name = resolve_options(context.options, source=context.source)
-    label = f"set {name!r} ({context.source}, season {context.season})"
+    name, horizon = resolve_options(context.options, source=context.source)
+    label = f"set {name!r} ({context.source}, {horizon}, season {context.season})"
 
     if not rows:
         # The safe half of "replace wholesale". An import that resolved nothing is a matching
@@ -138,6 +161,9 @@ def upsert_ranking(
             RankingSet.source == context.source,
             RankingSet.name == name,
             RankingSet.season == context.season,
+            # The horizon is part of the key, so a source's dynasty board and its redraft board
+            # are two sets and a re-import lands on exactly the one it names.
+            RankingSet.horizon == horizon,
         )
     )
     existing = (
@@ -178,7 +204,13 @@ def upsert_ranking(
 
     now = datetime.now(UTC)
     if ranking_set is None:
-        ranking_set = RankingSet(source=context.source, name=name, season=context.season, as_of=now)
+        ranking_set = RankingSet(
+            source=context.source,
+            name=name,
+            season=context.season,
+            horizon=horizon,
+            as_of=now,
+        )
         db.add(ranking_set)
     else:
         # Clear-then-refill through the relationship, so `delete-orphan` issues the deletes and

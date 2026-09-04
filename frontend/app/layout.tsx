@@ -27,6 +27,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        {/* Two pages worth navigating between: the board this exists to produce, and the
+            importer that feeds it. Status stays in the footer — it is a diagnostic, not a
+            destination. */}
+        <nav className="flex items-center gap-4 border-b border-zinc-200 px-4 py-2.5 text-sm sm:px-6 dark:border-zinc-800">
+          <Link href="/" className="font-medium text-zinc-800 hover:underline dark:text-zinc-200">
+            Board
+          </Link>
+          <Link
+            href="/import"
+            className="font-medium text-zinc-800 hover:underline dark:text-zinc-200"
+          >
+            Import
+          </Link>
+        </nav>
         {children}
         {/* The reachability probe, demoted to a strip: still the fastest way to tell an
             empty board from a stopped backend, without owning the page any more. */}

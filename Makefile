@@ -42,15 +42,19 @@ sync-ages: ## Match nba.com's roster to our players and fill in birthdates + age
 #   make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv
 #   make import KIND=adp SOURCE=hashtag FILE=adp.csv COMMIT=1 ARGS="--strict"
 #   make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=proj.csv BASIS=per_game
-#   make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" FILE=top200.csv
+#   make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" \
+#     HORIZON=dynasty FILE=top200.csv
 # BASIS is projection-only: per_game (the usual export: averages plus a GP column) or season.
-# NAME is ranking-only: the set's label. (source, NAME, season) identifies the stored set, and
-# re-importing it REPLACES that set's entries wholesale. Defaults to SOURCE.
-import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [BASIS=] [NAME=] [COMMIT=1] [ARGS=...])
+# NAME is ranking-only: the set's label; defaults to SOURCE. HORIZON is ranking-only and
+# REQUIRED: dynasty or redraft, since a rank-only list has no stats to age-adjust.
+# (source, NAME, season, HORIZON) identifies the stored set, and re-importing it REPLACES that
+# set's entries wholesale.
+import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [BASIS=] [NAME=] [HORIZON=] [COMMIT=1] [ARGS=...])
 	cd backend && uv run python -m scripts.import_data \
 		--kind "$(KIND)" --source "$(SOURCE)" \
 		$(if $(SEASON),--season "$(SEASON)",) $(if $(FILE),--file "$(FILE)",) \
 		$(if $(BASIS),--basis "$(BASIS)",) $(if $(NAME),--name "$(NAME)",) \
+		$(if $(HORIZON),--horizon "$(HORIZON)",) \
 		$(if $(COMMIT),--commit,) $(ARGS)
 
 fixtures: ## Re-record the sanitized ESPN test fixtures from a live pull

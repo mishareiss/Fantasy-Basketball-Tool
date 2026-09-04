@@ -60,9 +60,11 @@ from app.ingest.projection import (
     stat_lines,
 )
 from app.ingest.ranking import (
+    HORIZON_OPTION,
     RANK_FROM_COLUMN,
     RANK_FROM_FILE_ORDER,
     RANKING_COLUMNS,
+    RANKING_HORIZONS,
     RANKING_KIND,
     RANKING_OPTIONS,
     resolve_options,
@@ -90,6 +92,7 @@ __all__ = [
     "BASIS_PER_GAME",
     "BASIS_SEASON",
     "ColumnMap",
+    "HORIZON_OPTION",
     "ImportKind",
     "ImportParseError",
     "ImportSummary",
@@ -107,6 +110,7 @@ __all__ = [
     "ParsedRow",
     "ParsedTable",
     "RANKING_COLUMNS",
+    "RANKING_HORIZONS",
     "RANKING_KIND",
     "RANKING_OPTIONS",
     "RANK_FROM_COLUMN",

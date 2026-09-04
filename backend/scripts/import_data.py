@@ -7,16 +7,18 @@
         --file ~/Downloads/projections.csv --basis per_game [--commit]
 
     uv run python -m scripts.import_data --kind ranking --source hashtag --season 2027 \
-        --name "Dynasty Top 200" --file ~/Downloads/top200.csv [--commit]
+        --name "Dynasty Top 200" --horizon dynasty --file ~/Downloads/top200.csv [--commit]
 
 Dry run by default: it parses, matches, and prints exactly what it *would* write, including
 the review and unmatched worklists. Nothing is stored until `--commit`.
 
 Committing twice is a no-op — the second run reports every row unchanged and creates no
 aliases, which is the cheap way to confirm a file has already landed. A `ranking` import is
-the one that *replaces* rather than accumulates: the same (source, --name, season) rewrites
-that set's entries wholesale, so a player who fell off the new version is gone from it. The
-dry run says which set it resolved and how many entries would go, before any of that happens.
+the one that *replaces* rather than accumulates: the same (source, --name, season, --horizon)
+rewrites that set's entries wholesale, so a player who fell off the new version is gone from
+it. The dry run says which set it resolved and how many entries would go, before any of that
+happens. `--horizon dynasty|redraft` is required for a ranking and refused for anything else:
+a rank-only list has no stats to age-adjust, so it has to say which question it answers.
 
 Read `-` (or leave `--file` off) to take the table on stdin, so a spreadsheet paste works:
 
@@ -42,6 +44,7 @@ from app.ingest import (
     run_import,
 )
 from app.ingest.projection import BASES, BASIS_PER_GAME
+from app.ingest.ranking import RANKING_HORIZONS
 from app.ingest.registry import PLANNED_KINDS
 from app.scoring import ScoringRulesNotLoaded
 
@@ -204,6 +207,14 @@ def main() -> int:
         "defaults to the source name",
     )
     parser.add_argument(
+        "--horizon",
+        choices=RANKING_HORIZONS,
+        default=None,
+        help="ranking files only, and required for them: is this a dynasty board or a redraft "
+        "one? A rank-only list carries no stats to age-adjust, so it can't be worked out "
+        "later; it is also part of the set's identity, so one source can publish both",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="hold fuzzy matches for confirmation instead of auto-accepting them",
@@ -244,11 +255,11 @@ def main() -> int:
             delimiter=args.delimiter,
             dry_run=not args.commit,
             accept=accept_only_certain if args.strict else None,
-            # Only what was actually asked for: an ADP import has no basis and no set name,
+            # Only what was actually asked for: an ADP import has no basis, set name or horizon,
             # and echoing a default it never read would be a lie in the receipt. A handler
             # that gets an option it doesn't understand refuses the import rather than
             # dropping it — `--basis` on a ranking file is a mistake worth hearing about.
-            options=_options(basis=args.basis, name=args.name) or None,
+            options=_options(basis=args.basis, name=args.name, horizon=args.horizon) or None,
         )
     except UnknownKindError as exc:
         print(exc.args[0], file=sys.stderr)
