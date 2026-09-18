@@ -25,3 +25,36 @@ export function otherHorizon(horizon: Horizon): Horizon {
 export function horizonValue(row: BoardRow, horizon: Horizon): number {
   return horizon === "dynasty" ? row.dynasty_value : row.current_year_value;
 }
+
+/** Which way a sortable column is pointed. */
+export type SortDirection = "asc" | "desc";
+
+function compare(a: number | string, b: number | string): number {
+  if (typeof a === "string" || typeof b === "string") {
+    return String(a).localeCompare(String(b));
+  }
+  return a - b;
+}
+
+/**
+ * Compare two rows down one column, with missing data sinking whichever way it is pointed.
+ *
+ * Shared by both tables, and the sinking deliberately happens OUTSIDE the direction flip —
+ * which is the whole reason this is a function rather than a `sign * compare(...)` at each
+ * call site. A null that merely sorts "last ascending" sorts *first* descending, and a player
+ * nobody has priced is not the best in the league because you clicked the arrow twice.
+ */
+export function compareBy<T>(
+  accessor: (row: T) => number | string | null,
+  direction: SortDirection,
+): (a: T, b: T) => number {
+  const sign = direction === "asc" ? 1 : -1;
+  return (a, b) => {
+    const left = accessor(a);
+    const right = accessor(b);
+    if (left === null && right === null) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    return sign * compare(left, right);
+  };
+}

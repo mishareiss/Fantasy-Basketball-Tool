@@ -99,3 +99,25 @@ export function BoardNoMatches({ position }: { position: string | null }) {
     </Panel>
   );
 }
+
+/** The consensus board with every source unticked: not an error, just nothing to average. */
+export function ConsensusNoSources({ count }: { count: number }) {
+  return (
+    <Panel title="Pick a source to build a consensus from">
+      {count === 0 ? (
+        <p>
+          Nothing can rank players under this horizon yet. Run <Command>make sync</Command> for
+          ESPN’s projection and ADP, or import a board with{" "}
+          <Command>make import KIND=ranking …</Command> — note that an imported list only shows
+          up under the horizon its dynasty/redraft tag maps to.
+        </p>
+      ) : (
+        <p>
+          {count} source{count === 1 ? "" : "s"} can rank players under this horizon. Tick one
+          or more above — two or more is where the disagreement between them becomes visible,
+          which is the point of this view.
+        </p>
+      )}
+    </Panel>
+  );
+}

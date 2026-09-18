@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react";
 
 import type { BoardResponse, BoardRow, Horizon, TierSummaryRow } from "@/lib/api";
-import { HORIZON_LABEL, horizonValue, otherHorizon } from "@/lib/board";
+import {
+  HORIZON_LABEL,
+  compareBy,
+  horizonValue,
+  otherHorizon,
+  type SortDirection,
+} from "@/lib/board";
 import { MISSING, decimal, multiplier, positions, whole } from "@/lib/format";
 
 /**
@@ -16,8 +22,6 @@ import { MISSING, decimal, multiplier, positions, whole } from "@/lib/format";
  * is why turning a sort on hides the tier dividers: tiers are cuts in the *server's* order
  * and mean nothing once the rows are shuffled by ADP.
  */
-
-type SortDirection = "asc" | "desc";
 
 type Column = {
   key: string;
@@ -196,18 +200,6 @@ export function groupByTier(rows: BoardRow[]): Group[] {
   return groups;
 }
 
-function compare(a: number | string | null, b: number | string | null): number {
-  // Missing data sinks, whichever way the column is pointed — an unpriced player is not the
-  // best in the league just because you clicked "descending".
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  if (typeof a === "string" || typeof b === "string") {
-    return String(a).localeCompare(String(b));
-  }
-  return a - b;
-}
-
 function TierDivider({
   group,
   span,
@@ -265,11 +257,8 @@ export function BoardTable({ response }: { response: BoardResponse }) {
     if (!sort) return response.players;
     const column = columns.find((candidate) => candidate.key === sort.key);
     if (!column?.sort) return response.players;
-    const accessor = column.sort;
-    const sign = sort.direction === "asc" ? 1 : -1;
-    return [...response.players].sort(
-      (a, b) => sign * compare(accessor(a), accessor(b)) || a.rank - b.rank,
-    );
+    const ordered = compareBy(column.sort, sort.direction);
+    return [...response.players].sort((a, b) => ordered(a, b) || a.rank - b.rank);
   }, [columns, response.players, sort]);
 
   const groups = useMemo(() => {

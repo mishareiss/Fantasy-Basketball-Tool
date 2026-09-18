@@ -172,6 +172,104 @@ export type TiersResponse = {
 };
 
 /* -------------------------------------------------------------------------------------- *
+ * The multi-source consensus board — app/api/consensus.py, over app/ranking
+ * -------------------------------------------------------------------------------------- */
+
+/** The three storage shapes an opinion arrives in — app/ranking/sources.py: KINDS. */
+export const SOURCE_KINDS = ["projection", "adp", "ranking"] as const;
+export type SourceKind = (typeof SOURCE_KINDS)[number];
+
+/** How the selected sources are averaged — app/ranking/consensus.py: METHODS. */
+export const CONSENSUS_METHODS = ["rank", "percentile"] as const;
+export type ConsensusMethod = (typeof CONSENSUS_METHODS)[number];
+
+/** One source a board can be built from — app/api/consensus.py: SourceInfo. */
+export type SourceInfo = {
+  /** The stable handle to select with: 'projection:espn', 'adp:espn', 'ranking:1'. */
+  id: string;
+  label: string;
+  /** One of SOURCE_KINDS. Typed as the backend types it (`str`) so a kind we don't know
+      about yet renders as itself rather than failing to compile. */
+  kind: string;
+  /** The publisher: 'espn', 'Dizzle Dynasty'. */
+  source: string;
+  season: number | null;
+  /**
+   * The rank-set tag ('dynasty' | 'redraft') an imported list declared at import — NOT the
+   * board's `Horizon`. Null for projection and ADP sources, which derive both board horizons
+   * from production instead of declaring one.
+   */
+  horizon: string | null;
+  /** How many of the shared pool this source has an opinion about — read the consensus
+      against it: a 449-name list and a 1,095-name one are not the same evidence. */
+  player_count: number;
+};
+
+/** Everything that can rank players under one horizon — consensus.py: SourcesResponse. */
+export type SourcesResponse = {
+  horizon: Horizon;
+  /** The `RankingSet.horizon` tag this board horizon accepts imported lists from. */
+  ranking_horizon: string;
+  /** Every player at least one AVAILABLE source ranks — the percentile denominator. */
+  pool_size: number;
+  sources: SourceInfo[];
+};
+
+/** Where one source put one player — consensus.py: ConsensusCell. */
+export type ConsensusCell = {
+  /** Published for an imported list; a competition rank (ties share a number) otherwise. */
+  rank: number;
+  /** That rank as a position in the shared pool: 100 at the top, 0 at the bottom. */
+  percentile: number;
+};
+
+/** One player's line on the consensus board — consensus.py: ConsensusPlayerRow. */
+export type ConsensusRow = {
+  rank: number;
+  espn_player_id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  age: number | null;
+  /** The equal-weight average over the sources that rank him, in the method's units. */
+  consensus: number;
+  /** source id -> that source's cell. A source with no opinion on him has NO key here. */
+  cells: Record<string, ConsensusCell>;
+  /** How many of the selected sources rank him. A player missing from a source is left OUT
+      of that source's average, never counted last — so a consensus of 8.0 off one source is
+      not the claim a consensus of 8.0 off three is. */
+  sources_present: number;
+  sources_missing: string[];
+  /** Disagreement across the sources that do rank him: percentile points, and places. Both
+      null below two sources — one source can't disagree with itself. */
+  spread: number | null;
+  rank_spread: number | null;
+};
+
+export type ConsensusResponse = {
+  horizon: Horizon;
+  ranking_horizon: string;
+  method: ConsensusMethod;
+  pool_size: number;
+  position: string | null;
+  total_ranked: number;
+  /** ISO date (YYYY-MM-DD) every `age` on this board was computed at. */
+  age_as_of: string;
+  /** The SELECTED sources, in the order asked for — the column order. */
+  sources: SourceInfo[];
+  players: ConsensusRow[];
+};
+
+export type ConsensusParams = {
+  horizon?: Horizon;
+  /** Source ids from GET /sources. Omitted entirely means "all of them". */
+  sources?: string[];
+  method?: ConsensusMethod;
+  position?: Position | null;
+  limit?: number;
+};
+
+/* -------------------------------------------------------------------------------------- *
  * Imports — app/api/imports.py, app/ingest, and the alias escape hatch in app/api/players.py
  * -------------------------------------------------------------------------------------- */
 
@@ -394,6 +492,30 @@ export const api = {
         adp_season: params.adp_season,
         limit: params.limit,
         tiers: params.tiers,
+      })}`,
+    ),
+
+  /**
+   * Everything that can rank players under this horizon.
+   *
+   * The horizon decides ELIGIBILITY, not just presentation: value sources appear under both
+   * (a per-player number can be aged), while an imported rank-only list appears only under
+   * the horizon its declared tag maps to — dynasty -> 'dynasty', current_year -> 'redraft'.
+   */
+  sources: (horizon?: Horizon) =>
+    request<SourcesResponse>(`/sources${query({ horizon })}`),
+
+  /** Several sources side by side, averaged equally, with the disagreement called out. */
+  boardConsensus: (params: ConsensusParams = {}) =>
+    request<ConsensusResponse>(
+      `/board/consensus${query({
+        horizon: params.horizon,
+        // Omitted (not empty) when the caller passes no ids: the backend reads an empty
+        // `sources=` as a mistake and a missing one as "all of them".
+        sources: params.sources?.length ? params.sources.join(",") : undefined,
+        method: params.method,
+        position: params.position,
+        limit: params.limit,
       })}`,
     ),
 

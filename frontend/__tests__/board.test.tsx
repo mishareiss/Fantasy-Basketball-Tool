@@ -90,7 +90,18 @@ describe("BoardView", () => {
 
   it("refetches with horizon=dynasty when the horizon toggle is used", async () => {
     const user = userEvent.setup();
-    render(<BoardView initialControls={{ horizon: "current_year", position: null, limit: 100, tiers: "auto" }} />);
+    render(
+      <BoardView
+        initialControls={{
+          mode: "value",
+          horizon: "current_year",
+          position: null,
+          limit: 100,
+          tiers: "auto",
+          method: "rank",
+        }}
+      />,
+    );
 
     await screen.findByRole("cell", { name: "Victor Wembanyama" });
     expect(board).toHaveBeenCalledWith(expect.objectContaining({ horizon: "current_year" }));

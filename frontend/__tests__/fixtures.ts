@@ -2,7 +2,13 @@ import type {
   AliasResponse,
   BoardResponse,
   BoardRow,
+  ConsensusMethod,
+  ConsensusResponse,
+  ConsensusRow,
   CurveResponse,
+  Horizon,
+  SourceInfo,
+  SourcesResponse,
   ImportKindInfo,
   ImportResponse,
   ImportRowOutcome,
@@ -281,6 +287,163 @@ export function aliasResponse(overrides: Partial<AliasResponse> = {}): AliasResp
     created: true,
     birthdate: "2004-01-04",
     age: 23,
+    ...overrides,
+  };
+}
+
+
+/* ---------------------------------------------------------------------------------------- *
+ * The consensus board — app/api/consensus.py shapes.
+ *
+ * The pool is 101 so a percentile is a round number: `percentile_for(rank, 101)` is
+ * `101 - rank`, which keeps the expected numbers in the tests readable instead of being
+ * three decimals nobody can check by eye.
+ * ---------------------------------------------------------------------------------------- */
+
+export const POOL_SIZE = 101;
+
+/** app/ranking/sources.py: percentile_for, at POOL_SIZE. */
+export function percentileFor(rank: number): number {
+  return Math.max(0, Math.min(100, (100 * (POOL_SIZE - rank)) / (POOL_SIZE - 1)));
+}
+
+export const PROJECTION_SOURCE: SourceInfo = {
+  id: "projection:espn",
+  label: "espn projection",
+  kind: "projection",
+  source: "espn",
+  season: 2027,
+  horizon: null,
+  player_count: 90,
+};
+
+export const ADP_SOURCE: SourceInfo = {
+  id: "adp:espn",
+  label: "espn ADP",
+  kind: "adp",
+  source: "espn",
+  season: 2027,
+  horizon: null,
+  player_count: 101,
+};
+
+/** Tagged dynasty at import, so it is eligible under the dynasty horizon and no other. */
+export const DYNASTY_RANKING_SOURCE: SourceInfo = {
+  id: "ranking:1",
+  label: "Dizzle Dynasty",
+  kind: "ranking",
+  source: "Dizzle Dynasty",
+  season: 2027,
+  horizon: "dynasty",
+  player_count: 40,
+};
+
+/** Its redraft counterpart — what the win-now horizon swaps in for it. */
+export const REDRAFT_RANKING_SOURCE: SourceInfo = {
+  id: "ranking:2",
+  label: "Rest of Season",
+  kind: "ranking",
+  source: "Dizzle Dynasty",
+  season: 2027,
+  horizon: "redraft",
+  player_count: 30,
+};
+
+export function sourcesResponse(horizon: Horizon = "dynasty"): SourcesResponse {
+  return {
+    horizon,
+    ranking_horizon: horizon === "dynasty" ? "dynasty" : "redraft",
+    pool_size: POOL_SIZE,
+    sources: [
+      PROJECTION_SOURCE,
+      ADP_SOURCE,
+      horizon === "dynasty" ? DYNASTY_RANKING_SOURCE : REDRAFT_RANKING_SOURCE,
+    ],
+  };
+}
+
+/**
+ * The ranks each fixture player gets from each source. A missing entry is a source with no
+ * opinion on him — which is the case the whole missing-player rule is about, so the fixture
+ * has one on purpose (nobody projects a rookie).
+ */
+const CONSENSUS_RANKS: { name: string; age: number; ranks: Record<string, number> }[] = [
+  { name: "Victor Wembanyama", age: 23, ranks: { "projection:espn": 1, "ranking:1": 1 } },
+  { name: "Cade Cunningham", age: 24, ranks: { "projection:espn": 8, "ranking:1": 6 } },
+  // The payoff row: a projection loves him, a dynasty board doesn't. 2 vs 17.
+  { name: "Giannis Antetokounmpo", age: 32, ranks: { "projection:espn": 2, "ranking:1": 17 } },
+  // On the imported board and nowhere else.
+  { name: "Cameron Boozer", age: 20, ranks: { "ranking:1": 12 } },
+];
+
+function consensusRow(
+  place: number,
+  entry: (typeof CONSENSUS_RANKS)[number],
+  selected: string[],
+  method: ConsensusMethod,
+): ConsensusRow {
+  const present = selected.filter((id) => entry.ranks[id] !== undefined);
+  const cells = Object.fromEntries(
+    present.map((id) => [
+      id,
+      { rank: entry.ranks[id], percentile: percentileFor(entry.ranks[id]) },
+    ]),
+  );
+  const ranks = present.map((id) => entry.ranks[id]);
+  const percentiles = ranks.map(percentileFor);
+  const values = method === "percentile" ? percentiles : ranks;
+
+  return {
+    rank: place,
+    espn_player_id: 2000 + place,
+    name: entry.name,
+    nba_team: "MIL",
+    positions: ["PF"],
+    age: entry.age,
+    consensus: values.reduce((total, value) => total + value, 0) / values.length,
+    cells,
+    sources_present: present.length,
+    sources_missing: selected.filter((id) => entry.ranks[id] === undefined),
+    spread: ranks.length > 1 ? Math.max(...percentiles) - Math.min(...percentiles) : null,
+    rank_spread: ranks.length > 1 ? Math.max(...ranks) - Math.min(...ranks) : null,
+  };
+}
+
+/**
+ * A consensus board over the given sources, ordered the way the backend orders it.
+ *
+ * The consensus and the spread are DERIVED from the per-source ranks here rather than
+ * hand-written, for the same reason the backend derives them: a fixture whose consensus
+ * column disagreed with its source columns would let a rendering bug pass.
+ */
+export function consensusResponse(
+  overrides: Partial<ConsensusResponse> = {},
+  selected: string[] = [PROJECTION_SOURCE.id, DYNASTY_RANKING_SOURCE.id],
+): ConsensusResponse {
+  const method = overrides.method ?? "rank";
+  const horizon = overrides.horizon ?? "dynasty";
+  const catalog = [PROJECTION_SOURCE, ADP_SOURCE, DYNASTY_RANKING_SOURCE, REDRAFT_RANKING_SOURCE];
+  const sources = selected
+    .map((id) => catalog.find((source) => source.id === id))
+    .filter((source): source is SourceInfo => source !== undefined);
+
+  const rows = CONSENSUS_RANKS.filter((entry) =>
+    selected.some((id) => entry.ranks[id] !== undefined),
+  )
+    .map((entry, index) => consensusRow(index + 1, entry, selected, method))
+    .sort((a, b) => (method === "percentile" ? b.consensus - a.consensus : a.consensus - b.consensus))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  return {
+    horizon,
+    ranking_horizon: horizon === "dynasty" ? "dynasty" : "redraft",
+    method,
+    pool_size: POOL_SIZE,
+    position: null,
+    total_ranked: rows.length,
+    age_as_of: "2027-10-21",
+    sources,
+    players: rows,
     ...overrides,
   };
 }

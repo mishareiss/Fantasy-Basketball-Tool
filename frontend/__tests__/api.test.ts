@@ -107,7 +107,14 @@ describe("api.valuation", () => {
 
 describe("board URL state", () => {
   it("round-trips the controls through the query string", () => {
-    const controls = { horizon: "current_year", position: "C", limit: 200, tiers: "off" } as const;
+    const controls = {
+      mode: "consensus",
+      horizon: "current_year",
+      position: "C",
+      limit: 200,
+      tiers: "off",
+      method: "percentile",
+    } as const;
     const query = toQuery(controls);
 
     expect(parseControls(new URLSearchParams(query.replace("/?", "")))).toEqual(controls);
@@ -120,7 +127,9 @@ describe("board URL state", () => {
 
   it("falls back to the defaults for junk in the query string", () => {
     const parsed = parseControls(
-      new URLSearchParams("horizon=vibes&position=QB&limit=9999&tiers=maybe"),
+      new URLSearchParams(
+        "mode=whatever&horizon=vibes&position=QB&limit=9999&tiers=maybe&method=average",
+      ),
     );
     expect(parsed).toEqual(DEFAULT_CONTROLS);
   });

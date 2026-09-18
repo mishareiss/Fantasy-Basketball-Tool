@@ -19,18 +19,26 @@ from app.db.models import AdpEntry, Player, PlayerAlias, Projection
 from app.db.session import get_db
 from app.espn.sync import ESPN_SOURCE, SEASON_PROJECTION_KIND
 from app.matching import MANUAL_SOURCE, record_alias
-from app.valuation import PlayerValue, Tiering, tier_structure, value_player
+from app.valuation import (
+    HORIZON_CURRENT_YEAR,
+    HORIZON_DYNASTY,
+    HORIZONS,
+    PlayerValue,
+    Tiering,
+    horizon_value,
+    tier_structure,
+    value_player,
+)
 
 router = APIRouter(prefix="/players", tags=["players"])
 
 DEFAULT_LIMIT = 50
 
-# The two value horizons the board can be ranked by (FEATURE_SPEC 4). Both are computed for
-# every row either way; the horizon only decides the ORDER, so flipping the toggle re-ranks the
-# same numbers rather than fetching a different board.
-HORIZON_CURRENT_YEAR = "current_year"
-HORIZON_DYNASTY = "dynasty"
-HORIZONS = (HORIZON_CURRENT_YEAR, HORIZON_DYNASTY)
+# The two value horizons the board can be ranked by (FEATURE_SPEC 4) — re-exported from
+# `app.valuation.horizons`, which is where they moved when the consensus source adapters
+# (`app.ranking`) needed to name the same two lenses without importing an HTTP module. Both
+# are computed for every row either way; the horizon only decides the ORDER, so flipping the
+# toggle re-ranks the same numbers rather than fetching a different board.
 
 # What `GET /players/unresolved?need=` accepts. One endpoint per *question* ("who is our
 # board still missing X for"), not one per source — a new imported kind adds a need here.
@@ -165,16 +173,6 @@ class RankedBoard:
     entries: list[RankedEntry]
     # None when tiering is off.
     tiering: Tiering | None
-
-
-def horizon_value(value: PlayerValue, horizon: str) -> float:
-    """The one number a horizon ranks by — and therefore the one tiers are cut from.
-
-    Single-sourced on purpose. The whole point of tiering the board is that the breaks fall in
-    the values the board is ordered by; a second expression of "which number is this horizon"
-    is a second board waiting to disagree with the first.
-    """
-    return value.dynasty if horizon == HORIZON_DYNASTY else value.current_year
 
 
 def ranked_board(

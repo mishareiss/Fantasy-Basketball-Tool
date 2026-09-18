@@ -18,7 +18,11 @@ from sqlalchemy.pool import StaticPool
 from app.ages import NbaPlayer, birthdate_from_payload, sync_ages
 from app.config import get_settings
 from app.db.base import Base
-from app.db.models import Player  # noqa: F401  # registers every table on Base.metadata
+from app.db.models import (
+    Player,  # noqa: F401  # registers every table on Base.metadata
+    RankingEntry,
+    RankingSet,
+)
 from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
 from app.espn.statsplits import parse_projections
@@ -283,3 +287,32 @@ def aged(db, synced, nba_players, fetch_recorded_birthdate) -> Session:
         sleep=lambda _: None,
     )
     return db
+
+
+@pytest.fixture
+def make_ranking_set(db):
+    """Write a rank-only list straight into the tables, at exactly the ranks given.
+
+    The importer has its own tests (`test_ingest_ranking`, `test_api_rankings`); what the
+    consensus tests need is control over the *numbers* — a list that stops at four names, one
+    that numbers 1, 2, 5, 9 with gaps, one tagged redraft — and going through a CSV to get
+    there would be testing the parser again with extra steps.
+    """
+
+    def make(
+        name: str,
+        horizon: str,
+        ranks: dict[int, int],
+        *,
+        source: str = "dizzle",
+        season: int = SEASON,
+    ) -> RankingSet:
+        ranking_set = RankingSet(source=source, name=name, season=season, horizon=horizon)
+        ranking_set.entries = [
+            RankingEntry(player_id=player_id, rank=rank) for player_id, rank in ranks.items()
+        ]
+        db.add(ranking_set)
+        db.commit()
+        return ranking_set
+
+    return make
