@@ -79,9 +79,23 @@ describe("the kind picker", () => {
   it("shows a planned kind as disabled rather than hiding it", async () => {
     render(<ImportPage />);
 
-    const planned = await screen.findByRole("button", { name: /market_line/ });
+    const planned = await screen.findByRole("button", { name: /keeper_cost/ });
     expect(planned.hasAttribute("disabled")).toBe(true);
     expect(within(planned).getByText("coming soon")).toBeTruthy();
+  });
+
+  it("offers market_line as a first-class kind, with its long-format columns", async () => {
+    const user = userEvent.setup();
+    render(<ImportPage />);
+    await screen.findByRole("button", { name: /adp/ });
+
+    const market = kindButton(/market_line/);
+    expect(market.hasAttribute("disabled")).toBe(false);
+    await user.click(market);
+
+    expect(market.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("stat, market, prop, category")).toBeTruthy();
+    expect(screen.getByText("over odds, over price, over")).toBeTruthy();
   });
 
   it("hints at the columns and aliases the chosen kind looks for", async () => {
@@ -322,6 +336,20 @@ describe("the per-kind options", () => {
     expect(preview).toHaveBeenCalledWith("adp", expect.objectContaining({ options: null }));
   });
 
+  it("sends a market_line paste with no options either — its file says it all itself", async () => {
+    const user = userEvent.setup();
+    render(<ImportPage />);
+    await fillIn(user, "Player,Stat,Line,Over,Under\nLeBron James,PTS,24.5,-115,-105\n");
+    await user.click(kindButton(/market_line/));
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(preview).toHaveBeenCalledWith(
+      "market_line",
+      expect.objectContaining({ options: null, source: "hashtag" }),
+    );
+  });
+
   it("passes a typed season and delimiter through, and omits them when left blank", async () => {
     const user = userEvent.setup();
     render(<ImportPage />);
@@ -376,6 +404,36 @@ describe("failures", () => {
 
     expect(await screen.findByText("Can’t reach the API")).toBeTruthy();
     expect(screen.getByText(/make backend/)).toBeTruthy();
+  });
+});
+
+describe("the input placeholder", () => {
+  /**
+   * The one failure a preview cannot diagnose is a header row nothing matched — the parser
+   * fails before there is a row-by-row outcome to render. An example row in the selected
+   * kind's own format is the cheapest possible fix, and it has to CHANGE with the kind
+   * because the files genuinely differ: `market_line` is one row per player AND stat.
+   */
+  it("shows an example row in the selected kind's format, and changes with the kind", async () => {
+    const user = userEvent.setup();
+    render(<ImportPage />);
+    await screen.findByRole("button", { name: /adp/ });
+
+    const textarea = () => screen.getByLabelText("Table") as HTMLTextAreaElement;
+    expect(textarea().placeholder).toContain("PLAYER,Avg Pick");
+    expect(textarea().placeholder).toContain("Nikola Jokic, 1.2");
+
+    await user.click(kindButton(/ranking/));
+    expect(textarea().placeholder).toContain("RK,PLAYER");
+    expect(textarea().placeholder).toContain("1, Victor Wembanyama");
+
+    await user.click(kindButton(/projection/));
+    expect(textarea().placeholder).toContain("PLAYER,PTS,REB,AST,STL,BLK,3PM,TO,GP");
+    expect(textarea().placeholder).toContain("Nikola Jokic, 27.4, 12.7, 10.1");
+
+    await user.click(kindButton(/market_line/));
+    expect(textarea().placeholder).toContain("PLAYER,STAT,LINE,OVER,UNDER");
+    expect(textarea().placeholder).toContain("LeBron James, PTS, 24.5, -115, -105");
   });
 });
 

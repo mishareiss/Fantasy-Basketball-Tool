@@ -12,6 +12,11 @@ import type {
   ImportKindInfo,
   ImportResponse,
   ImportRowOutcome,
+  MarketDeleteResponse,
+  MarketLineRow,
+  MarketLineWriteResponse,
+  MarketLinesResponse,
+  MarketPlayer,
   TierSummaryRow,
   TiersResponse,
 } from "@/lib/api";
@@ -178,7 +183,22 @@ export function importKinds(): ImportKindInfo[] {
     },
     {
       kind: "market_line",
-      label: "Season-long sportsbook props -> new `MarketLine` model, then de-vig. Needs: …",
+      label: "Season-long sportsbook lines per (player, stat), priced under our custom scoring",
+      implemented: true,
+      value_columns: {
+        stat: ["stat", "market", "prop", "category"],
+        line: ["line", "ou", "over under", "total"],
+        over_odds: ["over odds", "over price", "over"],
+        under_odds: ["under odds", "under price", "under"],
+      },
+      required: ["stat", "line"],
+    },
+    {
+      // The backend's PLANNED_KINDS is empty today — every designed kind is built. This
+      // stands in for the next one to announce itself, and keeps the picker's disabled
+      // branch (which is the useful answer to "where do I put X") covered.
+      kind: "keeper_cost",
+      label: "What each keeper costs next year. Needs: a contract model, and a league that has one.",
       implemented: false,
       value_columns: {},
       required: [],
@@ -444,6 +464,106 @@ export function consensusResponse(
     age_as_of: "2027-10-21",
     sources,
     players: rows,
+    ...overrides,
+  };
+}
+
+
+/* ---------------------------------------------------------------------------------------- *
+ * Market lines — app/api/market.py shapes.
+ *
+ * Jokić is the multi-stat case (three props, one of them priced on both sides) and Wembanyama
+ * the single-prop one, which is the state the "partial by construction" note exists for: his
+ * market value is built from blocks and nothing else.
+ * ---------------------------------------------------------------------------------------- */
+
+export const MARKET_STATS = [
+  { stat_id: 0, name: "PTS", label: "Points", points: 1 },
+  { stat_id: 3, name: "AST", label: "Assists", points: 4 },
+  { stat_id: 6, name: "REB", label: "Rebounds", points: 1.5 },
+  { stat_id: 1, name: "BLK", label: "Blocks", points: 5 },
+];
+
+function marketLine(
+  overrides: Partial<MarketLineRow> & Pick<MarketLineRow, "id" | "stat" | "line">,
+): MarketLineRow {
+  return {
+    player_id: 3112335,
+    stat_id: MARKET_STATS.find((stat) => stat.name === overrides.stat)?.stat_id ?? 0,
+    over_odds: null,
+    under_odds: null,
+    as_of: "2026-09-18T12:00:00Z",
+    ...overrides,
+  };
+}
+
+export const JOKIC: MarketPlayer = {
+  espn_player_id: 3112335,
+  name: "Nikola Jokic",
+  nba_team: "DEN",
+  positions: ["C"],
+  age: 31,
+  lines: [
+    marketLine({ id: 1, stat: "PTS", line: 27.5 }),
+    marketLine({ id: 2, stat: "AST", line: 9.5, over_odds: -150, under_odds: 120 }),
+    marketLine({ id: 3, stat: "REB", line: 12.5 }),
+  ],
+  fantasy_points_per_game: 84.3,
+  fantasy_points_total: 5901,
+  projected_games: 70,
+  stats_priced: 3,
+};
+
+export const WEMBY: MarketPlayer = {
+  espn_player_id: 5104157,
+  name: "Victor Wembanyama",
+  nba_team: "SAS",
+  positions: ["C"],
+  age: 23,
+  lines: [marketLine({ id: 4, player_id: 5104157, stat: "BLK", line: 3.5, over_odds: -110 })],
+  fantasy_points_per_game: 17.5,
+  fantasy_points_total: 1225,
+  projected_games: 70,
+  stats_priced: 1,
+};
+
+export function marketLines(
+  overrides: Partial<MarketLinesResponse> = {},
+): MarketLinesResponse {
+  const players = overrides.players ?? [JOKIC, WEMBY];
+  return {
+    source: "market",
+    season: 2027,
+    stats: MARKET_STATS,
+    total_players: players.length,
+    total_lines: players.reduce((sum, player) => sum + player.lines.length, 0),
+    ...overrides,
+    players,
+  };
+}
+
+export function marketWrite(
+  overrides: Partial<MarketLineWriteResponse> = {},
+): MarketLineWriteResponse {
+  return {
+    source: "market",
+    season: 2027,
+    created: true,
+    line: marketLine({ id: 5, stat: "PTS", line: 24.5, over_odds: -115, under_odds: -105 }),
+    player: JOKIC,
+    ...overrides,
+  };
+}
+
+export function marketDelete(
+  overrides: Partial<MarketDeleteResponse> = {},
+): MarketDeleteResponse {
+  return {
+    source: "market",
+    season: 2027,
+    deleted: 1,
+    player: JOKIC,
+    player_removed: false,
     ...overrides,
   };
 }

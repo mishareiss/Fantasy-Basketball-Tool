@@ -30,8 +30,13 @@ from app.ingest import (
     resolve_stat,
     run_import,
 )
-from app.ingest.market_line import market_row_key, validate_market_row
+from app.ingest.market_line import (
+    derive_market_projections,
+    market_row_key,
+    validate_market_row,
+)
 from app.ingest.parser import ParsedRow
+from app.ingest.registry import UpsertContext
 from app.ranking.market import fair_value
 from app.scoring import ScoringEngine, load_scoring_engine_for_season
 from app.scoring.stats import STAT_NAME_TO_ID
@@ -471,3 +476,63 @@ def test_every_player_with_lines_is_one_of_ours(priced, market_line_csv):
 
     for row in priced.scalars(select(MarketLine)):
         assert priced.get(Player, row.player_id) is not None
+
+
+# --- un-deriving: the half an import never reaches -------------------------------------------
+
+
+def test_a_player_with_no_lines_left_loses_his_projection_rather_than_being_priced_at_zero(
+    priced, market_line_csv
+):
+    """The derivation's fourth counter, and the reason the editing API can delete at all.
+
+    An import only ever adds or moves lines, so nothing in `test_api_import` can reach this:
+    it takes a DELETE (`app.api.market`) to leave a player with an empty set. What must NOT
+    happen then is a projection re-derived at zero — that reads as "the market rates him at
+    nothing" when the truth is "the market no longer says anything about him", and it would
+    keep him on `GET /sources` and the consensus board with no lines under him.
+    """
+    _import(priced, market_line_csv)
+    engine = load_scoring_engine_for_season(priced, SEASON, espn_league_id=LEAGUE_ID)
+    assert _market_projection(priced, JOKIC) is not None
+
+    created, updated, unchanged, deleted = derive_market_projections(
+        priced,
+        {JOKIC: {}},
+        UpsertContext(source=MARKET_SOURCE, season=SEASON, dry_run=False),
+        engine,
+    )
+
+    assert (created, updated, unchanged, deleted) == (0, 0, 0, 1)
+    assert _market_projection(priced, JOKIC) is None
+    # Nobody else was touched: the derivation only ever looks at the players handed to it.
+    assert _market_projection(priced, SGA) is not None
+
+
+def test_un_deriving_a_player_who_never_had_a_projection_is_a_no_op(priced):
+    engine = load_scoring_engine_for_season(priced, SEASON, espn_league_id=LEAGUE_ID)
+
+    counts = derive_market_projections(
+        priced,
+        {JOKIC: {}},
+        UpsertContext(source=MARKET_SOURCE, season=SEASON, dry_run=False),
+        engine,
+    )
+
+    assert counts == (0, 0, 0, 0)
+
+
+def test_a_dry_run_reports_the_removal_without_making_it(priced, market_line_csv):
+    """Same promise the counters make everywhere else: a preview is what a commit would do."""
+    _import(priced, market_line_csv)
+    engine = load_scoring_engine_for_season(priced, SEASON, espn_league_id=LEAGUE_ID)
+
+    counts = derive_market_projections(
+        priced,
+        {JOKIC: {}},
+        UpsertContext(source=MARKET_SOURCE, season=SEASON, dry_run=True),
+        engine,
+    )
+
+    assert counts == (0, 0, 0, 1)
+    assert _market_projection(priced, JOKIC) is not None

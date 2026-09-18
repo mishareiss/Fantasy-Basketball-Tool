@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 
+import { placeholderFor } from "@/lib/importing";
+
 /**
  * Step two: the table itself, pasted or dropped.
  *
@@ -12,6 +14,12 @@ import { useRef, useState } from "react";
  *
  * The consequence worth knowing: what gets imported is exactly what is in the box. Editing
  * the text after dropping a file is not just allowed, it is the fix for a stray footer row.
+ *
+ * The empty box shows an example row in the SELECTED kind's format (`placeholderFor`), which
+ * is the cheapest possible answer to the one failure a preview can't diagnose: a header row
+ * nothing matched, where the parser fails before there is anything to show a row-by-row
+ * outcome for. It changes with the kind because the kinds' files genuinely differ — a
+ * `market_line` file is one row per player AND stat, which no generic placeholder can say.
  */
 
 /** Read a dropped/picked file as text. utf-8 by default, which is what exports are. */
@@ -32,10 +40,13 @@ function stripBom(text: string): string {
 export function TableInput({
   value,
   onChange,
+  kind,
   rowsHint,
 }: {
   value: string;
   onChange: (text: string) => void;
+  /** Which kind is selected — it decides the example row in the placeholder. */
+  kind: string;
   /** Shown beside the label: how many lines are in the box right now. */
   rowsHint?: string;
 }) {
@@ -91,10 +102,7 @@ export function TableInput({
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
           rows={10}
-          placeholder={
-            "Paste a CSV or a spreadsheet selection here — or drop a file anywhere in this box.\n\n" +
-            "RK,PLAYER,TEAM,POS\n1,Shai Gilgeous-Alexander,OKC,PG"
-          }
+          placeholder={placeholderFor(kind)}
           className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
         />
         <div className="flex flex-wrap items-center gap-3 px-1 pb-1">

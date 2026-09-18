@@ -303,18 +303,29 @@ def derive_market_projections(
     effective: Mapping[int, PlayerLines],
     context: UpsertContext,
     engine: ScoringEngine,
-) -> tuple[int, int, int]:
-    """Re-price every touched player and upsert one `Projection` each. Returns the counts.
+) -> tuple[int, int, int, int]:
+    """Re-price every touched player: upsert one `Projection` each, or REMOVE it. Counts.
 
-    `effective` is what each player's lines will BE after this import — stored rows with the
-    file's rows laid over them — so a dry run derives exactly what a commit would and reports
-    the real numbers, the same promise `app.ingest.adp` makes about its own counters.
+    `effective` is what each player's lines ARE after whatever just happened to them — the
+    stored rows with an import's rows laid over them, or simply what is left after one was
+    deleted. A dry run therefore derives exactly what a commit would and reports the real
+    numbers, the same promise `app.ingest.adp` makes about its own counters.
 
     Upserted on (player, source, kind, season), the key every projection uses, so a second
     import of a changed line rewrites the row rather than adding one.
+
+    **A player with NO lines left loses his projection.** That is the fourth counter, and it
+    is not symmetry for its own sake: the derived `Projection` is the ONLY thing the board
+    can see (`app.ranking.sources` discovers `projection:market`, never a `market_line` row),
+    so an upsert-only derivation would leave a player who has just had his last line deleted
+    ranked by a number nothing underlies any more — present in `GET /sources`' player_count
+    and on `GET /board/consensus`, with an empty set of lines under him on the market page.
+    Re-pricing him at zero would be worse still: that is a claim the market rates him at
+    nothing, when in fact it no longer says anything about him at all. The honest answer to
+    "no lines" is "no opinion", and the row's absence is how this source spells that.
     """
     if not effective:
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
     settings = get_settings()
     player_ids = list(effective)
@@ -331,10 +342,21 @@ def derive_market_projections(
         )
     }
     now = datetime.now(UTC)
-    created = updated = unchanged = 0
+    created = updated = unchanged = deleted = 0
 
     for player_id in sorted(player_ids):
         lines = effective[player_id]
+        row = existing.get(player_id)
+
+        # Nothing priced for him any more — his last line was deleted. See the docstring:
+        # the projection goes, rather than being rewritten as a zero nobody meant.
+        if not lines:
+            if row is not None:
+                deleted += 1
+                if not context.dry_run:
+                    db.delete(row)
+            continue
+
         derived = price_lines(
             lines,
             engine,
@@ -356,7 +378,6 @@ def derive_market_projections(
             "source_fantasy_points_total": None,
         }
 
-        row = existing.get(player_id)
         if row is None:
             created += 1
             if not context.dry_run:
@@ -381,7 +402,33 @@ def derive_market_projections(
 
     if not context.dry_run:
         db.flush()
-    return created, updated, unchanged
+    return created, updated, unchanged, deleted
+
+
+def stored_lines(
+    db: Session, player_ids: Sequence[int], *, source: str, season: int
+) -> dict[int, PlayerLines]:
+    """What these players' lines ARE right now — `derive_market_projections`' input shape.
+
+    Every id asked for gets an entry, and a player with nothing stored gets an EMPTY one
+    rather than no entry at all. That distinction is the whole point of the function: an
+    absent key is a player the derivation never looks at, while an empty mapping is a player
+    it must now un-price. A caller that has just deleted a row wants the second.
+
+    The import path doesn't use this — it already holds the rows it read to upsert against,
+    and reading them twice would be a second query for the same answer. The editing path
+    (`app.api.market`) does, because a delete leaves it with a player id and nothing else.
+    """
+    lines: dict[int, PlayerLines] = {player_id: {} for player_id in player_ids}
+    for row in db.scalars(
+        select(MarketLine).where(
+            MarketLine.source == source,
+            MarketLine.season == season,
+            MarketLine.player_id.in_(list(player_ids)),
+        )
+    ):
+        lines[row.player_id][row.stat_id] = (row.line, row.over_odds, row.under_odds)
+    return lines
 
 
 def upsert_market_line(
@@ -461,13 +508,14 @@ def upsert_market_line(
     if not context.dry_run:
         db.flush()
 
-    derived_created, derived_updated, derived_unchanged = derive_market_projections(
-        db, effective, context, engine
+    derived_created, derived_updated, derived_unchanged, derived_deleted = (
+        derive_market_projections(db, effective, context, engine)
     )
     counts.notes.append(
         f"market projection ({context.source}, {MARKET_PROJECTION_KIND}, season "
         f"{context.season}): {derived_created} created, {derived_updated} updated, "
-        f"{derived_unchanged} unchanged — built from the stats with lines and nothing else"
+        f"{derived_unchanged} unchanged, {derived_deleted} removed — built from the stats "
+        "with lines and nothing else"
     )
     counts.notes.append(
         f"priced with MARKET_SIGMA_FRAC={get_settings().market_sigma_frac}; an even, "

@@ -161,6 +161,7 @@ export function ImportPage() {
       <TableInput
         value={form.text}
         onChange={(text) => update({ text })}
+        kind={form.kind}
         rowsHint={lines ? `${lines} line${lines === 1 ? "" : "s"}` : undefined}
       />
 

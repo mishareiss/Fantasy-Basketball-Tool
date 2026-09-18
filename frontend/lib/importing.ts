@@ -13,10 +13,11 @@
 
 import type { ImportRequestBody, ProjectionBasis, RankingHorizon } from "@/lib/api";
 
-/** The kinds that take options, spelled out so the form doesn't guess from the kind name. */
+/** The kinds, spelled out so the form doesn't guess behaviour from the kind name. */
 export const KIND_ADP = "adp";
 export const KIND_PROJECTION = "projection";
 export const KIND_RANKING = "ranking";
+export const KIND_MARKET_LINE = "market_line";
 
 /** What each kind is, in the one line the picker shows under its name. */
 export const KIND_HINT: Record<string, string> = {
@@ -25,7 +26,38 @@ export const KIND_HINT: Record<string, string> = {
     "Someone's stat line per player, priced under our scoring rules. Needs a league sync first.",
   [KIND_RANKING]:
     "An ordered board. Re-importing REPLACES the set it names — players who fell off are gone.",
+  [KIND_MARKET_LINE]:
+    "Season-long sportsbook props, one row per player AND stat, de-vigged into a market value.",
 };
+
+/**
+ * One example row per kind, shown in the textarea before anything is pasted.
+ *
+ * A header line and a row of it, because that is what the parser actually wants: the first
+ * non-blank line is read as the header and the columns are found by alias, so "what do my
+ * columns have to be called" is the question the empty box should be answering. The columns
+ * here are real aliases from each kind's `value_columns` — the same list `GET /import/kinds`
+ * publishes and the picker prints underneath.
+ *
+ * `market_line` is the one that genuinely needs it: its file is LONG rather than wide — one
+ * row per (player, stat), so five props on one player are five rows naming him — and nothing
+ * about a blank box says that.
+ */
+export const KIND_EXAMPLE: Record<string, string> = {
+  [KIND_ADP]: "PLAYER,Avg Pick\nNikola Jokic, 1.2",
+  [KIND_PROJECTION]: "PLAYER,PTS,REB,AST,STL,BLK,3PM,TO,GP\nNikola Jokic, 27.4, 12.7, 10.1, 1.3, 0.7, 1.2, 3.1, 70",
+  [KIND_RANKING]: "RK,PLAYER\n1, Victor Wembanyama",
+  [KIND_MARKET_LINE]:
+    "PLAYER,STAT,LINE,OVER,UNDER\nLeBron James, PTS, 24.5, -115, -105",
+};
+
+/** What the textarea says while it is empty: the ask, then this kind's shape. */
+export function placeholderFor(kind: string): string {
+  const example = KIND_EXAMPLE[kind];
+  const ask =
+    "Paste a CSV or a spreadsheet selection here — or drop a file anywhere in this box.";
+  return example ? `${ask}\n\n${example}` : ask;
+}
 
 /** The two horizons a rank-only list can declare, and why it has to. */
 export const RANKING_HORIZON_LABEL: Record<RankingHorizon, string> = {

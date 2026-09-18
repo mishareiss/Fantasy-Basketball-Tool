@@ -49,6 +49,14 @@ detected, the handler's notes and every row colour-coded by status; a row it cou
 shows its candidates, and clicking the right one records the alias and re-previews so the row
 lands as `alias`. **Commit** writes, and links back to the board.
 
+<http://localhost:3000/market> is the one source that is *kept* rather than imported and
+replaced: the sportsbook lines, grouped by player, each with its odds, the value they derive
+to and how many stats that value is built from. Add a line (the player's name is resolved by
+the importer's own matcher, candidates and alias fix included), move a number or a price in
+place, or delete one. Deleting a player's **last** line removes his market projection too, so
+he leaves `projection:market` and the consensus board rather than sitting there ranked by
+nothing. A whole page of props is still faster pasted at `/import` as `market_line`.
+
 Quick check from the shell:
 
 ```bash
@@ -362,6 +370,27 @@ curl "localhost:8000/players/board?source=market"                  # it ranks li
 `(source, season, player, stat)` is the key, so **re-importing one changed price updates that
 one row in place** and re-derives only that player. A second book is a second `SOURCE` and
 therefore a second column on the board, not an overwrite.
+
+**Lines are also editable one at a time**, which is what a standing set of props needs and
+what no import can do — a paste can add a line and move one, but it has no verb for "this
+prop came off the board":
+
+```bash
+curl "localhost:8000/market/lines?source=market&season=2027"   # grouped by player, with values
+curl -X PUT localhost:8000/market/lines -H 'content-type: application/json' \
+  -d '{"source":"market","season":2027,"player_id":3112335,"stat":"AST","line":9.5,
+       "over_odds":-150,"under_odds":120}'                     # upsert one line, re-price him
+curl -X DELETE localhost:8000/market/lines/42                  # delete one, re-price him
+curl -X DELETE "localhost:8000/market/lines?source=market&season=2027&player_id=3112335"
+```
+
+Every one of them re-derives that player through the same `derive_market_projections` an
+import runs — and the **delete** carries the rule the import path never needed: a player with
+no lines left has his market `Projection` **removed**, not re-derived at zero. Zero would be a
+claim that the market rates him at nothing, when the truth is that it no longer says anything
+about him at all; and leaving the row would keep him in `GET /sources`' `player_count` and on
+`GET /board/consensus` with an empty set of lines under him. An unknown stat is a `422` with
+the same message a pasted cell gets, and a missing line id is a `404`.
 
 **The projection is partial by construction.** It is built from the stats that have lines and
 nothing else, so a player with only a points prop is worth only his points. That is the honest

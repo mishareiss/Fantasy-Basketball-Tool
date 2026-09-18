@@ -27,9 +27,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        {/* Two pages worth navigating between: the board this exists to produce, and the
-            importer that feeds it. Status stays in the footer — it is a diagnostic, not a
-            destination. */}
+        {/* Three pages worth navigating between: the board this exists to produce, the
+            importer that feeds it, and the market lines — the one source that is kept by
+            hand rather than imported and replaced. Status stays in the footer — it is a
+            diagnostic, not a destination. */}
         <nav className="flex items-center gap-4 border-b border-zinc-200 px-4 py-2.5 text-sm sm:px-6 dark:border-zinc-800">
           <Link href="/" className="font-medium text-zinc-800 hover:underline dark:text-zinc-200">
             Board
@@ -39,6 +40,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             className="font-medium text-zinc-800 hover:underline dark:text-zinc-200"
           >
             Import
+          </Link>
+          <Link
+            href="/market"
+            className="font-medium text-zinc-800 hover:underline dark:text-zinc-200"
+          >
+            Market
           </Link>
         </nav>
         {children}

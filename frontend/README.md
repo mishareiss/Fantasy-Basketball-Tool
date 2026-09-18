@@ -31,8 +31,11 @@ All three are what CI runs, in that order. See [`vitest.config.mts`](vitest.conf
 | --- | --- |
 | `app/` | Routes. `page.tsx` reads the board's query string; `layout.tsx` holds the status strip. |
 | `components/board/` | The board: controls, the table and its tier dividers, the loading/error/empty states, and the read-only curve & tiers inspector. |
+| `components/import/` | The importer: the kind picker, the paste/drop box (its placeholder shows an example row in the selected kind's format), the per-kind options, and the row-by-row preview. |
+| `components/market/` | The market page: the stored lines grouped by player, the add form (which resolves a name through the importer's dry run rather than a second matcher), and in-place edit/delete. |
 | `lib/api.ts` | Typed client. The response types mirror the backend's pydantic models field for field. |
 | `lib/board.ts`, `lib/format.ts` | Horizon vocabulary, and number formatting for a table meant to be scanned. |
+| `lib/importing.ts`, `lib/market.ts` | The pure halves of the two forms: per-kind options and example rows; American odds, and the one-row table a name is resolved against. |
 | `__tests__/` | Vitest + React Testing Library. |
 
 ## Conventions

@@ -411,6 +411,106 @@ export type AliasResponse = {
   age: number | null;
 };
 
+/* -------------------------------------------------------------------------------------- *
+ * Market lines — app/api/market.py, over app/ingest/market_line
+ *
+ * The one source that is kept by hand rather than imported and replaced: a player's props
+ * are a standing SET, edited one number at a time, so they get CRUD instead of a paste.
+ * -------------------------------------------------------------------------------------- */
+
+/** A stat a line can be entered on — market.py: MarketStat. The LEAGUE's scored counting
+ *  stats: a line on something we don't score derives nothing, and a rate can't be priced. */
+export type MarketStat = {
+  stat_id: number;
+  /** 'PTS', 'AST' — the name the line is stored under. */
+  name: string;
+  label: string;
+  /** What our scoring pays per unit of it. */
+  points: number;
+};
+
+/** One stored line — market.py: MarketLineRow. */
+export type MarketLineRow = {
+  id: number;
+  player_id: number;
+  stat_id: number;
+  stat: string;
+  /** Per game, always — season-long props are quoted that way. */
+  line: number;
+  /** American odds; null for a side nobody priced. A line with no price derives itself. */
+  over_odds: number | null;
+  under_odds: number | null;
+  /** ISO timestamp: when these values last changed, not when we last looked. */
+  as_of: string;
+};
+
+/** One player's whole set of lines and what they derive to — market.py: MarketPlayer. */
+export type MarketPlayer = {
+  espn_player_id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  age: number | null;
+  lines: MarketLineRow[];
+  /**
+   * The derived market projection — the row the consensus board actually reads. Null when he
+   * has no lines left, which is NOT the same claim as zero: the market saying nothing about
+   * a player and the market rating him at nothing are different facts.
+   */
+  fantasy_points_per_game: number | null;
+  fantasy_points_total: number | null;
+  projected_games: number | null;
+  /** How many stats the value is built from. Partial by construction. */
+  stats_priced: number;
+};
+
+/** Every line for one (source, season), grouped by player — market.py: MarketLinesResponse. */
+export type MarketLinesResponse = {
+  source: string;
+  season: number;
+  /** Empty before a league sync has stored our coefficients — nothing can be priced yet. */
+  stats: MarketStat[];
+  total_players: number;
+  total_lines: number;
+  players: MarketPlayer[];
+};
+
+/** The body of PUT /market/lines — market.py: MarketLineWrite. */
+export type MarketLineWriteBody = {
+  source: string;
+  season?: number | null;
+  player_id: number;
+  /** Any spelling the importer accepts: 'AST', 'assists', 'apg', or the bare stat id. */
+  stat: string;
+  line: number;
+  over_odds?: number | null;
+  under_odds?: number | null;
+};
+
+/** market.py: MarketLineWriteResponse. */
+export type MarketLineWriteResponse = {
+  source: string;
+  season: number;
+  /** False when the line already existed and was moved in place. */
+  created: boolean;
+  line: MarketLineRow;
+  /** The player as he is NOW: every line of his, and the re-derived value. */
+  player: MarketPlayer;
+};
+
+/** market.py: MarketDeleteResponse. */
+export type MarketDeleteResponse = {
+  source: string;
+  season: number;
+  deleted: number;
+  player: MarketPlayer;
+  /**
+   * True when that was his last line: the derived projection was REMOVED, so he is gone from
+   * this source and off the consensus board rather than ranked last on it.
+   */
+  player_removed: boolean;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -473,6 +573,20 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/** A JSON PUT through the same error shaping. */
+async function put<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "PUT",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** A DELETE through the same error shaping. Every one of ours answers with a body. */
+async function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
 }
 
 export const api = {
@@ -545,4 +659,38 @@ export const api = {
    */
   addPlayerAlias: (espnPlayerId: number, body: AliasRequestBody) =>
     post<AliasResponse>(`/players/${espnPlayerId}/aliases`, body),
+
+  /** Every stored line for one book and season, grouped by player. Empty is a clean 200. */
+  marketLines: (params: { source?: string; season?: number } = {}) =>
+    request<MarketLinesResponse>(
+      `/market/lines${query({ source: params.source, season: params.season })}`,
+    ),
+
+  /**
+   * Store ONE line and re-price the player it belongs to.
+   *
+   * PUT, not POST, because (source, season, player, stat) is the key: sending the same stat
+   * twice moves the number rather than adding a second line for it. The response carries the
+   * player's re-derived value, so nothing here has to work out what a new odds pair is worth.
+   */
+  putMarketLine: (body: MarketLineWriteBody) =>
+    put<MarketLineWriteResponse>("/market/lines", body),
+
+  /**
+   * Delete one line and re-price what is left.
+   *
+   * `player_removed` on the response is the case to watch: with no lines left, his derived
+   * projection is removed rather than zeroed, so he leaves the market source entirely.
+   */
+  deleteMarketLine: (lineId: number) => del<MarketDeleteResponse>(`/market/lines/${lineId}`),
+
+  /** Clear one player's whole set for a book and season — "he is off the board" in one call. */
+  clearMarketPlayer: (params: { source: string; season?: number; player_id: number }) =>
+    del<MarketDeleteResponse>(
+      `/market/lines${query({
+        source: params.source,
+        season: params.season,
+        player_id: params.player_id,
+      })}`,
+    ),
 };

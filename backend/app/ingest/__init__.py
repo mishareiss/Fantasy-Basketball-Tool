@@ -27,6 +27,7 @@ from app.ingest.market_line import (
     derive_market_projections,
     price_lines,
     resolve_stat,
+    stored_lines,
     upsert_market_line,
 )
 from app.ingest.parser import (
@@ -171,6 +172,7 @@ __all__ = [
     "run_import",
     "split_positions",
     "stat_lines",
+    "stored_lines",
     "upsert_market_line",
     "upsert_ranking",
 ]
