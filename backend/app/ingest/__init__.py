@@ -10,13 +10,25 @@ The pieces, in the order a row travels through them:
 * `app.matching` — resolve each foreign name to a `Player`. Not reimplemented here; the
   matcher, the normalization rules and the `PlayerAlias` memory all live there.
 * `registry` — per-kind handlers. A kind declares its value columns, how to store a resolved
-  row, and how careful to be about fuzzy matches. `adp`, `projection` and `ranking` are
-  implemented; `market_line` is documented in `PLANNED_KINDS`.
+  row, how careful to be about fuzzy matches, and (for a long-format file) what makes two rows
+  different. `adp`, `projection`, `ranking` and `market_line` are all implemented.
 * `pipeline` — the two-phase run: a dry run that previews everything and writes nothing, and
   a commit that persists rows plus the aliases that make the next import instant.
 """
 
 from app.ingest.adp import ADP_COLUMNS, ADP_KIND
+from app.ingest.market_line import (
+    MARKET_LINE_COLUMNS,
+    MARKET_LINE_KIND,
+    MARKET_PROJECTION_KIND,
+    MARKET_SOURCE,
+    DerivedProjection,
+    UnknownStatError,
+    derive_market_projections,
+    price_lines,
+    resolve_stat,
+    upsert_market_line,
+)
 from app.ingest.parser import (
     NAME_ALIASES,
     PARSE_NUMBER,
@@ -56,6 +68,7 @@ from app.ingest.projection import (
     PROJECTION_KIND,
     PROJECTION_STAT_ALIASES,
     StatLines,
+    derive_implied_stats,
     resolve_basis,
     stat_lines,
 )
@@ -80,8 +93,10 @@ from app.ingest.registry import (
     UpsertCounts,
     accept_matcher_threshold,
     accept_only_certain,
+    always_valid,
     get_kind,
     kind_names,
+    one_row_per_player,
     register,
 )
 
@@ -92,11 +107,16 @@ __all__ = [
     "BASIS_PER_GAME",
     "BASIS_SEASON",
     "ColumnMap",
+    "DerivedProjection",
     "HORIZON_OPTION",
     "ImportKind",
     "ImportParseError",
     "ImportSummary",
     "KINDS",
+    "MARKET_LINE_COLUMNS",
+    "MARKET_LINE_KIND",
+    "MARKET_PROJECTION_KIND",
+    "MARKET_SOURCE",
     "MAX_CANDIDATES",
     "NAME_ALIASES",
     "PARSE_NUMBER",
@@ -125,24 +145,32 @@ __all__ = [
     "StatLines",
     "TEAM_ALIASES",
     "UnknownKindError",
+    "UnknownStatError",
     "UpsertContext",
     "UpsertCounts",
     "ValueColumn",
     "accept_matcher_threshold",
     "accept_only_certain",
+    "always_valid",
+    "derive_implied_stats",
+    "derive_market_projections",
     "detect_columns",
     "get_kind",
     "kind_names",
     "match_rows",
     "normalize_header",
+    "one_row_per_player",
     "parse_number",
     "parse_table",
     "parse_text",
+    "price_lines",
     "register",
     "resolve_basis",
     "resolve_options",
+    "resolve_stat",
     "run_import",
     "split_positions",
     "stat_lines",
+    "upsert_market_line",
     "upsert_ranking",
 ]

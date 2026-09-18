@@ -90,12 +90,12 @@ def test_a_column_map_comes_through_the_body(api):
 
 
 def test_an_unknown_kind_is_a_404_listing_what_exists(api, adp_csv):
-    """`market_line` is designed and not built; asking for it says so, and says what is."""
-    response = api.post("/import/market_line", json=_body(adp_csv))
+    """Every designed kind is built now, so the 404 is for a name nothing has ever claimed."""
+    response = api.post("/import/auction_values", json=_body(adp_csv))
 
     assert response.status_code == 404
     detail = response.json()["detail"]
-    assert "adp" in detail and "projection" in detail and "ranking" in detail
+    assert all(kind in detail for kind in ("adp", "projection", "ranking", "market_line"))
 
 
 def test_an_unreadable_table_is_a_422_that_says_why(api):
@@ -127,7 +127,7 @@ def test_the_kinds_endpoint_lists_what_is_built_and_what_is_planned(api):
     kinds = api.get("/import/kinds").json()
 
     built = {kind["kind"]: kind for kind in kinds if kind["implemented"]}
-    assert sorted(built) == ["adp", "projection", "ranking"]
+    assert sorted(built) == ["adp", "market_line", "projection", "ranking"]
     assert built["adp"]["required"] == ["adp"]
     assert "avg pick" in built["adp"]["value_columns"]["adp"]
     assert built["projection"]["required"] == ["PTS"]
@@ -136,7 +136,12 @@ def test_the_kinds_endpoint_lists_what_is_built_and_what_is_planned(api):
     # ranking, and the order is what it's asserting.
     assert built["ranking"]["required"] == []
     assert "tier" in built["ranking"]["value_columns"]["tier"]
-    assert {kind["kind"] for kind in kinds if not kind["implemented"]} == {"market_line"}
+    # A market line needs the stat it is ON and the number itself; the two prices are optional,
+    # because an unpriced line is still a line.
+    assert built["market_line"]["required"] == ["stat", "line"]
+    assert "over odds" in built["market_line"]["value_columns"]["over_odds"]
+    # Nothing is designed-but-unbuilt any more.
+    assert [kind["kind"] for kind in kinds if not kind["implemented"]] == []
 
 
 def test_a_projection_paste_previews_and_commits_over_http(priced, projection_csv):

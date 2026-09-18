@@ -44,11 +44,16 @@ sync-ages: ## Match nba.com's roster to our players and fill in birthdates + age
 #   make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=proj.csv BASIS=per_game
 #   make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" \
 #     HORIZON=dynasty FILE=top200.csv
+#   make import KIND=market_line SOURCE=market SEASON=2027 FILE=props.csv COMMIT=1
 # BASIS is projection-only: per_game (the usual export: averages plus a GP column) or season.
 # NAME is ranking-only: the set's label; defaults to SOURCE. HORIZON is ranking-only and
 # REQUIRED: dynasty or redraft, since a rank-only list has no stats to age-adjust.
 # (source, NAME, season, HORIZON) identifies the stored set, and re-importing it REPLACES that
 # set's entries wholesale.
+# market_line takes no options: its file is LONG (one row per player+stat -- Player, Stat, Line,
+# [Over], [Under], American odds), SOURCE is the book ('market' for one hand-kept set), and
+# every import re-derives the touched players' market projection, which is what shows up on
+# GET /board/consensus as projection:$(SOURCE).
 import: ## Import a CSV/paste (KIND= SOURCE= [SEASON=] FILE= [BASIS=] [NAME=] [HORIZON=] [COMMIT=1] [ARGS=...])
 	cd backend && uv run python -m scripts.import_data \
 		--kind "$(KIND)" --source "$(SOURCE)" \

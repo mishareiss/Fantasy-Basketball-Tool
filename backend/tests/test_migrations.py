@@ -400,3 +400,118 @@ def test_the_horizon_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated)
     command.upgrade(config, HORIZON)
 
     assert _ranking_sets(engine) == [(1, "hashtag", "Top 200", 2027, "redraft")]
+
+
+# --- market_line -----------------------------------------------------------------------------
+
+# The revision that added `market_line`, and the one it sits on.
+MARKET_BEFORE = HORIZON
+MARKET = "d7a4f1c26b38"
+
+
+def _seed_market_line(engine, *, player_id=1, stat_id=0, line=27.5, source="market", season=2027):
+    with engine.begin() as connection:
+        _seed_players(connection, (player_id,))
+        connection.execute(
+            text(
+                "INSERT INTO market_line "
+                "(player_id, source, season, stat_id, line, over_odds, under_odds, as_of) "
+                f"VALUES ({player_id}, '{source}', {season}, {stat_id}, {line}, -110, -110, "
+                "'2026-08-01')"
+            )
+        )
+
+
+def test_the_market_line_table_arrives_keyed_and_indexed(migrated):
+    config, engine = migrated
+
+    command.upgrade(config, MARKET)
+
+    assert "market_line" in _table_names(engine)
+    inspector = inspect(engine)
+    assert {c["name"] for c in inspector.get_unique_constraints("market_line")} == {
+        "uq_market_line_source_season_player_stat"
+    }
+    assert {index["name"] for index in inspector.get_indexes("market_line")} == {
+        "ix_market_line_player_id"
+    }
+    columns = inspector.get_columns("market_line")
+    nullable = {column["name"]: column["nullable"] for column in columns}
+    # A line with no published price is still a line.
+    assert nullable["over_odds"] and nullable["under_odds"]
+    assert not nullable["line"] and not nullable["season"] and not nullable["stat_id"]
+
+
+def test_one_stat_cannot_be_priced_twice_by_one_book_in_one_season(migrated):
+    """The key that makes "update the odds if they change" an UPDATE rather than a second row."""
+    config, engine = migrated
+    command.upgrade(config, MARKET)
+    _seed_market_line(engine)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO market_line "
+                "(player_id, source, season, stat_id, line, as_of) "
+                "VALUES (1, 'market', 2027, 0, 28.5, '2026-08-02')"
+            )
+        )
+
+
+def test_a_second_book_a_second_season_and_a_second_stat_all_coexist(migrated):
+    config, engine = migrated
+    command.upgrade(config, MARKET)
+
+    _seed_market_line(engine, stat_id=0)
+    _seed_market_line(engine, stat_id=3, line=9.5)
+    _seed_market_line(engine, stat_id=0, line=28.5, source="draftkings")
+    _seed_market_line(engine, stat_id=0, line=26.5, season=2026)
+
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM market_line")) == 4
+
+
+def test_dropping_a_player_takes_his_lines_with_him(migrated):
+    config, engine = migrated
+    command.upgrade(config, MARKET)
+    _seed_market_line(engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(text("DELETE FROM player WHERE espn_player_id = 1"))
+        remaining = connection.scalar(text("SELECT count(*) FROM market_line"))
+
+    assert remaining == 0
+
+
+def test_the_market_line_downgrade_removes_the_table(migrated):
+    config, engine = migrated
+    command.upgrade(config, MARKET)
+    _seed_market_line(engine)
+
+    command.downgrade(config, MARKET_BEFORE)
+
+    assert "market_line" not in _table_names(engine)
+
+
+def test_the_market_line_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, MARKET)
+    _seed_market_line(engine)
+
+    command.downgrade(config, MARKET_BEFORE)
+    command.upgrade(config, MARKET)
+    _seed_market_line(engine)
+
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM market_line")) == 1
+
+
+def test_a_from_scratch_apply_reaches_the_market_line_table(migrated):
+    """The whole point of the migration test: a cold database, all the way up, on SQLite."""
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    assert "market_line" in _table_names(engine)

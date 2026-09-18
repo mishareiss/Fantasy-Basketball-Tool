@@ -223,6 +223,10 @@ make import KIND=projection SOURCE=hashtag SEASON=2027 FILE=~/Downloads/proj.csv
 # Rankings: an ordered board with optional tiers. NAME labels the set; HORIZON is required.
 make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" HORIZON=dynasty FILE=~/Downloads/top200.csv
 make import KIND=ranking SOURCE=hashtag SEASON=2027 NAME="Dynasty Top 200" HORIZON=dynasty FILE=~/Downloads/top200.csv COMMIT=1
+
+# Market lines: season-long sportsbook props, one row per (player, stat).
+make import KIND=market_line SOURCE=market SEASON=2027 FILE=~/Downloads/props.csv
+make import KIND=market_line SOURCE=market SEASON=2027 FILE=~/Downloads/props.csv COMMIT=1
 ```
 
 All of it is also a form at <http://localhost:3000/import>, which is usually the easier way in
@@ -258,8 +262,8 @@ age-adjust it the way a projection is adjusted, and there is no arithmetic that 
 Top 200 into a dynasty board. The only moment the answer is known is the import. It is part of
 the key for the same reason — a source publishes both lists under one name for one season, and
 keyed without it the second import would silently replace the first, wholesale. Value kinds
-(`projection`, and `market_line` when it lands) take no horizon: they hold production, and both
-horizons come off the age curve. `GET /rankings` reports each set's horizon and can filter on it.
+(`projection` and `market_line`) take no horizon: they hold production, and both horizons come
+off the age curve. `GET /rankings` reports each set's horizon and can filter on it.
 
 Re-importing that identity **replaces the set wholesale** — the old entries are deleted and the
 file's are written. Version two of a list is a different list: players drop off it and the rest
@@ -300,6 +304,71 @@ is) multiplies through by GP to get season totals; `season` divides instead. Eit
 lines are stored, because the board reads per-game and a draft plan budgets totals. A row with
 no usable games count keeps its per-game value and stores no season total — the projection
 still ranks, and nobody invented an 82-game season for a player who may not play at all.
+
+#### Market lines are a projection the market made
+
+A season-long prop is two things: a **line** ("Jokic, 10.5 assists per game") and a **price** on
+each side ("over +105 / under -125"). The line is the book's midpoint; the price is how far off
+that midpoint it actually thinks the truth is. Both halves are read.
+
+The file is **long, not wide** — one row per `(player, stat)`, so a player with seven props is
+seven rows. Odds are optional and American:
+
+```
+Player,Stat,Line,Over,Under
+Nikola Jokic,PTS,27.5,-115,-105
+Nikola Jokic,AST,10.5,+105,-125
+Nikola Jokic,REB,12.5,,
+```
+
+**Odds → a fair per-game number**, in four steps (`app/ranking/market.py`):
+
+1. **American odds → implied probability.** `-135` breaks even at 135/235; `+110` at 100/210.
+2. **De-vig.** Those two sum to more than 1 — the excess is the book's margin, and it is on both
+   sides at once. Normalising by the total removes it proportionally. With only one side priced,
+   or neither, there is nothing to measure the margin against, so it reads as **even**.
+3. **Line + a shift.** Model the season's per-game outcome as normal around an unknown mean and
+   ask where that mean has to be for the market to price the over at `p`:
+   `value = line + σ·Φ⁻¹(p)`.
+4. **Clamp at zero.** No counting stat is negative.
+
+The property worth leaning on: **an even, one-sided or missing price leaves `value == line`
+exactly**, because `Φ⁻¹(0.5) = 0`. Typing in a bare line stores that line and nothing else.
+
+σ is the one free parameter, and it is a dial, not a constant: `MARKET_SIGMA_FRAC` (default
+`0.25`) scales it against the line itself, `σ = frac · max(line, 1.0)`. Turn it up and a shaded
+price moves the number further; it can never turn a bare line into something other than that
+line. Unlike the curve and the tiers it applies at **import** time, so changing it needs a
+re-import.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `MARKET_SIGMA_FRAC` | `0.25` | Per-stat dispersion as a fraction of the line. Higher -> a shaded price moves the value further. Never moves an evenly-priced line |
+| `MARKET_DEFAULT_GAMES` | `70` | Games for the displayed season total when ESPN has no projected-games count. Display only — the board ranks on per-game |
+
+Every import then **re-derives the touched players**: their stored lines become a fair per-game
+stat line, that line is priced by **the same `ScoringEngine` ESPN's projection is priced by**,
+and the result is upserted as one `Projection` under this source. So the market reaches the
+consensus board as the ordinary value source `projection:market` — the age curve, the shared
+draftable pool and the percentile scale all apply to it, with no code in `app/ranking/sources.py`
+that knows a sportsbook exists.
+
+```bash
+curl "localhost:8000/sources?horizon=dynasty"                      # projection:market is listed
+curl "localhost:8000/board/consensus?sources=projection:espn,projection:market,ranking:1"
+curl "localhost:8000/players/board?source=market"                  # it ranks like any projection
+```
+
+`(source, season, player, stat)` is the key, so **re-importing one changed price updates that
+one row in place** and re-derives only that player. A second book is a second `SOURCE` and
+therefore a second column on the board, not an overwrite.
+
+**The projection is partial by construction.** It is built from the stats that have lines and
+nothing else, so a player with only a points prop is worth only his points. That is the honest
+reading of "the market has an opinion about his scoring and none about the rest", and it is why
+a market column belongs *beside* a full projection rather than instead of one — and why market
+projections are excluded from the `GET /players/unresolved` worklists, which ask who we can
+actually price. Read a market source's `player_count` on `GET /sources` before reading its ranks.
 
 ### Tests
 

@@ -87,9 +87,9 @@ def _entries(db, ranking_set: RankingSet) -> dict[str, int]:
     return {row.player.full_name: row.rank for row in rows}
 
 
-def test_ranking_is_registered_and_market_line_is_the_last_stub():
-    assert kind_names() == ["adp", "projection", "ranking"]
-    assert sorted(PLANNED_KINDS) == ["market_line"]
+def test_ranking_is_registered_and_nothing_is_left_as_a_stub():
+    assert kind_names() == ["adp", "market_line", "projection", "ranking"]
+    assert PLANNED_KINDS == {}
 
 
 # --- columns ------------------------------------------------------------------------------

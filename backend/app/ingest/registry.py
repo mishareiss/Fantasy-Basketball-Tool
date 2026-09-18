@@ -19,8 +19,18 @@ mapping on `UpsertContext`, so the pipeline still doesn't know what either kind 
 set rather than upserting rows, and says so through `UpsertCounts.notes`. Even that is a
 handler decision, not a pipeline one.
 
-See `PLANNED_KINDS` for what the one remaining kind needs, which is deliberately *not*
-pipeline work: it's a model, a migration, and some odds arithmetic.
+`market_line` stretched it twice more, and both are declarations rather than behaviour:
+
+4. **What makes two rows the same row** (`row_key`). Every other kind's file is one row per
+   player; a market file is LONG — one row per (player, stat), so four props on Jokic are
+   four rows and the pipeline's duplicate check has to know that before it calls the second
+   one a duplicate.
+5. **Whether a row is usable at all** (`validate`), beyond "a required column is empty".
+   `market_line` has a cell whose *content* can be wrong — a stat nobody scores — and that
+   deserves the same per-row `invalid` treatment a missing number gets, not an exception that
+   takes the other 200 rows down with it.
+
+Both default to no-ops, so the three older kinds are untouched by either.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -118,9 +128,31 @@ def accept_only_certain(result: MatchResult) -> bool:
     return result.matched and result.method != METHOD_FUZZY
 
 
+# What a row is ABOUT, beyond the player it names — see `one_row_per_player`.
+RowKeyFn = Callable[[ParsedRow], object]
+# A per-row usability check that the required-columns rule can't express. Returns the reason
+# the row is unusable, or None when it's fine.
+RowValidator = Callable[[ParsedRow], str | None]
+
+
+def one_row_per_player(row: ParsedRow) -> object:
+    """The default: a player appears at most once in a file, so the player IS the key.
+
+    True of `adp`, `projection` and `ranking` — one number, one stat line, one place each —
+    and the reason the pipeline can call a repeat of a name a duplicate. `market_line` is the
+    exception and says so by returning its stat.
+    """
+    return None
+
+
+def always_valid(row: ParsedRow) -> str | None:
+    """The default: if the required columns are filled, the row is usable."""
+    return None
+
+
 @dataclass(frozen=True)
 class ImportKind:
-    """One importable kind of data, and the three things that make it itself."""
+    """One importable kind of data, and the things that make it itself."""
 
     name: str
     # One line, shown by the CLI and the API's kind listing.
@@ -128,6 +160,13 @@ class ImportKind:
     columns: tuple[ValueColumn, ...]
     upsert: UpsertFn
     accept: AcceptPolicy = accept_matcher_threshold
+    # What a second row naming the same player means. Returning None (the default) makes a
+    # repeat a duplicate; returning something per row — `market_line` returns the stat — makes
+    # the pair (player, that) the thing that can't repeat.
+    row_key: RowKeyFn = one_row_per_player
+    # A content check the `required` flags can't express, run before matching. Its message
+    # lands on the row as `invalid`, exactly as a missing required number does.
+    validate: RowValidator = always_valid
 
     @property
     def required_fields(self) -> tuple[str, ...]:
@@ -148,7 +187,7 @@ def get_kind(name: str) -> ImportKind:
     kind = KINDS.get((name or "").strip().lower())
     if kind is None:
         known = ", ".join(sorted(KINDS)) or "none"
-        planned = ", ".join(sorted(PLANNED_KINDS))
+        planned = ", ".join(sorted(PLANNED_KINDS)) or "none"
         raise UnknownKindError(
             f"unknown import kind {name!r}. Registered: {known}. Planned (not built): {planned}."
         )
@@ -159,16 +198,8 @@ def kind_names() -> list[str]:
     return sorted(KINDS)
 
 
-# The deferred kinds, and what each one needs before it can be registered. None of it is
-# pipeline work — parsing, matching, review, and idempotency are already done and shared.
-# `adp`, `projection` and `ranking` are built; this one is what's left.
-PLANNED_KINDS: dict[str, str] = {
-    "market_line": (
-        "Season-long sportsbook props (season totals / PPG over-unders with American odds) -> "
-        "new `MarketLine` model, then de-vig: implied probability per side, remove the "
-        "overround, take the fair line, and turn per-stat lines into a market-implied "
-        "projection priced under our scoring. Needs: that model plus a migration, an odds "
-        "parser (+130 / -155), the de-vig maths, over/under column pairing, and "
-        "`accept_only_certain` as its policy."
-    ),
-}
+# Kinds that are designed but not built. Empty today — `adp`, `projection`, `ranking` and
+# `market_line` are all registered — and kept as the place a future kind (a personal composite,
+# a keeper-cost sheet) announces itself before it exists, so `get_kind` can name it rather than
+# just saying "unknown".
+PLANNED_KINDS: dict[str, str] = {}

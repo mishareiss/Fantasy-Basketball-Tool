@@ -77,6 +77,22 @@ class Settings(BaseSettings):
     # noise, and they would drag the median that every break is measured against.
     tier_pool: int = 150
 
+    # --- Market lines -----------------------------------------------------------------------
+    # Sportsbook props -> a fair per-game number (see app.ranking.market). Two dials, here for
+    # the same reason DYNASTY_* and TIER_* are: how much spread a season-long line carries is
+    # a judgement to calibrate, not a constant, and MARKET_SIGMA_FRAC=0.3 plus a restart should
+    # re-price every market line without a code change.
+    #
+    # The per-stat dispersion, as a fraction of the line: sigma = frac * max(line, 1.0). It is
+    # the only free parameter in the odds model, and it only ever scales how far a SHADED
+    # price moves the value — an even, one-sided or missing price leaves value == line at
+    # every setting. 0.25 is a moderate starting point, not a conviction.
+    market_sigma_frac: float = 0.25
+    # Games to multiply a market player's per-game value by when ESPN has no projected-games
+    # count for him. The board ranks on per-game, so this only sets the displayed season
+    # total; 70 is a healthy-ish season rather than an optimistic 82.
+    market_default_games: float = 70.0
+
     # Future projection / odds sources
     balldontlie_api_key: str | None = None
     the_odds_api_key: str | None = None

@@ -11,7 +11,9 @@ from app.ingest import (
     parse_table,
     split_positions,
 )
+from app.ingest.market_line import MARKET_LINE_COLUMNS
 from app.ingest.parser import PARSE_TEXT, ValueColumn, parse_text, sniff_delimiter
+from app.ingest.projection import PROJECTION_COLUMNS
 
 # Enough of a kind to parse against, without dragging the registry in.
 VALUE_COLUMNS = ADP_COLUMNS
@@ -269,3 +271,71 @@ def test_a_row_reports_which_required_values_it_lacks():
 
     assert table.rows[0].missing(VALUE_COLUMNS) == ["adp"]
     assert table.rows[0].missing([ValueColumn("adp", ("adp",))]) == []
+
+
+# --- one column, one field ---------------------------------------------------------------------
+#
+# Column detection has two passes: an exact header hit, then a looser "the header contains this
+# alias as a word". Two value fields can reach for the same column through the second one, and
+# the answer has to be "the better match keeps it, and nobody else reads it".
+
+# The real market columns rather than a stand-in, so this asserts the shipped aliases.
+OVER_UNDER_COLUMNS = MARKET_LINE_COLUMNS
+
+
+def test_an_exact_hit_beats_another_fields_loose_one():
+    """ "Over/Under" IS the line's alias and merely CONTAINS `over_odds`'. The line takes it."""
+    columns = detect_columns(["Player", "Stat", "Over/Under"], OVER_UNDER_COLUMNS)
+
+    assert columns.as_dict() == {"name": "Player", "stat": "Stat", "line": "Over/Under"}
+
+
+def test_the_odds_columns_are_still_found_when_they_are_really_there():
+    columns = detect_columns(
+        ["Player", "Stat", "O/U", "Over Odds", "Under Odds"], OVER_UNDER_COLUMNS
+    )
+
+    assert columns.as_dict() == {
+        "name": "Player",
+        "stat": "Stat",
+        "line": "O/U",
+        "over_odds": "Over Odds",
+        "under_odds": "Under Odds",
+    }
+
+
+def test_a_split_stat_goes_to_the_field_that_names_it_exactly():
+    """ "Off Reb" is exactly OREB's alias and contains REB's — so REB is left unset, not doubled.
+
+    Which is the right answer twice over: a file that splits the rebounds hasn't published a
+    total, and `derive_implied_stats` adds one back exactly from the two halves.
+    """
+    columns = detect_columns(["Player", "PTS", "Off Reb"], PROJECTION_COLUMNS)
+
+    found = columns.as_dict()
+    assert found["OREB"] == "Off Reb"
+    assert "REB" not in found
+
+
+def test_an_override_wins_over_a_column_that_would_otherwise_have_matched_exactly():
+    """The caller has said what they mean; detection doesn't get to disagree.
+
+    A header literally called "Line" is sitting right there, and the override still sends the
+    line field to "O/U" — which is the escape hatch for the one file a year that defeats the
+    alias tables.
+    """
+    columns = detect_columns(
+        ["Player", "Stat", "Line", "O/U"], OVER_UNDER_COLUMNS, overrides={"line": "O/U"}
+    )
+
+    assert columns.as_dict()["line"] == "O/U"
+
+
+def test_an_override_that_starves_a_required_field_is_refused_rather_than_guessed():
+    """Pointing `over_odds` at the only line-shaped column leaves the line with nothing."""
+    with pytest.raises(ImportParseError, match="required value"):
+        detect_columns(
+            ["Player", "Stat", "Over/Under"],
+            OVER_UNDER_COLUMNS,
+            overrides={"over_odds": "Over/Under"},
+        )

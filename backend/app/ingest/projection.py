@@ -74,7 +74,7 @@ PRECISION = 4
 PROJECTION_STAT_ALIASES: dict[str, tuple[str, ...]] = {
     "PTS": ("pts", "points", "pt", "ppg"),
     # "TREB"/"TRB" are total rebounds; OREB/DREB are the split. A source that publishes only
-    # the split still gets a REB line — see `_derive`.
+    # the split still gets a REB line — see `derive_implied_stats`.
     "REB": ("reb", "treb", "trb", "rebounds", "total rebounds", "rpg"),
     "OREB": ("oreb", "orb", "off reb", "offensive rebounds", "orpg"),
     "DREB": ("dreb", "drb", "def reb", "defensive rebounds", "drpg"),
@@ -147,8 +147,14 @@ def _round(value: float) -> float:
     return round(value, PRECISION)
 
 
-def _derive(stats: dict[str, float]) -> None:
-    """Fill in stats the source implies but doesn't print. In place, exact, never a guess."""
+def derive_implied_stats(stats: dict[str, float]) -> None:
+    """Fill in stats the source implies but doesn't print. In place, exact, never a guess.
+
+    Public because `market_line` derives the same way: a book that prices offensive and
+    defensive rebounds separately and never prices REB is the same situation as a projection
+    source that prints the split and not the total, and two answers to it would be one too
+    many.
+    """
     for target, parts in _SUMS:
         if target not in stats and all(part in stats for part in parts):
             stats[target] = _round(sum(stats[part] for part in parts))
@@ -172,7 +178,7 @@ def stat_lines(values: Mapping[str, float | None], *, basis: str = BASIS_PER_GAM
         for name, value in values.items()
         if value is not None and name != GAMES_FIELD
     }
-    _derive(stats)
+    derive_implied_stats(stats)
 
     games = values.get(GAMES_FIELD)
     # 0 games is not a divisor and not a multiplier; it reads as "unknown", the same way

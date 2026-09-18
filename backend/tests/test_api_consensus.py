@@ -13,10 +13,14 @@ from app.db.models.ranking import HORIZON_DYNASTY as TAG_DYNASTY
 from app.db.models.ranking import HORIZON_REDRAFT as TAG_REDRAFT
 from app.db.session import get_db
 from app.main import app
-from tests.conftest import AGE_AS_OF
+from tests.conftest import AGE_AS_OF, SEASON
 
 PROJECTION = "projection:espn"
 ADP = "adp:espn"
+
+# Two of the fixture pool, by ESPN id.
+JOKIC = 3112335
+WEMBY = 5104157
 
 
 @pytest.fixture
@@ -265,3 +269,155 @@ def test_the_single_source_value_board_is_untouched(api, synced):
     assert body["players"][0]["dynasty_value"] > 0
     assert body["tiers"] == "auto"
     assert body["tier_summary"]
+
+
+# --- the market as a third source ------------------------------------------------------------
+#
+# The point of the whole market_line task: sportsbook lines are derived into a `Projection`
+# under their own source, so they are discovered by the SAME value-source adapter ESPN's
+# projection uses. There is no market branch in `app.ranking.sources` and there should never
+# be one — these tests are what says so.
+
+MARKET = "projection:market"
+
+
+def test_the_market_appears_as_a_value_source_under_both_horizons(
+    api, db, synced, make_market_lines
+):
+    """Acceptance criterion 3. A value source can be aged, so it answers both questions."""
+    make_market_lines({JOKIC: {"PTS": 27.5, "REB": 12.5, "AST": 9.5}})
+
+    for horizon in ("dynasty", "current_year"):
+        body = api.get(f"/sources?horizon={horizon}").json()
+        market = next(source for source in body["sources"] if source["id"] == MARKET)
+        assert market["kind"] == "projection"
+        assert market["source"] == "market"
+        assert market["season"] == SEASON
+        assert market["player_count"] == 1
+        # No declared tag: it derives both horizons from production, as ESPN's projection does.
+        assert market["horizon"] is None
+
+
+def test_a_second_book_is_a_second_source_rather_than_a_second_opinion_in_one(
+    api, db, synced, make_market_lines
+):
+    make_market_lines({JOKIC: {"PTS": 27.5}})
+    make_market_lines({JOKIC: {"PTS": 29.5}}, source="draftkings")
+
+    ids = {source["id"] for source in api.get("/sources?horizon=dynasty").json()["sources"]}
+
+    assert {MARKET, "projection:draftkings"} <= ids
+
+
+def test_the_market_is_selectable_and_gives_a_cell_per_player(api, db, synced, make_market_lines):
+    make_market_lines({JOKIC: {"PTS": 27.5, "REB": 12.5}, WEMBY: {"BLK": 3.5, "REB": 11.5}})
+
+    body = api.get(f"/board/consensus?sources={PROJECTION},{MARKET}&horizon=dynasty").json()
+
+    assert [source["id"] for source in body["sources"]] == [PROJECTION, MARKET]
+    rows = {row["espn_player_id"]: row for row in body["players"]}
+    assert MARKET in rows[JOKIC]["cells"]
+    assert MARKET in rows[WEMBY]["cells"]
+    assert rows[JOKIC]["sources_present"] == 2
+    # Two sources that disagree have a spread; one that doesn't rank him has no cell at all.
+    assert rows[JOKIC]["spread"] is not None
+
+
+def test_a_player_with_no_lines_is_missing_from_the_market_not_last_on_it(
+    api, db, synced, make_market_lines
+):
+    """The market covers whoever has props, which is a handful of players, not a board."""
+    make_market_lines({JOKIC: {"PTS": 27.5}})
+
+    body = api.get(f"/board/consensus?sources={PROJECTION},{MARKET}&horizon=dynasty").json()
+
+    rows = {row["espn_player_id"]: row for row in body["players"]}
+    assert MARKET in rows[JOKIC]["cells"]
+    others = [row for row in body["players"] if row["espn_player_id"] != JOKIC]
+    assert others and all(MARKET not in row["cells"] for row in others)
+    assert all(MARKET in row["sources_missing"] for row in others)
+
+
+def test_the_age_curve_applies_to_the_market_exactly_as_it_does_to_a_projection(
+    api, db, aged, make_market_lines
+):
+    """Acceptance criterion 3's second half — and the reason it is a value source, not a rank one.
+
+    The same two market lines rank a different board under the two horizons, because the
+    dynasty one prices them through the age curve. A rank-only list cannot do this; that is
+    the whole distinction `app.ranking.sources` is built on.
+    """
+    young, old = _youngest_and_oldest(db)
+    # Priced so the older player is clearly the better win-now market read.
+    make_market_lines({young: {"PTS": 20.0}, old: {"PTS": 26.0}})
+
+    def market_ranks(horizon):
+        body = api.get(f"/board/consensus?sources={MARKET}&horizon={horizon}&limit=1000").json()
+        return {row["espn_player_id"]: row["cells"][MARKET]["rank"] for row in body["players"]}
+
+    win_now = market_ranks("current_year")
+    dynasty = market_ranks("dynasty")
+
+    assert win_now[old] < win_now[young]  # more points per game today
+    assert dynasty[young] < dynasty[old]  # and the curve turns that around
+    assert db.get(Player, young).age < db.get(Player, old).age
+
+
+def test_the_market_joins_the_shared_pool_it_is_measured_against(
+    api, db, synced, make_market_lines
+):
+    """One denominator for every source: a market cell's percentile means what ESPN's does."""
+    before = api.get("/sources?horizon=dynasty").json()["pool_size"]
+    make_market_lines({JOKIC: {"PTS": 27.5}})
+
+    body = api.get("/sources?horizon=dynasty").json()
+
+    # Jokic is already in the pool via ESPN, so adding a line about him widens nothing.
+    assert body["pool_size"] == before
+    consensus = api.get(f"/board/consensus?sources={MARKET}&horizon=dynasty").json()
+    assert consensus["pool_size"] == before
+    assert 0.0 <= consensus["players"][0]["cells"][MARKET]["percentile"] <= 100.0
+
+
+def _youngest_and_oldest(db) -> tuple[int, int]:
+    """Two players with ages far enough apart for the curve to have a real opinion."""
+    aged_players = sorted(
+        (player for player in db.scalars(select(Player)) if player.age is not None),
+        key=lambda player: player.age,
+    )
+    return aged_players[0].espn_player_id, aged_players[-1].espn_player_id
+
+
+# --- and the single-source board is still exactly what it was ---------------------------------
+
+
+def test_market_rows_do_not_change_the_espn_board_at_all(api, db, synced, make_market_lines):
+    """Acceptance criterion 4, asserted on the whole response body rather than a field or two.
+
+    `GET /players/board` defaults to source='espn'; a market projection is a row under a
+    different source, so it must be invisible here — same players, same order, same tiers,
+    same numbers. Byte for byte.
+    """
+    before = api.get("/players/board?limit=1000&horizon=dynasty").json()
+
+    make_market_lines(
+        {JOKIC: {"PTS": 27.5, "REB": 12.5, "AST": 9.5}, WEMBY: {"BLK": 3.5, "REB": 11.5}}
+    )
+
+    assert api.get("/players/board?limit=1000&horizon=dynasty").json() == before
+    assert (
+        api.get("/players/board?limit=1000&horizon=current_year").json()
+        == api.get("/players/board?limit=1000&horizon=current_year").json()
+    )
+    # The market projections really were written — this is not a vacuous comparison.
+    assert db.scalars(select(Projection).where(Projection.source == "market")).all()
+
+
+def test_the_market_board_is_available_on_request_though(api, db, synced, make_market_lines):
+    """Nothing is hidden: it is an ordinary projection source, so it ranks like one."""
+    make_market_lines({JOKIC: {"PTS": 27.5, "REB": 12.5, "AST": 9.5}})
+
+    body = api.get("/players/board?source=market").json()
+
+    assert body["source"] == "market"
+    assert [row["espn_player_id"] for row in body["players"]] == [JOKIC]

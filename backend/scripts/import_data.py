@@ -9,6 +9,9 @@
     uv run python -m scripts.import_data --kind ranking --source hashtag --season 2027 \
         --name "Dynasty Top 200" --horizon dynasty --file ~/Downloads/top200.csv [--commit]
 
+    uv run python -m scripts.import_data --kind market_line --source market --season 2027 \
+        --file ~/Downloads/props.csv [--commit]
+
 Dry run by default: it parses, matches, and prints exactly what it *would* write, including
 the review and unmatched worklists. Nothing is stored until `--commit`.
 
@@ -19,6 +22,13 @@ rewrites that set's entries wholesale, so a player who fell off the new version 
 it. The dry run says which set it resolved and how many entries would go, before any of that
 happens. `--horizon dynasty|redraft` is required for a ranking and refused for anything else:
 a rank-only list has no stats to age-adjust, so it has to say which question it answers.
+
+A `market_line` file is LONG — one row per (player, stat) — so a player with four props is
+four rows: `Player, Stat, Line, Over, Under`. Odds are optional and American (-135 / +110); a
+line with no price, or an even one, stores and prices as exactly the line. Re-importing one
+player's changed odds updates that (player, stat) row in place and re-derives HIS market
+projection, which is what `projection:<source>` on the consensus board reads. It is a PARTIAL
+projection built only from the stats you entered — see `app.ingest.market_line`.
 
 Read `-` (or leave `--file` off) to take the table on stdin, so a spreadsheet paste works:
 
@@ -174,8 +184,8 @@ def main() -> int:
     parser.add_argument(
         "--kind",
         required=True,
-        help=f"what the data is. built: {', '.join(kind_names())}; "
-        f"planned: {', '.join(sorted(PLANNED_KINDS))}",
+        help=f"what the data is. built: {', '.join(kind_names())}"
+        + (f"; planned: {', '.join(sorted(PLANNED_KINDS))}" if PLANNED_KINDS else ""),
     )
     parser.add_argument("--source", required=True, help="who published it: hashtag, fantasypros")
     parser.add_argument(

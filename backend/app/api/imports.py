@@ -57,7 +57,9 @@ class ImportRequest(BaseModel):
         "which is REQUIRED because a rank-only list has no stats to age-adjust. Together with "
         "(source, season) the two decide which stored set this import replaces. An option a "
         "kind doesn't know, and a missing or invalid horizon, are a 422 — never a silent "
-        "default.",
+        "default. `adp` and `market_line` take no options: a market file says everything it "
+        "needs to in its own columns, and `source` on the request is the book it is attributed "
+        "to (use 'market' for one hand-kept set of lines).",
     )
     dry_run: bool = Field(True, description="Preview only. Set false to write.")
     strict: bool = Field(
@@ -184,7 +186,10 @@ def _run(db: Session, kind: str, **kwargs) -> ImportResponse:
 
 @router.post("/{kind}", response_model=ImportResponse)
 def import_paste(
-    kind: str = Path(..., description="What kind of data this is: 'adp', 'projection', 'ranking'"),
+    kind: str = Path(
+        ...,
+        description="What kind of data this is: 'adp', 'projection', 'ranking', 'market_line'",
+    ),
     payload: ImportRequest = Body(...),
     db: Session = Depends(get_db),
 ) -> ImportResponse:

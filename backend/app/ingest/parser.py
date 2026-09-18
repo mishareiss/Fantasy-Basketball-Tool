@@ -14,7 +14,7 @@ and a paste from a spreadsheet is just a tab-delimited CSV.
 import csv
 import io
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 # Header roles every kind needs. The value columns are per-kind and come from the registry.
@@ -228,22 +228,38 @@ def sniff_delimiter(text: str) -> str:
     return ","
 
 
+def _match_alias_exact(
+    headers: Sequence[str], aliases: Sequence[str], skip: Collection[int] = ()
+) -> int | None:
+    """The first unclaimed column whose header IS one of these aliases."""
+    normalized = [normalize_header(header) for header in headers]
+    for alias in aliases:
+        for index, header in enumerate(normalized):
+            if header == alias and index not in skip:
+                return index
+    return None
+
+
+def _match_alias_contains(
+    headers: Sequence[str], aliases: Sequence[str], skip: Collection[int] = ()
+) -> int | None:
+    """The first unclaimed column whose header CONTAINS one of these aliases as a word."""
+    normalized = [normalize_header(header) for header in headers]
+    for alias in aliases:
+        for index, header in enumerate(normalized):
+            if header and alias in header.split() and index not in skip:
+                return index
+    return None
+
+
 def _match_alias(headers: Sequence[str], aliases: Sequence[str]) -> int | None:
     """The first column whose header is one of these aliases, else the first that contains one.
 
     Exact-first matters: a file with both "Rank" and "Rank Change" must not resolve "rank" to
     the second one just because it came first.
     """
-    normalized = [normalize_header(header) for header in headers]
-    for alias in aliases:
-        for index, header in enumerate(normalized):
-            if header == alias:
-                return index
-    for alias in aliases:
-        for index, header in enumerate(normalized):
-            if header and alias in header.split():
-                return index
-    return None
+    exact = _match_alias_exact(headers, aliases)
+    return exact if exact is not None else _match_alias_contains(headers, aliases)
 
 
 def _resolve_override(headers: Sequence[str], wanted: str) -> int | None:
@@ -289,11 +305,38 @@ def detect_columns(
             f"{list(NAME_ALIASES)}, or pass a column map like {{'name': 'Player'}}."
         )
 
+    # Two value fields must never read the same column, and which one wins is decided by how
+    # WELL each matched, not by declaration order. Three passes: an explicit override (the
+    # caller has said what they mean), then exact header hits, then the looser
+    # "header contains this alias as a word" pass over whatever is left.
+    #
+    # Both halves of that matter, and each has a case behind it. Exact-before-loose: "Off Reb"
+    # is exactly OREB's alias and merely *contains* REB's, so OREB takes it and REB is left
+    # unset — which is right, since a file that splits the rebounds hasn't published the total
+    # (`derive_implied_stats` adds it back exactly). One-column-one-field: "Over/Under" is
+    # exactly the market LINE and contains `over_odds`' alias, so the line takes it and the
+    # odds column stays empty rather than storing the line as a price.
     values: dict[str, int] = {}
+    claimed: set[int] = set()
+
     for column in value_columns:
+        if column.field not in overrides:
+            continue
+        # `resolve` raises on an override that names no column, which is the point of it.
         index = resolve(column.field, column.aliases)
         if index is not None:
             values[column.field] = index
+            claimed.add(index)
+
+    for match in (_match_alias_exact, _match_alias_contains):
+        for column in value_columns:
+            if column.field in values:
+                continue
+            index = match(headers, column.aliases, claimed)
+            if index is None:
+                continue
+            values[column.field] = index
+            claimed.add(index)
 
     missing = [
         column.field for column in value_columns if column.required and column.field not in values

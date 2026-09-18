@@ -219,6 +219,50 @@ def test_the_adp_worklist_is_per_season(api, db, synced, adp_csv):
     assert last_season["total"] > this_season["total"], "we imported nothing for last season"
 
 
+# --- the worklists ignore market projections -------------------------------------------------
+#
+# `_best_per_game` answers two questions: who matters most (the worklist order) and — for
+# `need=adp` — who we can price at all. A market projection is partial by construction, built
+# only from the stats that happen to have lines, so it is excluded from both. See its docstring.
+
+
+def test_a_market_only_player_is_not_treated_as_someone_we_can_price(
+    api, db, priced, make_market_lines
+):
+    """A points prop and nothing else is the market's opinion about scoring, not a projection.
+
+    `priced` has the pool and our coefficients but NO projections, so a market line is the only
+    thing pricing anyone. The adp worklist lists "board players with no ADP", and it has to
+    stay empty, because nobody is on the board.
+    """
+    make_market_lines({4278073: {"PTS": 31.5}})
+    assert db.scalars(select(Projection).where(Projection.source == "market")).all()
+
+    body = api.get("/players/unresolved?need=adp&source=hashtag").json()
+
+    assert body["total"] == 0
+
+
+def test_a_generous_market_read_does_not_inflate_a_players_worklist_value(
+    api, db, synced, make_market_lines
+):
+    """Even when it is the BIGGER number, the market's is not the one that means "his value".
+
+    Lines this good would win a `max` across every projection, and the worklist would then be
+    ordered by a number built from three stats. It stays ESPN's, untouched.
+    """
+    before = api.get("/players/unresolved?need=adp&source=hashtag&limit=1000").json()
+    espn_best = max(row["fantasy_points_per_game"] for row in before["players"])
+
+    make_market_lines({4278073: {"PTS": 50.0, "REB": 20.0, "AST": 15.0}})
+
+    market = db.scalar(
+        select(Projection.fantasy_points_per_game).where(Projection.source == "market")
+    )
+    assert market > espn_best, "the market read really is the bigger number here"
+    assert api.get("/players/unresolved?need=adp&source=hashtag&limit=1000").json() == before
+
+
 def test_an_unknown_need_lists_the_ones_that_work(api, synced):
     response = api.get("/players/unresolved?need=height")
 

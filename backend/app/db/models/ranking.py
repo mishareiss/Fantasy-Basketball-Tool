@@ -20,8 +20,8 @@ season); `RankingEntry` is a player's place on it. The consequences that matter 
 * **A set declares its horizon.** A rank-only list carries no production numbers, so nothing
   downstream can age-adjust it the way a projection is adjusted — the only way to know whether
   "Top 200" means dynasty or redraft is for the list to say so at import. Value sources
-  (`Projection`, and the market lines to come) need no such column: they hold per-player
-  production, and both horizons are derived from it by the age curve.
+  (`Projection`, including the one market lines are derived into) need no such column: they
+  hold per-player production, and both horizons are derived from it by the age curve.
 """
 
 from datetime import datetime

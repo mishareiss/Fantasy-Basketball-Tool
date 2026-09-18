@@ -166,7 +166,9 @@ def match_rows(
     matcher = matcher or build_matcher(db, source=source)
     accepted: list[ResolvedRow] = []
     outcomes: list[RowOutcome] = []
-    claimed: dict[int, int] = {}  # player_id -> the line that got there first
+    # (player_id, the kind's row key) -> the line that got there first. The key is the player
+    # alone for every kind but `market_line`, whose file is one row per (player, stat).
+    claimed: dict[tuple[int, object], int] = {}
 
     for row in table.rows:
         missing = row.missing(kind.columns)
@@ -178,6 +180,14 @@ def match_rows(
                     note=f"no value in required column(s): {', '.join(missing)}",
                 )
             )
+            continue
+
+        # A cell whose CONTENT is unusable — a stat nobody scores — is the same kind of
+        # problem as a missing number and gets the same treatment: this row is invalid, the
+        # rest of the file still imports. Kinds with nothing to check declare nothing.
+        unusable = kind.validate(row)
+        if unusable:
+            outcomes.append(_outcome(row, STATUS_INVALID, note=unusable))
             continue
 
         result = matcher.match(row.name, team=row.team, positions=row.positions, source=source)
@@ -194,7 +204,8 @@ def match_rows(
             continue
 
         player = matcher.get(result.player_id)
-        first = claimed.get(result.player_id)
+        row_key = kind.row_key(row)
+        first = claimed.get((result.player_id, row_key))
         if first is not None:
             outcomes.append(
                 _outcome(
@@ -202,12 +213,13 @@ def match_rows(
                     STATUS_DUPLICATE,
                     result,
                     player_name=player.full_name if player else None,
-                    note=f"line {first} already resolved to this player",
+                    note=f"line {first} already resolved to this player"
+                    + (f" and {row_key}" if row_key is not None else ""),
                 )
             )
             continue
 
-        claimed[result.player_id] = row.line
+        claimed[(result.player_id, row_key)] = row.line
         accepted.append(ResolvedRow(player_id=result.player_id, row=row))
         outcome = _outcome(row, STATUS_MATCHED, result)
         outcome.player_name = player.full_name if player else None
@@ -292,6 +304,10 @@ def run_import(
             columns=handler.columns,
             upsert=handler.upsert,
             accept=accept,
+            # Carried through rather than re-defaulted: `--strict` changes how careful the
+            # matcher is, and nothing else about what the kind is.
+            row_key=handler.row_key,
+            validate=handler.validate,
         )
 
     source = (source or "").strip()

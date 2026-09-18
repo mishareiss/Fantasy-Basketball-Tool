@@ -33,6 +33,9 @@ from app.espn.sync import (
     sync_projections,
     sync_scoring_settings,
 )
+from app.ingest.market_line import MARKET_SOURCE, upsert_market_line
+from app.ingest.parser import ParsedRow
+from app.ingest.registry import ResolvedRow, UpsertContext, UpsertCounts
 from app.scoring import ScoringEngine, parse_league_settings
 
 # Ages are computed at a fixed date, never `today`, so the expected numbers below never rot.
@@ -143,6 +146,20 @@ def ranking_csv() -> str:
     ranking that quietly renumbered them 1..7 would disagree with the board it came from.
     """
     return (FIXTURE_DIR / "ranking_sample.csv").read_text(encoding="utf-8-sig")
+
+
+@pytest.fixture(scope="session")
+def market_line_csv() -> str:
+    """A synthetic sportsbook-props export: LONG format, and awkward in every direction.
+
+    One row per (player, stat), so Jokic appears five times legitimately — the file that
+    proves the pipeline's duplicate rule is about (player, stat) here and not about the
+    player. Priced and unpriced lines, a juiced two-sided line, a combination prop nothing can
+    score, a genuine repeat of (Jokic, Points), a row with no line at all, a player we carry
+    nobody for, and a typo'd name only a fuzzy match would catch — which this kind refuses,
+    because a mis-attributed line is a number you'd bet on.
+    """
+    return (FIXTURE_DIR / "market_line_sample.csv").read_text(encoding="utf-8-sig")
 
 
 @pytest.fixture(scope="session")
@@ -287,6 +304,56 @@ def aged(db, synced, nba_players, fetch_recorded_birthdate) -> Session:
         sleep=lambda _: None,
     )
     return db
+
+
+@pytest.fixture
+def make_market_lines(db):
+    """Store sportsbook lines and derive their market projection, the way an import does.
+
+    Goes through the real handler rather than a CSV, for the same reason `make_ranking_set`
+    does: what these tests need is control over the NUMBERS — a player priced on two stats, a
+    juiced line, a young player whose age the curve has an opinion about — and getting there
+    through a paste would be testing the parser again with extra steps. The import path itself
+    has its own suite in `test_ingest_market_line`.
+
+    Takes `{player_id: {"PTS": 27.5, "AST": (9.5, -150, 120)}}` — a bare number for an
+    unpriced line, a triple for one with American odds on each side.
+    """
+
+    def make(
+        lines: dict[int, dict[str, float | tuple]],
+        *,
+        source: str = MARKET_SOURCE,
+        season: int = SEASON,
+    ) -> UpsertCounts:
+        rows = []
+        for player_id, stats in lines.items():
+            for stat, value in stats.items():
+                priced = value if isinstance(value, tuple) else (value, None, None)
+                line, over_odds, under_odds = priced
+                rows.append(
+                    ResolvedRow(
+                        player_id=player_id,
+                        row=ParsedRow(
+                            line=len(rows) + 1,
+                            name=str(player_id),
+                            values={
+                                "stat": stat,
+                                "line": float(line),
+                                "over_odds": over_odds,
+                                "under_odds": under_odds,
+                            },
+                            index=len(rows) + 1,
+                        ),
+                    )
+                )
+        counts = upsert_market_line(
+            db, rows, UpsertContext(source=source, season=season, dry_run=False)
+        )
+        db.commit()
+        return counts
+
+    return make
 
 
 @pytest.fixture

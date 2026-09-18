@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.ages import NBA_SOURCE, compute_age
 from app.config import get_settings
-from app.db.models import AdpEntry, Player, PlayerAlias, Projection
+from app.db.models import AdpEntry, MarketLine, Player, PlayerAlias, Projection
 from app.db.session import get_db
 from app.espn.sync import ESPN_SOURCE, SEASON_PROJECTION_KIND
 from app.matching import MANUAL_SOURCE, record_alias
@@ -435,10 +435,29 @@ class UnresolvedResponse(BaseModel):
 
 
 def _best_per_game(db: Session) -> dict[int, float]:
-    """Each player's best projected fantasy points per game, across every stored projection."""
+    """Each player's best projected fantasy points per game, across every REAL projection.
+
+    Two jobs, and both are why market-derived projections are excluded. It orders the
+    worklists by who actually matters, and — for `need=adp` — it decides who counts as "on the
+    board" at all, i.e. who we can price.
+
+    A market projection is PARTIAL by construction (`app.ingest.market_line`): it is built only
+    from the stats that happen to have sportsbook lines, so a player with a points prop and
+    nothing else scores a fraction of his real value. Left in, it would do the wrong thing in
+    both directions — never raise anyone's "best" (it is systematically low) but quietly add
+    players we cannot actually price to a worklist about the draft board. So the fallback is
+    scoped to sources that are trying to be whole projections.
+
+    Scoped by "is there a market line stored under this source name" rather than by the
+    literal string 'market', because the source is an import option: a second book imported as
+    `--source draftkings` is just as partial, and the honest test is what the rows came from.
+    """
+    market_sources = select(MarketLine.source).distinct()
     best: dict[int, float] = {}
     for player_id, per_game in db.execute(
-        select(Projection.player_id, Projection.fantasy_points_per_game)
+        select(Projection.player_id, Projection.fantasy_points_per_game).where(
+            Projection.source.not_in(market_sources)
+        )
     ):
         best[player_id] = max(best.get(player_id, 0.0), per_game)
     return best
