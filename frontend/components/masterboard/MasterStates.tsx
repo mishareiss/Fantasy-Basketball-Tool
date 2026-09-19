@@ -127,6 +127,27 @@ export function MasterEmpty() {
   );
 }
 
+/**
+ * The filter found nobody. Distinct from an empty board, and worth its own panel: the board
+ * is fine and full, there is simply nobody on it listed at that position — which on a real
+ * board means the source it was seeded from doesn't list that position at all.
+ */
+export function NoneAtPosition({ position }: { position: string }) {
+  return (
+    <Panel title={`Nobody on your board is listed at ${position}`}>
+      <p>
+        Your board still has everyone on it — this is a view of it, not a filter that removed
+        anyone. Switch back to <strong>All</strong> to see the whole order, or pick another
+        position.
+      </p>
+      <p>
+        Positions come from the player catalog, so a position with nobody in it means no
+        source we have loaded lists one. Run <Command>make sync</Command> if that looks wrong.
+      </p>
+    </Panel>
+  );
+}
+
 /** Search found nobody. Distinct from an empty board: the board is fine, the term isn't. */
 export function NoSearchMatch({ term }: { term: string }) {
   return (

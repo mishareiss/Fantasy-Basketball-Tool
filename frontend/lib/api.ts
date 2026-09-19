@@ -551,7 +551,46 @@ export type MasterPlayerRow = {
    * lib/masterboard.ts is the one place that flip happens.
    */
   delta: number | null;
+  /**
+   * Which band of the board he is in, 1 being the top. Null only for a set-aside player: a
+   * tier here is a band over the RANKS, and he hasn't got one. Never null for a ranked
+   * player — the bands cover the whole order, so the man below the last divider is in the
+   * bottom tier rather than untiered.
+   */
+  overall_tier: number | null;
+  /** His tier among the players at `position_scope`. Null when we hold no position for him,
+      or when that position has too few players on the board to tier at all. */
+  position_tier: number | null;
+  /** Which position `position_tier` counts in — the requested `?position=` when there is one,
+      otherwise the first position he is listed at. Typed as the backend types it (`str`). */
+  position_scope: string | null;
   updated_at: string;
+};
+
+/**
+ * Which order a set of cut ranks is over — master_tier.py: TIER_SCOPES.
+ *
+ * 'overall' is the whole board; a position is that position's sub-order, so its cut ranks
+ * count point guards rather than board ranks. The position filter on the page is also the
+ * scope selector, which is why `Position` and this share their five members.
+ */
+export const SCOPE_OVERALL = "overall";
+export const TIER_SCOPES = [SCOPE_OVERALL, ...POSITIONS] as const;
+export type TierScope = (typeof TIER_SCOPES)[number];
+
+/** One scope's tier structure — master.py: TierScopeRow. */
+export type TierScopeRow = {
+  /** 'overall' | 'PG' | 'SG' | 'SF' | 'PF' | 'C'. Typed as the backend types it (`str`). */
+  scope: string;
+  /** How many players are in THIS scope's order — the board, or that position's slice. */
+  size: number;
+  /**
+   * The rank each tier starts at, ascending, always beginning with 1. `[1, 4, 12]` is three
+   * tiers: 1-3, 4-11, 12-size. This is exactly what `PUT /master/tiers` takes back — send it
+   * with a divider added, moved or removed, never a delta.
+   */
+  cut_ranks: number[];
+  tier_count: number;
 };
 
 /** Our board, its set-aside pile, and the consensus it is read against — MasterBoardResponse. */
@@ -572,6 +611,14 @@ export type MasterBoardResponse = {
   /** ISO date (YYYY-MM-DD) every `age` here was computed at. */
   age_as_of: string;
   sources: SourceInfo[];
+  /** The `?position=` this response was narrowed to, or null for the whole board. */
+  position: string | null;
+  /**
+   * EVERY scope's tier structure, including the ones this response isn't showing. The page
+   * draws its dividers from these rather than inferring them from the rows, so it cannot end
+   * up disagreeing with the board about where a tier starts.
+   */
+  tiers: TierScopeRow[];
   players: MasterPlayerRow[];
   /** Off the order, not off the board: tags and notes intact, one write to bring back. */
   set_aside: MasterPlayerRow[];
@@ -782,9 +829,15 @@ export const api = {
    *
    * `horizon` picks which consensus the REFERENCE column is computed against. It does not
    * change the order and it cannot change who is on the board.
+   *
+   * `position` narrows WHO comes back to the players listed there, in board order, with their
+   * overall ranks and overall tiers intact — a point guard's place on our board does not
+   * change because we are looking at the guards. It is a view of the order, never a re-sort.
+   * A position the backend doesn't know is a 422 here (unlike `GET /players/board`, where it
+   * is an empty page), because the filter also picks a tier scope.
    */
-  masterBoard: (horizon?: Horizon) =>
-    request<MasterBoardResponse>(`/master/board${query({ horizon })}`),
+  masterBoard: (horizon?: Horizon, position?: Position | null) =>
+    request<MasterBoardResponse>(`/master/board${query({ horizon, position })}`),
 
   /**
    * Save a reorder: rank = place in the list, for the WHOLE non-excluded board.
@@ -807,6 +860,33 @@ export const api = {
    */
   putMasterEntry: (playerId: number, body: MasterEntryWriteBody, horizon?: Horizon) =>
     put<MasterBoardResponse>(`/master/entries/${playerId}${query({ horizon })}`, body),
+
+  /**
+   * Save where ONE scope's tiers start — what a dragged divider writes.
+   *
+   * All-or-nothing per scope, like `putMasterOrder` and for the same reason: the client holds
+   * the whole list of dividers, not a delta. `cutRanks` must be sorted, unique, inside
+   * 1..size and begin with 1 — the backend 422s otherwise, so lib/masterboard.ts keeps every
+   * list this is handed valid by construction rather than relying on that check.
+   *
+   * It writes cut RANKS and therefore cannot move a player: the order, the tags and the notes
+   * come back exactly as they were, with different lines drawn between the bands.
+   */
+  putMasterTiers: (scope: TierScope, cutRanks: number[], horizon?: Horizon) =>
+    put<MasterBoardResponse>(`/master/tiers${query({ horizon })}`, {
+      scope,
+      cut_ranks: cutRanks,
+    }),
+
+  /**
+   * Throw one scope's dividers away and let the value gaps cut it again.
+   *
+   * The undo for a set of hand-moved boundaries, and scoped on purpose: reseeding the centres
+   * must not touch the overall dividers. Nothing about the order, the ranks, the tags or the
+   * notes changes.
+   */
+  reseedMasterTiers: (scope: TierScope, horizon?: Horizon) =>
+    post<MasterBoardResponse>(`/master/tiers/reseed${query({ scope, horizon })}`, {}),
 
   /**
    * Throw the board away and rebuild it from the consensus — every rank, tag and note with

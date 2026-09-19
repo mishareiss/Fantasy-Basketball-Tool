@@ -8,7 +8,15 @@
  * be tested without a DOM.
  */
 
-import { MASTER_TAGS, type MasterPlayerRow, type MasterTag } from "@/lib/api";
+import {
+  MASTER_TAGS,
+  SCOPE_OVERALL,
+  type MasterPlayerRow,
+  type MasterTag,
+  type Position,
+  type TierScope,
+  type TierScopeRow,
+} from "@/lib/api";
 
 /**
  * How many rows the board draws before you ask for more.
@@ -167,4 +175,148 @@ function normalize(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+/* ---------------------------------------------------------------------------------------- *
+ * Tiers: bands over the order, stored as the rank each one STARTS at.
+ *
+ * `cut_ranks` is the whole vocabulary — `[1, 4, 12]` is three tiers (1-3, 4-11, 12-N) — and
+ * every edit below is a list-to-list function over it, for two reasons. One: `PUT
+ * /master/tiers` takes the complete list back, exactly like a reorder takes the complete
+ * order, so what is drawn and what is sent are the same array. Two: the backend 422s a list
+ * that is unsorted, duplicated, out of range or missing its leading 1, and the honest way to
+ * make sure that never fires is for the client to be incapable of building one — hence
+ * `normalizeCuts`, which every one of these ends in.
+ *
+ * Cut ranks are always within ONE SCOPE. On the whole board they are board ranks; under a
+ * position filter they count that position, so the 3rd point guard is rank 3 there whatever
+ * his board rank is. The page's position filter and its tier scope are therefore the same
+ * choice, which is why `activeScope` exists rather than each caller doing the `?? "overall"`.
+ * ---------------------------------------------------------------------------------------- */
+
+/** The scope a position filter is looking at — "All" is the whole board's own scope. */
+export function activeScope(position: Position | null): TierScope {
+  return position ?? SCOPE_OVERALL;
+}
+
+/** One scope's row out of the response's full set, or null if the board didn't carry it. */
+export function scopeTiers(tiers: TierScopeRow[], scope: TierScope): TierScopeRow | null {
+  return tiers.find((row) => row.scope === scope) ?? null;
+}
+
+/**
+ * Force any list of cut ranks into one the backend will accept.
+ *
+ * Sorted, de-duplicated, dropped if outside 1..size, and always led by 1 — a board's first
+ * tier starts at the top whether or not the edit that produced this remembered to say so.
+ * A scope with nobody in it has no bands at all, which is the empty list rather than `[1]`.
+ */
+export function normalizeCuts(cuts: number[], size: number): number[] {
+  if (size <= 0) return [];
+  const inside = cuts
+    .map((rank) => Math.round(rank))
+    .filter((rank) => Number.isFinite(rank) && rank >= 1 && rank <= size);
+  return [...new Set([1, ...inside])].sort((a, b) => a - b);
+}
+
+/** Which band a rank falls in, 1-based. 0 for a rank no band covers (an empty scope). */
+export function tierAt(cuts: number[], rank: number): number {
+  let tier = 0;
+  for (const cut of cuts) {
+    if (cut > rank) break;
+    tier += 1;
+  }
+  return tier;
+}
+
+export type TierBand = { tier: number; start: number; end: number };
+
+/** Every band this scope is cut into, as the ranks it covers — what a divider labels. */
+export function tierBands(cuts: number[], size: number): TierBand[] {
+  const starts = normalizeCuts(cuts, size);
+  return starts.map((start, index) => ({
+    tier: index + 1,
+    start,
+    end: index + 1 < starts.length ? starts[index + 1] - 1 : size,
+  }));
+}
+
+/**
+ * Start a new tier at `rank` — the "+ tier break here" between two rows.
+ *
+ * A break at rank 1 is a no-op rather than an error: tier 1 already starts there, and the
+ * affordance above the first row would otherwise write a list identical to the stored one.
+ */
+export function addCut(cuts: number[], rank: number, size: number): number[] {
+  return normalizeCuts([...cuts, rank], size);
+}
+
+/**
+ * Merge a tier into the one above it — the × on a divider.
+ *
+ * Removing the leading 1 is refused (it would describe a board whose first tier is tier 2),
+ * so the top divider has no × on it and this is the second line of that defence.
+ */
+export function removeCut(cuts: number[], rank: number, size: number): number[] {
+  if (rank <= 1) return normalizeCuts(cuts, size);
+  return normalizeCuts(
+    cuts.filter((cut) => cut !== rank),
+    size,
+  );
+}
+
+/**
+ * Drag or nudge one divider to another gap.
+ *
+ * Clamped to 2..size, because rank 1 is not a gap — it is the top of the board, where tier 1
+ * starts and no divider can be moved on top of or away from. Landing on a rank that already
+ * carries a divider collapses to a no-op (the de-dupe in `normalizeCuts` would otherwise
+ * quietly delete one of the two).
+ */
+export function moveCut(cuts: number[], from: number, to: number, size: number): number[] {
+  if (from <= 1 || size <= 1) return normalizeCuts(cuts, size);
+  const target = Math.max(2, Math.min(size, Math.round(to)));
+  if (target === from) return normalizeCuts(cuts, size);
+  const rest = cuts.filter((cut) => cut !== from);
+  if (rest.includes(target)) return normalizeCuts(cuts, size);
+  return normalizeCuts([...rest, target], size);
+}
+
+/** Where a divider can be nudged to next, or null when that direction is against the wall. */
+export function nudgedCut(cuts: number[], rank: number, size: number, step: -1 | 1): number | null {
+  const target = rank + step;
+  if (target < 2 || target > size) return null;
+  if (cuts.includes(target)) return null;
+  return target;
+}
+
+/** How a scope names itself in a sentence: "the board" or "point guards". */
+export const SCOPE_LABEL: Record<string, string> = {
+  overall: "the whole board",
+  PG: "point guards",
+  SG: "shooting guards",
+  SF: "small forwards",
+  PF: "power forwards",
+  C: "centres",
+};
+
+export function scopeLabel(scope: TierScope): string {
+  return SCOPE_LABEL[scope] ?? scope;
+}
+
+/**
+ * The tier a row prints: his band in the scope on screen.
+ *
+ * Derived from the ACTIVE scope's cut ranks and his place in the shown order rather than read
+ * off `overall_tier` / `position_tier`, and the difference matters in exactly one moment —
+ * the beat between an optimistic move and the board that answers it. Dragging a player up
+ * across a line has to re-tier him immediately and with NOTHING written (the bands didn't
+ * move, he did), and a pill fed from the last response would lag the divider directly above
+ * it by a round trip. The server computes the same arithmetic over the same cuts, so the two
+ * agree the rest of the time; what this guarantees is that the pill and the divider on screen
+ * can never disagree.
+ */
+export function shownTier(cuts: number[], scopeRank: number): number | null {
+  const tier = tierAt(cuts, scopeRank);
+  return tier === 0 ? null : tier;
 }

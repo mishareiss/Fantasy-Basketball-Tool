@@ -26,6 +26,10 @@ import {
  *
  * Every index this component reports is an index into the FULL order, never into the window
  * or the search results — see `moveTo` in lib/masterboard.ts.
+ *
+ * The row also accepts a DROP while a tier divider is being dragged, which is why the `<tr>`
+ * keeps its drag handlers even when the order is frozen under a position filter: the page
+ * decides from its own drag state whether a drop over this row moves a player or a line.
  */
 
 export type RowHandlers = {
@@ -170,21 +174,42 @@ function MasterRowInner({
   row,
   index,
   total,
+  tier,
+  positionTier,
   dropTarget,
   dragging,
   busy,
+  reorderable,
   handlers,
 }: {
   row: MasterPlayerRow;
   /** His place in the FULL order, 0-based. */
   index: number;
   total: number;
+  /** His band in the scope the page is showing — overall, or his position's. Null when the
+      board has no tier for him there. */
+  tier: number | null;
+  /**
+   * His tier among his own position, on the WHOLE-board view only. The fact a draft is
+   * actually decided by: the centre you are about to reach for is the last of his tier. Null
+   * under a position filter, where `tier` is already that number and printing it twice would
+   * be noise.
+   */
+  positionTier: { scope: string; tier: number } | null;
   dropTarget: boolean;
   dragging: boolean;
   busy: boolean;
+  /**
+   * False under a position filter. A filtered sub-order cannot express a full-board move —
+   * "one above the next point guard" is not a board rank — so the ORDER controls go away
+   * while the tag, the note, the exclude and the tier dividers stay. See the hint the page
+   * prints beside the filter.
+   */
+  reorderable: boolean;
   handlers: RowHandlers;
 }) {
   const tag = tagStyle(row.tag);
+  const frozen = busy || !reorderable;
 
   return (
     <tr
@@ -206,7 +231,8 @@ function MasterRowInner({
       <td className="pl-2">
         <button
           type="button"
-          draggable
+          draggable={reorderable}
+          disabled={!reorderable}
           aria-label={`Drag ${row.name}`}
           onDragStart={(event) => {
             // The index rides in component state, not in the transfer: jsdom has no
@@ -216,15 +242,46 @@ function MasterRowInner({
             handlers.onDragStart(index);
           }}
           onDragEnd={handlers.onDragEnd}
-          title="Drag to move him. For a long move, type a rank into the # box."
-          className="inline-block cursor-grab px-1 text-zinc-300 select-none hover:text-zinc-500 active:cursor-grabbing dark:text-zinc-700 dark:hover:text-zinc-400"
+          title={
+            reorderable
+              ? "Drag to move him. For a long move, type a rank into the # box."
+              : "Reordering is off under a position filter — switch to All to move him."
+          }
+          className={`inline-block px-1 text-zinc-300 select-none dark:text-zinc-700 ${
+            reorderable
+              ? "cursor-grab hover:text-zinc-500 active:cursor-grabbing dark:hover:text-zinc-400"
+              : "cursor-not-allowed opacity-40"
+          }`}
         >
           ⠿
         </button>
       </td>
 
-      <td className="py-1.5 pr-2 text-right font-mono text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-        {row.rank ?? MISSING}
+      <td className="py-1.5 pr-2 text-right">
+        <span className="font-mono text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+          {row.rank ?? MISSING}
+        </span>
+        {/* Which band he is in, repeated on the row because the divider that says so scrolls
+            off: a rank without its tier is the number you have to count back up to read. */}
+        {tier === null ? null : (
+          <span
+            data-tier={tier}
+            title={`He is in tier ${tier} of the list on screen. A tier is a band over the ranks — move him across the line and he is in the next one.`}
+            className="ml-1.5 inline-block rounded bg-zinc-100 px-1 font-mono text-[10px] text-zinc-500 tabular-nums dark:bg-zinc-800 dark:text-zinc-400"
+          >
+            T{tier}
+          </span>
+        )}
+        {positionTier === null ? null : (
+          <span
+            data-position-tier={positionTier.tier}
+            title={`Tier ${positionTier.tier} among ${positionTier.scope}s — his band in his own position's order, which is the one a roster slot is filled out of.`}
+            className="ml-1 inline-block rounded px-1 font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-600"
+          >
+            {positionTier.scope}
+            {positionTier.tier}
+          </span>
+        )}
       </td>
 
       <td className="py-1.5 pr-3">
@@ -284,7 +341,7 @@ function MasterRowInner({
         <div className="flex items-center justify-end gap-1">
           <button
             type="button"
-            disabled={busy || index === 0}
+            disabled={frozen || index === 0}
             onClick={() => handlers.onMove(index, index - 1)}
             aria-label={`Move ${row.name} up`}
             className={CONTROL}
@@ -293,7 +350,7 @@ function MasterRowInner({
           </button>
           <button
             type="button"
-            disabled={busy || index === total - 1}
+            disabled={frozen || index === total - 1}
             onClick={() => handlers.onMove(index, index + 1)}
             aria-label={`Move ${row.name} down`}
             className={CONTROL}
@@ -305,7 +362,7 @@ function MasterRowInner({
             index={index}
             total={total}
             onMove={handlers.onMove}
-            disabled={busy}
+            disabled={frozen}
           />
           <button
             type="button"

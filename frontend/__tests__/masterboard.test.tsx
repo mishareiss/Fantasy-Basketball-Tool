@@ -4,8 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "@/lib/api";
 import { MasterBoardPage } from "@/components/masterboard/MasterBoardPage";
-import { PAGE } from "@/lib/masterboard";
-import { MASTER_ASIDE, MASTER_SEEDS, deepMasterBoard, masterBoard } from "./fixtures";
+import {
+  PAGE,
+  addCut,
+  moveCut,
+  normalizeCuts,
+  nudgedCut,
+  removeCut,
+  shownTier,
+  tierBands,
+} from "@/lib/masterboard";
+import {
+  MASTER_ASIDE,
+  MASTER_CUTS,
+  MASTER_SEEDS,
+  deepMasterBoard,
+  masterBoard,
+} from "./fixtures";
 
 /**
  * Component tests for our own board.
@@ -34,6 +49,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
       masterBoard: vi.fn(),
       putMasterOrder: vi.fn(),
       putMasterEntry: vi.fn(),
+      putMasterTiers: vi.fn(),
+      reseedMasterTiers: vi.fn(),
       resetMasterBoard: vi.fn(),
     },
   };
@@ -43,13 +60,20 @@ const board = vi.mocked(api.masterBoard);
 const putOrder = vi.mocked(api.putMasterOrder);
 const putEntry = vi.mocked(api.putMasterEntry);
 const resetBoard = vi.mocked(api.resetMasterBoard);
+const putTiers = vi.mocked(api.putMasterTiers);
+const reseedTiers = vi.mocked(api.reseedMasterTiers);
 
 const [WEMBY, BOOZER, GIANNIS, PAUL] = MASTER_SEEDS;
 const AYTON = MASTER_ASIDE;
 
-/** The order actually on screen, read off the rows rather than off the ranks they print. */
+/**
+ * The order actually on screen, read off the rows rather than off the ranks they print.
+ *
+ * `[data-player]` rather than every `tr`, because the tbody also carries the tier dividers
+ * and the gaps between them — rows with no player on them by design.
+ */
 function onScreen(): number[] {
-  return Array.from(document.querySelectorAll("tbody tr")).map((row) =>
+  return Array.from(document.querySelectorAll("tbody tr[data-player]")).map((row) =>
     Number(row.getAttribute("data-player")),
   );
 }
@@ -58,6 +82,18 @@ function rowFor(playerId: number): HTMLElement {
   const row = document.querySelector(`tbody tr[data-player="${playerId}"]`);
   if (!row) throw new Error(`no row for player ${playerId}`);
   return row as HTMLElement;
+}
+
+/** Every divider drawn, as the rank it starts the band at — the page's own cut_ranks. */
+function dividersOnScreen(): number[] {
+  return Array.from(document.querySelectorAll("tbody tr[data-tier-divider]")).map((row) =>
+    Number(row.getAttribute("data-tier-start")),
+  );
+}
+
+/** The tier pill a player's row prints, or null when it prints none. */
+function tierOf(playerId: number): string | null {
+  return rowFor(playerId).querySelector("[data-tier]")?.textContent ?? null;
 }
 
 /** Wait for the first read to land. Everything below starts from a board on screen. */
@@ -71,6 +107,13 @@ beforeEach(() => {
   putOrder.mockImplementation(async (ids) => masterBoard({}, { order: ids }));
   putEntry.mockResolvedValue(masterBoard());
   resetBoard.mockResolvedValue(masterBoard());
+  // A tier write answers with the whole board, like every other mutation here. The cuts it
+  // was sent become the cuts it answers with, so "the board reflects the write" is a real
+  // claim rather than a restatement of the optimistic update — there isn't one for tiers.
+  putTiers.mockImplementation(async (scope, cutRanks) =>
+    masterBoard({}, { cuts: { ...MASTER_CUTS, [scope]: cutRanks } }),
+  );
+  reseedTiers.mockResolvedValue(masterBoard());
 });
 
 afterEach(() => {
@@ -436,7 +479,8 @@ describe("the horizon", () => {
     board.mockResolvedValue(masterBoard({}, { horizon: "current_year" }));
     await user.click(screen.getByRole("button", { name: "Win now" }));
 
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year"));
+    // The position rides along on every read now, and "All" is an explicit null.
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null));
     await waitFor(() =>
       expect(
         rowFor(BOOZER.espn_player_id).querySelector("[data-edge]")?.textContent,
@@ -522,5 +566,453 @@ describe("resetting", () => {
     await user.click(screen.getByRole("button", { name: "Reset to consensus" }));
 
     expect(resetBoard).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Tiers, and the position filter that chooses which set of them you are looking at.
+ *
+ * The fixture board is cut into two bands (Wembanyama and Boozer, then Giannis and Paul) and
+ * the power forwards — Boozer then Giannis — into two of their own, so every assertion below
+ * can tell "the board's tiers" apart from "this position's tiers" rather than agreeing with
+ * both by accident.
+ *
+ * The claim the whole feature rests on, and the reason several of these exist: a tier is a
+ * BAND OVER THE RANKS, not a property of a player. Moving a player across a line re-tiers him
+ * and writes NOTHING to the tier endpoint; moving a line writes cut ranks and cannot move a
+ * player. Neither edit can reach the other's endpoint.
+ */
+describe("tier dividers", () => {
+  it("draws one at each cut rank, labelled with the band it opens", async () => {
+    await openBoard();
+
+    // The board's stored cuts are [1, 3]: tier 1 is ranks 1-2, tier 2 is 3-4.
+    expect(dividersOnScreen()).toEqual([1, 3]);
+    const second = document.querySelector('tbody tr[data-tier-start="3"]');
+    expect(second?.textContent).toContain("Tier 2");
+    expect(second?.textContent).toContain("3–4 on the board");
+    expect(second?.textContent).toContain("2 players");
+  });
+
+  it("gives every row the tier its rank falls in", async () => {
+    await openBoard();
+
+    expect(tierOf(WEMBY.espn_player_id)).toBe("T1");
+    expect(tierOf(BOOZER.espn_player_id)).toBe("T1");
+    // Giannis is the first man below the line, so he opens tier 2.
+    expect(tierOf(GIANNIS.espn_player_id)).toBe("T2");
+    expect(tierOf(PAUL.espn_player_id)).toBe("T2");
+  });
+
+  it("also prints his tier among his own position, which is the one a roster slot is filled from", async () => {
+    await openBoard();
+
+    // Boozer and Giannis are the two power forwards on the board, in that order, and the PF
+    // scope is cut between them: he is a tier-1 PF and Giannis is a tier-2 PF, even though
+    // both of them are in the same overall tier... which is exactly what the pill is for.
+    expect(
+      rowFor(BOOZER.espn_player_id).querySelector("[data-position-tier]")?.textContent,
+    ).toBe("PF1");
+    expect(
+      rowFor(GIANNIS.espn_player_id).querySelector("[data-position-tier]")?.textContent,
+    ).toBe("PF2");
+  });
+
+  it("nudges a divider up a rank and saves the whole corrected list", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: "Move the start of tier 2 up one" }),
+    );
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    // [1, 3] with the second cut moved one rank up. Sorted, unique, still led by 1 — which
+    // is the only list `PUT /master/tiers` accepts.
+    expect(putTiers.mock.calls[0]).toEqual(["overall", [1, 2], "dynasty"]);
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1, 2]));
+    // And the band the rows are in moved with the line, with nothing written about a player.
+    expect(tierOf(BOOZER.espn_player_id)).toBe("T2");
+    expect(putOrder).not.toHaveBeenCalled();
+  });
+
+  it("nudges one down a rank", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: "Move the start of tier 2 down one" }),
+    );
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    expect(putTiers.mock.calls[0][1]).toEqual([1, 4]);
+  });
+
+  it("refuses to nudge the top of the board, which is where tier 1 starts by definition", async () => {
+    await openBoard();
+
+    const top = screen.getByRole("button", { name: "Move the start of tier 1 up one" });
+    expect(top).toHaveProperty("disabled", true);
+    // And there is nothing to merge tier 1 into.
+    expect(
+      screen.queryByRole("button", { name: "Remove the break before tier 1" }),
+    ).toBeNull();
+  });
+
+  it("drags a divider onto a row and starts the band there — moving no player", async () => {
+    await openBoard();
+
+    fireEvent.dragStart(
+      screen.getByRole("button", { name: "Drag the start of tier 2" }),
+    );
+    fireEvent.dragOver(rowFor(PAUL.espn_player_id));
+    fireEvent.drop(rowFor(PAUL.espn_player_id));
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    // Paul is the 4th man, so tier 2 now starts at 4.
+    expect(putTiers.mock.calls[0][1]).toEqual([1, 4]);
+    // THE assertion about the two drag types: a divider released over a player row is a
+    // divider move. The order endpoint is never touched.
+    expect(putOrder).not.toHaveBeenCalled();
+  });
+
+  it("adds a break between two rows", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: "Start a new tier at 2 on the board" }),
+    );
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    expect(putTiers.mock.calls[0][1]).toEqual([1, 2, 3]);
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1, 2, 3]));
+  });
+
+  it("offers no break above the first row, where a tier already starts", async () => {
+    await openBoard();
+
+    expect(
+      screen.queryByRole("button", { name: "Start a new tier at 1 on the board" }),
+    ).toBeNull();
+  });
+
+  it("removes a break, merging its tier into the one above", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove the break before tier 2" }),
+    );
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    expect(putTiers.mock.calls[0][1]).toEqual([1]);
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1]));
+    // One band now, and everybody is in it.
+    expect(tierOf(PAUL.espn_player_id)).toBe("T1");
+  });
+
+  it("re-tiers a player moved across a line without writing a tier", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    expect(tierOf(GIANNIS.espn_player_id)).toBe("T2");
+
+    // Up one: he lands at rank 2, which is inside the tier-1 band.
+    await user.click(screen.getByRole("button", { name: `Move ${GIANNIS.name} up` }));
+
+    await waitFor(() => expect(putOrder).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(tierOf(GIANNIS.espn_player_id)).toBe("T1"));
+    // The bands didn't move. He did.
+    expect(putTiers).not.toHaveBeenCalled();
+    expect(dividersOnScreen()).toEqual([1, 3]);
+  });
+
+  it("resets a scope to the automatic cut, behind a confirm", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: "Reset tiers to auto" }));
+
+    expect(confirm.mock.calls[0][0]).toContain("discarded");
+    await waitFor(() => expect(reseedTiers).toHaveBeenCalledWith("overall", "dynasty"));
+    // Scoped: it throws away the dividers, not the board.
+    expect(resetBoard).not.toHaveBeenCalled();
+    expect(putOrder).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when that confirm is declined", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: "Reset tiers to auto" }));
+
+    expect(reseedTiers).not.toHaveBeenCalled();
+  });
+
+  it("says a tier write is saving, and what it saved", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(
+      screen.getByRole("button", { name: "Move the start of tier 2 down one" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("status")
+          .some((node) => node.textContent?.includes("Tier break moved to 4")),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps drawing the dividers inside the window and the search results", async () => {
+    const user = userEvent.setup();
+    board.mockResolvedValue(deepMasterBoard(400));
+    render(<MasterBoardPage />);
+    await screen.findByText("Player 1");
+
+    // Cuts at 1, 13, 60 and 200; only the first three are inside the 175-row window.
+    expect(dividersOnScreen()).toEqual([1, 13, 60]);
+    expect(tierOf(900012)).toBe("T2");
+
+    await user.click(screen.getByRole("button", { name: /Show \d+ more/ }));
+    expect(dividersOnScreen()).toEqual([1, 13, 60, 200]);
+
+    // Under a search, a divider is drawn only where the row it belongs to is: the gaps
+    // between two search hits are not gaps on the board.
+    await user.type(screen.getByLabelText("Find a player"), "Player 13");
+    expect(dividersOnScreen()).toEqual([13]);
+  });
+});
+
+describe("the position filter", () => {
+  /** The PF view: Boozer and Giannis, at their board ranks, with the PF scope's tiers. */
+  function powerForwards() {
+    return masterBoard({}, { position: "PF" });
+  }
+
+  it("refetches narrowed to that position and keeps the board ranks", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+
+    await user.click(screen.getByRole("button", { name: "PF" }));
+
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", "PF"));
+    await waitFor(() =>
+      expect(onScreen()).toEqual([BOOZER.espn_player_id, GIANNIS.espn_player_id]),
+    );
+    // His place on our board does not change because we are looking at the forwards.
+    expect(rowFor(BOOZER.espn_player_id).getAttribute("data-rank")).toBe("2");
+    expect(rowFor(GIANNIS.espn_player_id).getAttribute("data-rank")).toBe("3");
+  });
+
+  it("switches the dividers to that position's own scope", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    expect(dividersOnScreen()).toEqual([1, 3]);
+    board.mockResolvedValue(powerForwards());
+
+    await user.click(screen.getByRole("button", { name: "PF" }));
+
+    // The PF cuts are [1, 2] and they count POWER FORWARDS: the second one falls between
+    // Boozer and Giannis, who are ranks 2 and 3 on the board.
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1, 2]));
+    expect(document.querySelector('tbody tr[data-tier-start="2"]')?.textContent).toContain(
+      "among power forwards",
+    );
+    expect(tierOf(BOOZER.espn_player_id)).toBe("T1");
+    expect(tierOf(GIANNIS.espn_player_id)).toBe("T2");
+  });
+
+  it("writes a divider edit against the position's scope, not the board's", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+    await user.click(screen.getByRole("button", { name: "PF" }));
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1, 2]));
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove the break before tier 2" }),
+    );
+
+    await waitFor(() => expect(putTiers).toHaveBeenCalledTimes(1));
+    expect(putTiers.mock.calls[0]).toEqual(["PF", [1], "dynasty"]);
+  });
+
+  it("reseeds that position's tiers and no other scope", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+    await user.click(screen.getByRole("button", { name: "PF" }));
+    await waitFor(() => expect(dividersOnScreen()).toEqual([1, 2]));
+
+    await user.click(screen.getByRole("button", { name: "Reset tiers to auto" }));
+
+    await waitFor(() => expect(reseedTiers).toHaveBeenCalledWith("PF", "dynasty"));
+  });
+
+  it("turns reordering off, and says why", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+    await user.click(screen.getByRole("button", { name: "PF" }));
+    await waitFor(() => expect(onScreen()).toHaveLength(2));
+
+    expect(screen.getByText(/Reordering is off here/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: `Move ${GIANNIS.name} up` }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: `Move ${BOOZER.name} down` }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      within(rowFor(BOOZER.espn_player_id)).getByLabelText(`Move ${BOOZER.name} to rank`),
+    ).toHaveProperty("disabled", true);
+    expect(putOrder).not.toHaveBeenCalled();
+  });
+
+  it("leaves the tag, the note and the exclude working under a filter", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+    await user.click(screen.getByRole("button", { name: "PF" }));
+    await waitFor(() => expect(onScreen()).toHaveLength(2));
+    putEntry.mockResolvedValue(powerForwards());
+
+    await user.click(screen.getByRole("button", { name: `Tag ${BOOZER.name}` }));
+    await waitFor(() => expect(putEntry).toHaveBeenCalledTimes(1));
+    expect(putEntry.mock.calls[0][1]).toEqual({ tag: "fade" });
+
+    await user.click(screen.getByRole("button", { name: `Set ${GIANNIS.name} aside` }));
+    await waitFor(() => expect(putEntry).toHaveBeenCalledTimes(2));
+    expect(putEntry.mock.calls[1][1]).toEqual({ excluded: true });
+  });
+
+  it("restores the whole board and the overall tiers on All", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    board.mockResolvedValue(powerForwards());
+    await user.click(screen.getByRole("button", { name: "PF" }));
+    await waitFor(() => expect(onScreen()).toHaveLength(2));
+
+    board.mockResolvedValue(masterBoard());
+    await user.click(screen.getByRole("button", { name: "All" }));
+
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", null));
+    await waitFor(() => expect(onScreen()).toHaveLength(4));
+    expect(dividersOnScreen()).toEqual([1, 3]);
+    expect(screen.queryByText(/Reordering is off here/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: `Move ${GIANNIS.name} up` }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("says a position has nobody on it without pretending the board is empty", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    // Nobody on the fixture board is a shooting guard.
+    board.mockResolvedValue(masterBoard({}, { position: "SG" }));
+
+    await user.click(screen.getByRole("button", { name: "SG" }));
+
+    expect(
+      await screen.findByText(/Nobody on your board is listed at shooting guards/),
+    ).toBeTruthy();
+    // The board is fine — this is a view of it, not a board with nobody on it.
+    expect(screen.queryByText("Nothing to rank yet")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the horizon when the position changes", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    board.mockResolvedValue(masterBoard({}, { horizon: "current_year" }));
+    await user.click(screen.getByRole("button", { name: "Win now" }));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null));
+
+    board.mockResolvedValue(masterBoard({}, { horizon: "current_year", position: "PF" }));
+    await user.click(screen.getByRole("button", { name: "PF" }));
+
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", "PF"));
+  });
+});
+
+/**
+ * The cut-rank arithmetic itself, under the page.
+ *
+ * `PUT /master/tiers` refuses a list that is unsorted, duplicated, out of range or missing
+ * its leading 1, and the page's defence against that 422 is not a check before the send — it
+ * is that every edit is a function that cannot produce one. These are that claim, stated
+ * once, where it can be tested without a DOM.
+ */
+describe("cut ranks", () => {
+  /** The four rules `validate_cuts` in app/ranking/tiers.py enforces, as one predicate. */
+  function isSendable(cuts: number[], size: number): boolean {
+    if (size <= 0) return cuts.length === 0;
+    return (
+      cuts[0] === 1 &&
+      cuts.every((rank, index) => index === 0 || rank > cuts[index - 1]) &&
+      cuts.every((rank) => rank >= 1 && rank <= size)
+    );
+  }
+
+  it("sorts, de-duplicates and restores the leading 1 whatever it is handed", () => {
+    expect(normalizeCuts([12, 4, 4, 1], 50)).toEqual([1, 4, 12]);
+    // The leading 1 is not optional: a list without it describes a board whose first tier is
+    // tier 2, which is not a board.
+    expect(normalizeCuts([4, 12], 50)).toEqual([1, 4, 12]);
+    // A divider past the end of the board bands nobody.
+    expect(normalizeCuts([1, 4, 900], 50)).toEqual([1, 4]);
+    // And a scope with nobody in it has no bands at all, rather than one empty one.
+    expect(normalizeCuts([1, 4], 0)).toEqual([]);
+  });
+
+  it("stays sendable through every edit the page can make", () => {
+    const size = 40;
+    let cuts = normalizeCuts([1, 8, 20], size);
+
+    for (const edit of [
+      () => addCut(cuts, 14, size),
+      () => addCut(cuts, 1, size), // already a cut: a no-op, not a duplicate
+      () => removeCut(cuts, 8, size),
+      () => removeCut(cuts, 1, size), // refused: tier 1 starts at the top
+      () => moveCut(cuts, 20, 21, size),
+      () => moveCut(cuts, 21, 1, size), // clamped: rank 1 is not a gap
+      () => moveCut(cuts, 14, 999, size), // clamped to the last rank
+      () => addCut(cuts, -3, size),
+    ]) {
+      cuts = edit();
+      expect(isSendable(cuts, size)).toBe(true);
+    }
+  });
+
+  it("refuses to drop a divider on top of another one", () => {
+    // [1, 8, 20] with 20 dragged onto 8 would de-duplicate to [1, 8] — silently deleting a
+    // tier the drag never meant to remove. It collapses to a no-op instead.
+    expect(moveCut([1, 8, 20], 20, 8, 40)).toEqual([1, 8, 20]);
+    expect(nudgedCut([1, 8, 9], 9, 40, -1)).toBeNull();
+    // And neither nudge leaves the board.
+    expect(nudgedCut([1, 8], 8, 8, 1)).toBeNull();
+    expect(nudgedCut([1, 2], 2, 40, -1)).toBeNull();
+    expect(nudgedCut([1, 8], 8, 40, 1)).toBe(9);
+  });
+
+  it("describes the bands the dividers cut, to the end of the scope", () => {
+    expect(tierBands([1, 4, 12], 20)).toEqual([
+      { tier: 1, start: 1, end: 3 },
+      { tier: 2, start: 4, end: 11 },
+      { tier: 3, start: 12, end: 20 },
+    ]);
+    // Every rank is in a band, so the man below the last divider is in the bottom tier
+    // rather than untiered.
+    expect(shownTier([1, 4, 12], 20)).toBe(3);
+    expect(shownTier([1, 4, 12], 3)).toBe(1);
+    expect(shownTier([], 3)).toBeNull();
   });
 });

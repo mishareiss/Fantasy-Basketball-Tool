@@ -219,6 +219,41 @@ describe("the master ranking calls", () => {
     expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board`);
   });
 
+  it("narrows the board to a position, and treats All as no parameter at all", async () => {
+    await api.masterBoard("dynasty", "PG");
+    expect(requestedUrl()).toBe(
+      `${API_BASE_URL}/master/board?horizon=dynasty&position=PG`,
+    );
+
+    fetchMock.mockClear();
+    // "All" is null, and a null is dropped rather than sent as `position=` — which the
+    // backend would read as a nonsense position and 422.
+    await api.masterBoard("dynasty", null);
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board?horizon=dynasty`);
+  });
+
+  it("PUTs one scope's cut ranks whole, the way the order goes whole", async () => {
+    await api.putMasterTiers("PG", [1, 4, 12], "dynasty");
+
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/tiers?horizon=dynasty`);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("PUT");
+    // The scope is in the BODY and the horizon in the query, because one of them says which
+    // dividers these are and the other only picks the reference column of the answer.
+    expect(requestBody()).toEqual({ scope: "PG", cut_ranks: [1, 4, 12] });
+  });
+
+  it("reseeds one scope, by name, and touches no other", async () => {
+    await api.reseedMasterTiers("C", "dynasty");
+
+    const url = new URL(requestedUrl());
+    expect(url.pathname).toBe("/master/tiers/reseed");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scope: "C",
+      horizon: "dynasty",
+    });
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+  });
+
   it("PUTs the whole order under the key the backend validates as a permutation", async () => {
     await api.putMasterOrder([7, 4, 9], "dynasty");
 

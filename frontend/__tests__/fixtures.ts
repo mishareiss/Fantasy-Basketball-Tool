@@ -19,9 +19,13 @@ import type {
   MarketPlayer,
   MasterBoardResponse,
   MasterPlayerRow,
+  Position,
+  TierScope,
+  TierScopeRow,
   TierSummaryRow,
   TiersResponse,
 } from "@/lib/api";
+import { POSITIONS, SCOPE_OVERALL, TIER_SCOPES } from "@/lib/api";
 
 /**
  * Hand-built stand-ins for the backend's responses, shaped exactly like app/api/players.py
@@ -649,7 +653,30 @@ export const MASTER_ASIDE: MasterSeed = {
   note: "Only at a discount",
 };
 
-function masterRow(seed: MasterSeed, rank: number | null, horizon: Horizon): MasterPlayerRow {
+/**
+ * Which tier a rank falls in, given the ranks each tier STARTS at — the backend's own
+ * arithmetic (app/ranking/tiers.py: `tiers_for`), repeated here so a fixture's rows and its
+ * `tiers` block can never describe two different boards.
+ */
+function tierOfRank(cuts: number[], rank: number): number | null {
+  let tier = 0;
+  for (const cut of cuts) {
+    if (cut > rank) break;
+    tier += 1;
+  }
+  return tier === 0 ? null : tier;
+}
+
+function masterRow(
+  seed: MasterSeed,
+  rank: number | null,
+  horizon: Horizon,
+  tiers: { overall: number | null; position: number | null; scope: string | null } = {
+    overall: null,
+    position: null,
+    scope: null,
+  },
+): MasterPlayerRow {
   const consensusRank = seed.consensus[horizon];
   return {
     rank,
@@ -666,9 +693,32 @@ function masterRow(seed: MasterSeed, rank: number | null, horizon: Horizon): Mas
     consensus_rank: consensusRank,
     // The backend's own arithmetic: rank - consensus_rank, null when either half is missing.
     delta: rank !== null && consensusRank !== null ? rank - consensusRank : null,
+    // A set-aside player has no rank, so no band contains him and his tiers are null —
+    // exactly what master.py does with `entry.rank`.
+    overall_tier: rank === null ? null : tiers.overall,
+    position_tier: rank === null ? null : tiers.position,
+    position_scope: rank === null ? null : tiers.scope,
     updated_at: "2027-10-01T09:00:00Z",
   };
 }
+
+/**
+ * Where each scope's tiers start, by default.
+ *
+ * Chosen so the four seeds describe something worth asserting about: the board is cut into
+ * two bands (Wemby and Boozer, then Giannis and Paul), and the power forwards — who are
+ * Boozer and Giannis, in that order — are cut into two of their own, so switching to PF must
+ * visibly change both the rows AND the dividers. A position nobody on the board plays has no
+ * order to cut, which is the empty list rather than `[1]`.
+ */
+export const MASTER_CUTS: Record<TierScope, number[]> = {
+  overall: [1, 3],
+  PG: [1],
+  SG: [],
+  SF: [],
+  PF: [1, 2],
+  C: [1],
+};
 
 /**
  * Our board under one horizon, in the given order.
@@ -684,13 +734,56 @@ export function masterBoard(
     horizon = "dynasty",
     order = MASTER_SEEDS.map((seed) => seed.espn_player_id),
     aside = [MASTER_ASIDE],
-  }: { horizon?: Horizon; order?: number[]; aside?: MasterSeed[] } = {},
+    position = null,
+    cuts = MASTER_CUTS,
+  }: {
+    horizon?: Horizon;
+    order?: number[];
+    aside?: MasterSeed[];
+    /** The `?position=` this response answers — it narrows the rows and nothing else. */
+    position?: Position | null;
+    cuts?: Partial<Record<TierScope, number[]>>;
+  } = {},
 ): MasterBoardResponse {
   const byId = new Map([...MASTER_SEEDS, MASTER_ASIDE].map((seed) => [seed.espn_player_id, seed]));
-  const players = order
+  const ranked = order
     .map((id) => byId.get(id))
-    .filter((seed): seed is MasterSeed => seed !== undefined)
-    .map((seed, index) => masterRow(seed, index + 1, horizon));
+    .filter((seed): seed is MasterSeed => seed !== undefined);
+
+  // Every scope's order, the way app/ranking/tiers.py `scope_orders` builds it: the whole
+  // board, plus one sub-order per position in board order.
+  const orders: Record<string, MasterSeed[]> = { [SCOPE_OVERALL]: ranked };
+  for (const spot of POSITIONS) {
+    orders[spot] = ranked.filter((seed) => seed.positions.includes(spot));
+  }
+  const cutsFor = (scope: TierScope): number[] => cuts[scope] ?? MASTER_CUTS[scope] ?? [];
+
+  const players = ranked
+    .map((seed, index) => {
+      const rank = index + 1;
+      // His position scope: the requested `?position=` when there is one, otherwise the
+      // FIRST position he is listed at — master.py: `_Tiers.position`.
+      const scope = position ?? seed.positions.find((spot) => (POSITIONS as readonly string[]).includes(spot)) ?? null;
+      const inScope = scope === null ? -1 : orders[scope].indexOf(seed);
+      return masterRow(seed, rank, horizon, {
+        overall: tierOfRank(cutsFor(SCOPE_OVERALL), rank),
+        position:
+          scope === null || inScope === -1
+            ? null
+            : tierOfRank(cutsFor(scope as TierScope), inScope + 1),
+        scope: inScope === -1 ? null : scope,
+      });
+    })
+    // The filter narrows WHO comes back and leaves the ranks alone, which is the whole claim
+    // `?position=` makes: a point guard's place on our board doesn't change because we are
+    // looking at the guards.
+    .filter((row) => position === null || row.positions.includes(position));
+
+  const tiers: TierScopeRow[] = TIER_SCOPES.map((scope) => {
+    const size = orders[scope].length;
+    const cutRanks = cutsFor(scope).filter((rank) => rank <= size);
+    return { scope, size, cut_ranks: cutRanks, tier_count: cutRanks.length };
+  });
 
   return {
     horizon,
@@ -703,6 +796,8 @@ export function masterBoard(
     stale: players.filter((row) => row.is_stale).length,
     age_as_of: "2027-10-21",
     sources: [PROJECTION_SOURCE, ADP_SOURCE, DYNASTY_RANKING_SOURCE],
+    position,
+    tiers,
     players,
     set_aside: aside.map((seed) => masterRow(seed, null, horizon)),
     ...overrides,
@@ -710,7 +805,8 @@ export function masterBoard(
 }
 
 /** A board deep enough to prove the page windows it rather than rendering all of it. */
-export function deepMasterBoard(size = 400): MasterBoardResponse {
+export function deepMasterBoard(size = 400, cuts: number[] = [1, 13, 60, 200]): MasterBoardResponse {
+  const inside = cuts.filter((rank) => rank <= size);
   const players: MasterPlayerRow[] = Array.from({ length: size }, (_, index) =>
     masterRow(
       {
@@ -723,7 +819,23 @@ export function deepMasterBoard(size = 400): MasterBoardResponse {
       },
       index + 1,
       "dynasty",
+      {
+        overall: tierOfRank(inside, index + 1),
+        position: tierOfRank(inside, index + 1),
+        scope: "SF",
+      },
     ),
   );
-  return masterBoard({ players, total_ranked: size, set_aside: [], added: 0, stale: 0 });
+  // Everyone here is a small forward, so the SF scope and the board are the same order —
+  // which makes this the fixture a "position filter still windows" assertion can use.
+  const tiers: TierScopeRow[] = TIER_SCOPES.map((scope) => {
+    const scoped = scope === SCOPE_OVERALL || scope === "SF";
+    return {
+      scope,
+      size: scoped ? size : 0,
+      cut_ranks: scoped ? inside : [],
+      tier_count: scoped ? inside.length : 0,
+    };
+  });
+  return masterBoard({ players, total_ranked: size, set_aside: [], added: 0, stale: 0, tiers });
 }
