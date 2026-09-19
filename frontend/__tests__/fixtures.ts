@@ -17,6 +17,8 @@ import type {
   MarketLineWriteResponse,
   MarketLinesResponse,
   MarketPlayer,
+  MasterBoardResponse,
+  MasterPlayerRow,
   TierSummaryRow,
   TiersResponse,
 } from "@/lib/api";
@@ -566,4 +568,162 @@ export function marketDelete(
     player_removed: false,
     ...overrides,
   };
+}
+
+
+/* ---------------------------------------------------------------------------------------- *
+ * The master ranking — app/api/master.py shapes.
+ *
+ * Built as a board that has been WORKED, not a freshly seeded one, because every interesting
+ * thing on the page is a disagreement with the consensus: Boozer ten spots above the field,
+ * Giannis one below it, Wembanyama level with it, and Chris Paul ranked by nobody at all.
+ *
+ * The two horizons carry the SAME order and different reference columns, which is the claim
+ * the horizon toggle is tested against — the lens moves, the board does not.
+ * ---------------------------------------------------------------------------------------- */
+
+type MasterSeed = {
+  name: string;
+  espn_player_id: number;
+  nba_team: string | null;
+  positions: string[];
+  age: number;
+  /** His place on each horizon's consensus. Null = no source ranks him (a stale entry). */
+  consensus: Record<Horizon, number | null>;
+  tag?: string | null;
+  note?: string | null;
+  is_new?: boolean;
+};
+
+export const MASTER_SEEDS: MasterSeed[] = [
+  {
+    name: "Victor Wembanyama",
+    espn_player_id: 5104157,
+    nba_team: "SAS",
+    positions: ["C"],
+    age: 23,
+    consensus: { dynasty: 1, current_year: 2 },
+  },
+  {
+    // The payoff row: a rookie the field has at 12 and we have at 2 — ten spots out on a limb,
+    // and reconciled in by the request that returned him.
+    name: "Cameron Boozer",
+    espn_player_id: 5239012,
+    nba_team: "CHA",
+    positions: ["PF"],
+    age: 20,
+    consensus: { dynasty: 12, current_year: 40 },
+    tag: "target",
+    is_new: true,
+  },
+  {
+    name: "Giannis Antetokounmpo",
+    espn_player_id: 3032977,
+    nba_team: "MIL",
+    positions: ["PF"],
+    age: 32,
+    consensus: { dynasty: 2, current_year: 1 },
+    tag: "fade",
+    note: "Win-now price on a dynasty board",
+  },
+  {
+    // On our board and on nobody's list any more: his rank stands, his reference column is
+    // empty, and he is the `is_stale` case.
+    name: "Chris Paul",
+    espn_player_id: 2779,
+    nba_team: null,
+    positions: ["PG"],
+    age: 41,
+    consensus: { dynasty: null, current_year: null },
+  },
+];
+
+/** The one we've parked: off the order (rank null), tag and note intact. */
+export const MASTER_ASIDE: MasterSeed = {
+  name: "Deandre Ayton",
+  espn_player_id: 4278067,
+  nba_team: "POR",
+  positions: ["C"],
+  age: 28,
+  consensus: { dynasty: 60, current_year: 55 },
+  note: "Only at a discount",
+};
+
+function masterRow(seed: MasterSeed, rank: number | null, horizon: Horizon): MasterPlayerRow {
+  const consensusRank = seed.consensus[horizon];
+  return {
+    rank,
+    espn_player_id: seed.espn_player_id,
+    name: seed.name,
+    nba_team: seed.nba_team,
+    positions: seed.positions,
+    age: seed.age,
+    tag: seed.tag ?? null,
+    note: seed.note ?? null,
+    excluded: rank === null,
+    is_new: seed.is_new ?? false,
+    is_stale: consensusRank === null,
+    consensus_rank: consensusRank,
+    // The backend's own arithmetic: rank - consensus_rank, null when either half is missing.
+    delta: rank !== null && consensusRank !== null ? rank - consensusRank : null,
+    updated_at: "2027-10-01T09:00:00Z",
+  };
+}
+
+/**
+ * Our board under one horizon, in the given order.
+ *
+ * `order` is a list of player ids, so a test can hand back the board a `PUT /master/order`
+ * would produce by passing the very ids it just asserted were sent — which is what makes
+ * "the UI reflects the returned board" a real claim rather than a restatement of the
+ * optimistic update.
+ */
+export function masterBoard(
+  overrides: Partial<MasterBoardResponse> = {},
+  {
+    horizon = "dynasty",
+    order = MASTER_SEEDS.map((seed) => seed.espn_player_id),
+    aside = [MASTER_ASIDE],
+  }: { horizon?: Horizon; order?: number[]; aside?: MasterSeed[] } = {},
+): MasterBoardResponse {
+  const byId = new Map([...MASTER_SEEDS, MASTER_ASIDE].map((seed) => [seed.espn_player_id, seed]));
+  const players = order
+    .map((id) => byId.get(id))
+    .filter((seed): seed is MasterSeed => seed !== undefined)
+    .map((seed, index) => masterRow(seed, index + 1, horizon));
+
+  return {
+    horizon,
+    ranking_horizon: horizon === "dynasty" ? "dynasty" : "redraft",
+    seed_horizon: "dynasty",
+    pool_size: POOL_SIZE,
+    total_ranked: players.length,
+    seeded: false,
+    added: players.filter((row) => row.is_new).length,
+    stale: players.filter((row) => row.is_stale).length,
+    age_as_of: "2027-10-21",
+    sources: [PROJECTION_SOURCE, ADP_SOURCE, DYNASTY_RANKING_SOURCE],
+    players,
+    set_aside: aside.map((seed) => masterRow(seed, null, horizon)),
+    ...overrides,
+  };
+}
+
+/** A board deep enough to prove the page windows it rather than rendering all of it. */
+export function deepMasterBoard(size = 400): MasterBoardResponse {
+  const players: MasterPlayerRow[] = Array.from({ length: size }, (_, index) =>
+    masterRow(
+      {
+        name: `Player ${index + 1}`,
+        espn_player_id: 900000 + index,
+        nba_team: "FA",
+        positions: ["SF"],
+        age: 25,
+        consensus: { dynasty: index + 1, current_year: index + 1 },
+      },
+      index + 1,
+      "dynasty",
+    ),
+  );
+  return masterBoard({ players, total_ranked: size, set_aside: [], added: 0, stale: 0 });
 }

@@ -511,6 +511,81 @@ export type MarketDeleteResponse = {
   player_removed: boolean;
 };
 
+/* -------------------------------------------------------------------------------------- *
+ * The master ranking — app/api/master.py, over app/ranking/master
+ *
+ * Our own board, and the one thing that makes it different from every other list here: the
+ * order is STORED. Nothing that lands in the sources moves a player on it. What moves is the
+ * reference beside him — `consensus_rank` and `delta` — which is the number the board is for.
+ * -------------------------------------------------------------------------------------- */
+
+/** What a player can be to us beyond his place — app/db/models/master_rank.py: MASTER_TAGS. */
+export const MASTER_TAGS = ["target", "fade"] as const;
+export type MasterTag = (typeof MASTER_TAGS)[number];
+
+/** One player on our board — master.py: MasterPlayerRow. */
+export type MasterPlayerRow = {
+  /** OUR place, 1-based and contiguous. Null only for a player in `set_aside`. */
+  rank: number | null;
+  espn_player_id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  age: number | null;
+  /** One of MASTER_TAGS, or null. Typed as the backend types it (`str`) so a tag added
+      server-side renders as itself rather than failing to compile. */
+  tag: string | null;
+  note: string | null;
+  excluded: boolean;
+  /** Placed into the order by THIS response — a new arrival, or one just restored from the
+      tray. A fact about the response, not a stored bit: it is gone on the next GET. */
+  is_new: boolean;
+  /** He has an entry but no source ranks him any more. His rank stands; nothing backs it. */
+  is_stale: boolean;
+  /** His place on the consensus of every available source, under the requested horizon. */
+  consensus_rank: number | null;
+  /**
+   * `rank - consensus_rank`, so a player we have ABOVE the field carries a NEGATIVE number
+   * (our 1 against their 4 is -3 — see the assertion in backend/tests/test_api_master.py).
+   * The board prints the gap the other way up, as spots-above-the-field; `edge()` in
+   * lib/masterboard.ts is the one place that flip happens.
+   */
+  delta: number | null;
+  updated_at: string;
+};
+
+/** Our board, its set-aside pile, and the consensus it is read against — MasterBoardResponse. */
+export type MasterBoardResponse = {
+  /** The horizon the REFERENCE column was computed under — the lens, not the board. Typed
+      as the backend types it (`str`), like `ranking_horizon` above. */
+  horizon: string;
+  ranking_horizon: string;
+  /** The horizon that decides who belongs on the board at all (MASTER_SEED_HORIZON). */
+  seed_horizon: string;
+  pool_size: number;
+  total_ranked: number;
+  /** This request found an empty board and seeded it from the consensus. Once, ever. */
+  seeded: boolean;
+  /** How many players this request inserted, and how many nobody currently ranks. */
+  added: number;
+  stale: number;
+  /** ISO date (YYYY-MM-DD) every `age` here was computed at. */
+  age_as_of: string;
+  sources: SourceInfo[];
+  players: MasterPlayerRow[];
+  /** Off the order, not off the board: tags and notes intact, one write to bring back. */
+  set_aside: MasterPlayerRow[];
+};
+
+/** The body of PUT /master/entries/{id} — master.py: MasterEntryWrite.
+ *  Every key is optional and "left out" means "leave it alone", so this is built one key at
+ *  a time: `{ note: null }` clears the note and touches nothing else. */
+export type MasterEntryWriteBody = {
+  tag?: string | null;
+  note?: string | null;
+  excluded?: boolean;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -693,4 +768,50 @@ export const api = {
         player_id: params.player_id,
       })}`,
     ),
+
+  /* --- the master ranking ------------------------------------------------------------- */
+
+  /**
+   * Our board, complete and reconciled.
+   *
+   * A GET that WRITES, deliberately (see app/api/master.py): an empty board seeds itself from
+   * the consensus, a player the sources now rank but we have no entry for is inserted at the
+   * slot the consensus implies and flagged `is_new`, and an entry nobody ranks any more is
+   * flagged `is_stale`. So the response is authoritative about the order in a way a cached
+   * one never is — every mutation below answers with the same shape for exactly that reason.
+   *
+   * `horizon` picks which consensus the REFERENCE column is computed against. It does not
+   * change the order and it cannot change who is on the board.
+   */
+  masterBoard: (horizon?: Horizon) =>
+    request<MasterBoardResponse>(`/master/board${query({ horizon })}`),
+
+  /**
+   * Save a reorder: rank = place in the list, for the WHOLE non-excluded board.
+   *
+   * Not a partial order and not a diff — the backend validates it as a permutation and 422s
+   * naming what is missing, which is what catches a page whose order predates a rookie that
+   * got reconciled in underneath it. The horizon rides along so the board that comes back is
+   * still read against the lens the page is showing.
+   */
+  putMasterOrder: (orderedPlayerIds: number[], horizon?: Horizon) =>
+    put<MasterBoardResponse>(`/master/order${query({ horizon })}`, {
+      ordered_player_ids: orderedPlayerIds,
+    }),
+
+  /**
+   * Tag him, write a note, set him aside or bring him back — any subset, in one call.
+   *
+   * Answers with the whole board rather than the row, because setting a player aside reflows
+   * every rank below him and a single row could not honestly report that.
+   */
+  putMasterEntry: (playerId: number, body: MasterEntryWriteBody, horizon?: Horizon) =>
+    put<MasterBoardResponse>(`/master/entries/${playerId}${query({ horizon })}`, body),
+
+  /**
+   * Throw the board away and rebuild it from the consensus — every rank, tag and note with
+   * it. `reset=true` is what the backend requires to touch a board that isn't empty.
+   */
+  resetMasterBoard: (horizon?: Horizon) =>
+    post<MasterBoardResponse>(`/master/seed${query({ reset: "true", horizon })}`, {}),
 };

@@ -60,7 +60,12 @@ const SEGMENT_ON = "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900";
 const SEGMENT_OFF =
   "bg-white text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900";
 
-function Segmented({
+/**
+ * A labelled row of mutually exclusive buttons. Exported because the master board's horizon
+ * toggle is the same control as this one and must not drift from it — one segmented style,
+ * wherever a horizon gets switched.
+ */
+export function Segmented({
   label,
   children,
 }: {
@@ -83,7 +88,7 @@ function Segmented({
   );
 }
 
-function Segment({
+export function Segment({
   active,
   onClick,
   title,

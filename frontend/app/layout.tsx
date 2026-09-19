@@ -27,13 +27,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        {/* Three pages worth navigating between: the board this exists to produce, the
-            importer that feeds it, and the market lines — the one source that is kept by
-            hand rather than imported and replaced. Status stays in the footer — it is a
-            diagnostic, not a destination. */}
+        {/* Four pages worth navigating between: the board this exists to produce, MY board
+            (the same players in the order I actually want them, kept by hand), the importer
+            that feeds both, and the market lines — the one source that is entered rather
+            than imported and replaced. Status stays in the footer — it is a diagnostic, not
+            a destination. */}
         <nav className="flex items-center gap-4 border-b border-zinc-200 px-4 py-2.5 text-sm sm:px-6 dark:border-zinc-800">
           <Link href="/" className="font-medium text-zinc-800 hover:underline dark:text-zinc-200">
             Board
+          </Link>
+          <Link
+            href="/my-board"
+            className="font-medium text-zinc-800 hover:underline dark:text-zinc-200"
+          >
+            My Board
           </Link>
           <Link
             href="/import"

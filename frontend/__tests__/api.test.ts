@@ -199,6 +199,69 @@ describe("the import calls", () => {
   });
 });
 
+describe("the master ranking calls", () => {
+  // A fresh Response per call: two of these tests make two requests, and a body can only be
+  // read once.
+  beforeEach(() => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+  });
+
+  function requestBody(call = 0): unknown {
+    return JSON.parse(String(fetchMock.mock.calls[call][1]?.body));
+  }
+
+  it("reads the board against a horizon, and omits it when there isn't one", async () => {
+    await api.masterBoard("current_year");
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board?horizon=current_year`);
+
+    fetchMock.mockClear();
+    await api.masterBoard();
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board`);
+  });
+
+  it("PUTs the whole order under the key the backend validates as a permutation", async () => {
+    await api.putMasterOrder([7, 4, 9], "dynasty");
+
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/order?horizon=dynasty`);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("PUT");
+    expect(requestBody()).toEqual({ ordered_player_ids: [7, 4, 9] });
+  });
+
+  it("sends only the entry fields it was given, so an edit can't clear the rest", async () => {
+    await api.putMasterEntry(4278073, { note: "Only at a discount" });
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/entries/4278073`);
+    expect(requestBody()).toEqual({ note: "Only at a discount" });
+
+    fetchMock.mockClear();
+    // An explicit null is "clear it", which is a different request from leaving it out.
+    await api.putMasterEntry(4278073, { tag: null });
+    expect(requestBody()).toEqual({ tag: null });
+  });
+
+  it("re-seeds only with reset=true — the flag the backend needs to wipe a board", async () => {
+    await api.resetMasterBoard("dynasty");
+
+    const url = new URL(requestedUrl());
+    expect(url.pathname).toBe("/master/seed");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      reset: "true",
+      horizon: "dynasty",
+    });
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+  });
+
+  it("carries a refused order's detail up, so the page can say what is missing", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ detail: "`ordered_player_ids` must be exactly the board's" }, 422),
+    );
+
+    await expect(api.putMasterOrder([1])).rejects.toMatchObject({
+      status: 422,
+      detail: "`ordered_player_ids` must be exactly the board's",
+    });
+  });
+});
+
 describe("the import form", () => {
   const form = { ...EMPTY_FORM, source: "hashtag", text: "a,b\n1,2\n" };
 
