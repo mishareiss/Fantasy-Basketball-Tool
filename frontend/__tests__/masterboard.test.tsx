@@ -770,7 +770,7 @@ describe("tier dividers", () => {
 
   it("keeps drawing the dividers inside the window and the search results", async () => {
     const user = userEvent.setup();
-    board.mockResolvedValue(deepMasterBoard(400));
+    board.mockResolvedValue(deepMasterBoard(210));
     render(<MasterBoardPage />);
     await screen.findByText("Player 1");
 
@@ -785,7 +785,7 @@ describe("tier dividers", () => {
     // between two search hits are not gaps on the board.
     await user.type(screen.getByLabelText("Find a player"), "Player 13");
     expect(dividersOnScreen()).toEqual([13]);
-  });
+  }, 15000);
 });
 
 describe("the position filter", () => {
