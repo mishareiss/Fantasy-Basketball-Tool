@@ -68,6 +68,10 @@ class Player(Base):
     market_lines: Mapped[list["MarketLine"]] = relationship(  # noqa: F821  # models.market_line
         back_populates="player", cascade="all, delete-orphan"
     )
+    # One row at most: our own board holds one entry per player (models.master_rank).
+    master_rank: Mapped["MasterRankEntry | None"] = relationship(  # noqa: F821  # models.master_rank
+        back_populates="player", cascade="all, delete-orphan", uselist=False
+    )
 
     def __repr__(self) -> str:
         return f"Player(espn_player_id={self.espn_player_id!r}, full_name={self.full_name!r})"

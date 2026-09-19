@@ -50,6 +50,19 @@ from app.ranking.market import (
     fair_value,
     implied_probability,
 )
+from app.ranking.master import (
+    BOARD_METHOD,
+    BoardRow,
+    MasterBoard,
+    OrderMismatch,
+    UnknownTag,
+    consensus_positions,
+    load_entries,
+    reconcile,
+    reorder,
+    reseed,
+    upsert_entry,
+)
 from app.ranking.sources import (
     KIND_ADP,
     KIND_PROJECTION,
@@ -65,6 +78,8 @@ from app.ranking.sources import (
 )
 
 __all__ = [
+    "BOARD_METHOD",
+    "BoardRow",
     "ConsensusRow",
     "EVEN_PROBABILITY",
     "KINDS",
@@ -75,6 +90,8 @@ __all__ = [
     "METHOD_PERCENTILE",
     "METHOD_RANK",
     "MIN_LINE_SCALE",
+    "MasterBoard",
+    "OrderMismatch",
     "Placement",
     "RANKING_TAG_BY_HORIZON",
     "RankingSource",
@@ -82,13 +99,20 @@ __all__ = [
     "SourceSpec",
     "UnknownHorizon",
     "UnknownMethod",
+    "UnknownTag",
     "available_specs",
     "consensus_board",
+    "consensus_positions",
     "devig",
     "dispersion",
     "fair_value",
     "implied_probability",
     "load_catalog",
+    "load_entries",
     "percentile_for",
     "ranking_tag_for_horizon",
+    "reconcile",
+    "reorder",
+    "reseed",
+    "upsert_entry",
 ]

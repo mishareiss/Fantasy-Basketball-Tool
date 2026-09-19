@@ -515,3 +515,138 @@ def test_a_from_scratch_apply_reaches_the_market_line_table(migrated):
     command.upgrade(config, "head")
 
     assert "market_line" in _table_names(engine)
+
+
+# --- master_rank_entry -------------------------------------------------------------------------
+
+# The revision that added our own board, and the one it sits on.
+MASTER_BEFORE = MARKET
+MASTER = "a3f27c91b054"
+
+
+def _seed_master_entry(engine, *, player_id=1, rank=1, excluded=0, tag=None, note=None):
+    """One board row, inserted the way the application does — WITHOUT a timestamp.
+
+    The omission is the point: `updated_at` is a server default, and this is the first table
+    whose rows are typed rather than synced, so an INSERT that leaves it out has to work on
+    both dialects.
+    """
+    tag_sql = "NULL" if tag is None else f"'{tag}'"
+    note_sql = "NULL" if note is None else f"'{note}'"
+    rank_sql = "NULL" if rank is None else str(rank)
+    with engine.begin() as connection:
+        _seed_players(connection, (player_id,))
+        connection.execute(
+            text(
+                "INSERT INTO master_rank_entry (player_id, rank, excluded, tag, note) "
+                f"VALUES ({player_id}, {rank_sql}, {excluded}, {tag_sql}, {note_sql})"
+            )
+        )
+
+
+def test_the_master_board_table_arrives_keyed_and_indexed(migrated):
+    config, engine = migrated
+
+    command.upgrade(config, MASTER)
+
+    assert "master_rank_entry" in _table_names(engine)
+    inspector = inspect(engine)
+    assert {c["name"] for c in inspector.get_unique_constraints("master_rank_entry")} == {
+        "uq_master_rank_entry_player"
+    }
+    assert {index["name"] for index in inspector.get_indexes("master_rank_entry")} == {
+        "ix_master_rank_entry_player_id"
+    }
+    nullable = {
+        column["name"]: column["nullable"] for column in inspector.get_columns("master_rank_entry")
+    }
+    # A player set aside has no place in the order, and a note is optional.
+    assert nullable["rank"] and nullable["tag"] and nullable["note"]
+    assert not nullable["player_id"] and not nullable["excluded"]
+
+
+def test_a_row_can_be_written_without_a_timestamp_or_an_excluded_flag(migrated):
+    """The defaults are the ones the application actually leans on."""
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        connection.execute(text("INSERT INTO master_rank_entry (player_id, rank) VALUES (1, 1)"))
+        row = connection.execute(
+            text("SELECT excluded, updated_at, tag, note FROM master_rank_entry")
+        ).one()
+
+    assert not row[0]
+    assert row[1] is not None
+    assert row[2] is None and row[3] is None
+
+
+def test_one_player_cannot_be_on_the_board_twice(migrated):
+    """One board: the key that makes "his rank" a question with one answer."""
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+    _seed_master_entry(engine)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(text("INSERT INTO master_rank_entry (player_id, rank) VALUES (1, 7)"))
+
+
+def test_a_set_aside_player_is_stored_with_no_rank_at_all(migrated):
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+
+    _seed_master_entry(engine, player_id=1, rank=None, excluded=1, tag="fade", note="the knee")
+
+    with engine.begin() as connection:
+        row = connection.execute(
+            text("SELECT rank, excluded, tag, note FROM master_rank_entry")
+        ).one()
+    assert row[0] is None and row[1] and row[2] == "fade" and row[3] == "the knee"
+
+
+def test_dropping_a_player_takes_his_board_row_with_him(migrated):
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+    _seed_master_entry(engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(text("DELETE FROM player WHERE espn_player_id = 1"))
+        remaining = connection.scalar(text("SELECT count(*) FROM master_rank_entry"))
+
+    assert remaining == 0
+
+
+def test_the_master_board_downgrade_removes_the_table(migrated):
+    """Lossy, and nothing re-syncs it: the board was typed, not imported."""
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+    _seed_master_entry(engine)
+
+    command.downgrade(config, MASTER_BEFORE)
+
+    assert "master_rank_entry" not in _table_names(engine)
+
+
+def test_the_master_board_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, MASTER)
+    _seed_master_entry(engine)
+
+    command.downgrade(config, MASTER_BEFORE)
+    command.upgrade(config, MASTER)
+    _seed_master_entry(engine)
+
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM master_rank_entry")) == 1
+
+
+def test_a_from_scratch_apply_reaches_the_master_board_table(migrated):
+    """A cold database, all the way up, on SQLite — `make migrate` is still the Postgres check."""
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    assert "master_rank_entry" in _table_names(engine)

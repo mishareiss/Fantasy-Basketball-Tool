@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from app.api import consensus, health, imports, market, players, rankings, sync, valuation
+from app.api import (
+    consensus,
+    health,
+    imports,
+    market,
+    master,
+    players,
+    rankings,
+    sync,
+    valuation,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -13,3 +23,4 @@ api_router.include_router(rankings.router)
 api_router.include_router(valuation.router)
 api_router.include_router(consensus.router)
 api_router.include_router(market.router)
+api_router.include_router(master.router)

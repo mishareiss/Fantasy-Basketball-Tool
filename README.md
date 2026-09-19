@@ -399,6 +399,69 @@ a market column belongs *beside* a full projection rather than instead of one �
 projections are excluded from the `GET /players/unresolved` worklists, which ask who we can
 actually price. Read a market source's `player_count` on `GET /sources` before reading its ranks.
 
+### The Master Ranking — our own board
+
+The consensus board is what the field thinks. The **Master Ranking** is what we think, and the
+difference is that it has a MEMORY: the order is **stored**, it is arranged by hand, and nothing
+that happens to the sources underneath it moves a player. What moves is the reference column
+beside him.
+
+```bash
+curl "localhost:8000/master/board"                       # the board, reconciled, dynasty lens
+curl "localhost:8000/master/board?horizon=current_year"  # same board, win-now reference column
+curl -X PUT localhost:8000/master/order -H 'content-type: application/json' \
+  -d '{"ordered_player_ids":[5104157,3112335,4278073]}'  # what a drag-drop saves
+curl -X PUT localhost:8000/master/entries/3112335 -H 'content-type: application/json' \
+  -d '{"tag":"target","note":"reach a round early"}'     # tag him / note him
+curl -X PUT localhost:8000/master/entries/3112335 -H 'content-type: application/json' \
+  -d '{"excluded":true}'                                 # set him aside; the rest reflow up
+curl -X POST "localhost:8000/master/seed?reset=true"     # start the season over
+```
+
+**The first `GET` seeds it** from the consensus of every available source under
+`MASTER_SEED_HORIZON`, in consensus order — so the board starts as a complete, defensible list
+rather than an empty page. From that moment the order is ours: re-importing a ranking, syncing
+a new projection or moving a market line changes `consensus_rank` and `delta` and changes
+**nobody's rank**.
+
+| Column | What it is |
+| --- | --- |
+| `rank` | OUR place for him, 1-based and contiguous. `null` only in `set_aside` |
+| `consensus_rank` | Where the field has him, under the requested `horizon` — every available source, equal weight, the same call `GET /board/consensus` makes with no `sources` |
+| `delta` | `rank - consensus_rank`. **Positive means we have him higher than the field** (our 10 against their 25 is `+15`) |
+| `tag` / `note` | `target` \| `fade` \| `null`, and free text |
+| `is_new` | This request put him into the order — a player the sources now rank who had no entry, or one just restored. A flag about the response, not a stored bit |
+| `is_stale` | He has an entry and no source ranks him any more. His rank stands; nothing backs it |
+
+**Reconcile-on-read** is what keeps a stored order correct while the world moves, and it is the
+whole design (`app/ranking/master.py`):
+
+* a ranked player **with** an entry is left exactly where he was put;
+* a ranked player **without** one — this year's rookie — is inserted at the slot the consensus
+  implies (*below every player the field rates above him*), persisted, and flagged `is_new`;
+* an entry whose player has dropped **out** of the pool keeps his rank and is flagged
+  `is_stale`. Nobody ranking him is a fact about the sources, not a reason to delete a decision.
+
+So `GET /master/board` is a **GET that writes**. The alternative is a board that silently
+doesn't contain the players who arrived since the seed.
+
+**One board, not one per horizon.** `?horizon=` picks which consensus the reference column is
+computed against — the same player against the dynasty field and the win-now field are two
+genuinely different readings, and flipping between them is the point. It does not select a
+different set of ranks, and it cannot change who is on the board: membership is pinned to
+`MASTER_SEED_HORIZON`.
+
+**Excluded is not deleted.** Setting a player aside takes him out of the order (`rank` goes
+null), reflows everyone below him up a place, and leaves his tag and note intact in
+`set_aside`. Restoring him puts him back at the slot the consensus implies — deliberately not
+at the rank he used to have, which the rest of the board has since moved past.
+
+`PUT /master/order` is all-or-nothing: the list must be a permutation of the current
+non-excluded board, or it is a `422` **naming what is missing, spare or duplicated**. A client
+whose board predates a reconciled-in rookie needs to know that, because its fix is to refresh.
+An unknown player is a `404`, an unknown tag a `422`, and `POST /master/seed` refuses a board
+that has anything on it without `reset=true`.
+
 ### Tests
 
 `make test` is fully offline: it runs against recorded responses under
@@ -455,6 +518,10 @@ connection strings live in code. The backend reads it via `app/config.py`
 (pydantic-settings); Docker Compose and the Makefile read it directly. **Never commit a real
 `.env`** — the ESPN `espn_s2`/`SWID` cookies are account credentials.
 
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `MASTER_SEED_HORIZON` | `dynasty` | Which consensus the Master Ranking is seeded from, and whose pool decides who belongs on it. Not the horizon of the board — there is one board, and `?horizon=` only chooses the reference column |
+
 The local Postgres container publishes **port 5433** by default so it doesn't collide with a
 Postgres install already using 5432. Change `POSTGRES_PORT` and `DATABASE_URL` together if you
 want a different port.
@@ -475,7 +542,7 @@ want a different port.
 │   │   ├── scoring/         # custom scoring formula parsed from mSettings + projection pricing
 │   │   ├── projections/     # stub: pluggable ProjectionSource layer
 │   │   ├── valuation/       # age curve, the two value horizons, and gap-clustered tiers (on read)
-│   │   ├── ranking/         # stub: consensus blending + personal model (storage: db/models/ranking)
+│   │   ├── ranking/         # sources -> one shared pool, consensus blending, and our own stored board
 │   │   ├── draft/           # stub: draft board, plan, live pick following
 │   │   └── ingest/          # CSV/paste import: adp + projection + ranking kinds on one pipeline
 │   ├── alembic/             # migrations (URL injected from Settings)

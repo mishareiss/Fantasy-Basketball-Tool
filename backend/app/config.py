@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.valuation import DynastyCurve, TierParams
+from app.valuation import HORIZON_DYNASTY, DynastyCurve, TierParams
 
 # backend/app/config.py -> backend/app -> backend -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -92,6 +92,18 @@ class Settings(BaseSettings):
     # count for him. The board ranks on per-game, so this only sets the displayed season
     # total; 70 is a healthy-ish season rather than an optimistic 82.
     market_default_games: float = 70.0
+
+    # --- Master ranking board ---------------------------------------------------------------
+    # Which consensus our OWN board is seeded from, and whose pool decides who belongs on it.
+    # A setting rather than a constant because it is a judgement about what kind of league this
+    # is: a win-now league would seed MASTER_SEED_HORIZON=current_year and get a board built
+    # from redraft lists instead.
+    #
+    # Note what it is NOT: the horizon of the board. There is one board, and `?horizon=` on
+    # `GET /master/board` only chooses which consensus the REFERENCE column is computed from
+    # (see app/ranking/master.py). Membership is pinned here so that looking at the board
+    # through the win-now lens cannot quietly add players to it.
+    master_seed_horizon: str = HORIZON_DYNASTY
 
     # Future projection / odds sources
     balldontlie_api_key: str | None = None
