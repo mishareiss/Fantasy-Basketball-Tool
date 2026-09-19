@@ -650,3 +650,116 @@ def test_a_from_scratch_apply_reaches_the_master_board_table(migrated):
     command.upgrade(config, "head")
 
     assert "master_rank_entry" in _table_names(engine)
+
+
+# --- master_tier_break ---------------------------------------------------------------------------
+
+# The revision that added where our board breaks into tiers, and the one it sits on.
+TIER_BEFORE = MASTER
+TIER = "e5c18b7a2f90"
+
+
+def _seed_tier_break(engine, *, scope="overall", cut_rank=1):
+    """One divider. No player to seed first: a cut rank names a slot, not a person."""
+    with engine.begin() as connection:
+        connection.execute(
+            text(f"INSERT INTO master_tier_break (scope, cut_rank) VALUES ('{scope}', {cut_rank})")
+        )
+
+
+def test_the_tier_break_table_arrives_keyed_and_indexed(migrated):
+    config, engine = migrated
+
+    command.upgrade(config, TIER)
+
+    assert "master_tier_break" in _table_names(engine)
+    inspector = inspect(engine)
+    assert {c["name"] for c in inspector.get_unique_constraints("master_tier_break")} == {
+        "uq_master_tier_break_scope_cut"
+    }
+    assert {index["name"] for index in inspector.get_indexes("master_tier_break")} == {
+        "ix_master_tier_break_scope"
+    }
+    nullable = {
+        column["name"]: column["nullable"] for column in inspector.get_columns("master_tier_break")
+    }
+    # A divider is a scope and a rank, and neither half is optional.
+    assert not nullable["scope"] and not nullable["cut_rank"]
+    # Deliberately NOT here: a player id. A tier is a band over the ranks, not a set of players.
+    assert "player_id" not in nullable
+
+
+def test_one_slot_cannot_hold_two_dividers(migrated):
+    """One boundary counted twice would read as a tier of nobody."""
+    config, engine = migrated
+    command.upgrade(config, TIER)
+    _seed_tier_break(engine, scope="overall", cut_rank=12)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO master_tier_break (scope, cut_rank) VALUES ('overall', 12)")
+        )
+
+
+def test_the_same_cut_rank_in_two_scopes_is_two_different_dividers(migrated):
+    """Cut ranks are scope-relative: rank 12 of the board and rank 12 of the centres."""
+    config, engine = migrated
+    command.upgrade(config, TIER)
+
+    _seed_tier_break(engine, scope="overall", cut_rank=12)
+    _seed_tier_break(engine, scope="C", cut_rank=12)
+    _seed_tier_break(engine, scope="C", cut_rank=4)
+
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM master_tier_break")) == 3
+
+
+def test_a_board_row_and_a_divider_are_independent_of_each_other(migrated):
+    """No foreign key, on purpose: a cut rank has nothing to point at but a place in a list."""
+    config, engine = migrated
+    command.upgrade(config, TIER)
+    _seed_master_entry(engine)
+    _seed_tier_break(engine, cut_rank=1)
+
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(text("DELETE FROM player WHERE espn_player_id = 1"))
+        # His board row went with him; the divider did not, because it was never about him.
+        assert connection.scalar(text("SELECT count(*) FROM master_rank_entry")) == 0
+        assert connection.scalar(text("SELECT count(*) FROM master_tier_break")) == 1
+
+
+def test_the_tier_break_downgrade_removes_the_table(migrated):
+    """Mildly lossy: tiers re-derive from the value gaps, the hand-moved boundaries don't."""
+    config, engine = migrated
+    command.upgrade(config, TIER)
+    _seed_tier_break(engine)
+
+    command.downgrade(config, TIER_BEFORE)
+
+    assert "master_tier_break" not in _table_names(engine)
+    # The board itself is untouched by going back past the tiers.
+    assert "master_rank_entry" in _table_names(engine)
+
+
+def test_the_tier_break_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, TIER)
+    _seed_tier_break(engine)
+
+    command.downgrade(config, TIER_BEFORE)
+    command.upgrade(config, TIER)
+    _seed_tier_break(engine)
+
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM master_tier_break")) == 1
+
+
+def test_a_from_scratch_apply_reaches_the_tier_break_table(migrated):
+    """A cold database, all the way up, on SQLite — `make migrate` is still the Postgres check."""
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    assert "master_tier_break" in _table_names(engine)
