@@ -105,6 +105,35 @@ class Settings(BaseSettings):
     # through the win-now lens cannot quietly add players to it.
     master_seed_horizon: str = HORIZON_DYNASTY
 
+    # --- Draft engine -----------------------------------------------------------------------
+    # The shape of our draft and how the OTHER nine teams are simulated drafting (app.draft).
+    # Settings rather than constants for the usual reason: the seat moves every startup, and
+    # how draftily the room behaves is a judgement to calibrate against a real draft, not a
+    # fact. They are also the values `app.draft.config` carries as its module defaults — the
+    # engine is pure and cannot import this class, so `test_draft_engine` asserts the two
+    # agree rather than a comment promising they do.
+    #
+    # Our league: 10 teams, 20 rounds, Misha at slot 2 (picks 2, 19, 22, 39, 42, ...). The
+    # ROSTER shape is not here on purpose — it is a fact about the league, and it lives in
+    # `LeagueSettings.roster_slots` (ESPN's lineupSlotCounts).
+    draft_team_count: int = 10
+    draft_rounds: int = 20
+    draft_my_slot: int = 2
+
+    # How the field picks. It takes the top DRAFT_AUTOPICK_TOPK still-available players by
+    # consensus rank, weights them exp(-rank / DRAFT_AUTOPICK_TEMPERATURE) — so a player
+    # ranked `temperature` places better is e times likelier to go — multiplies by
+    # DRAFT_AUTOPICK_NEED_MULT for anyone filling an open dedicated starter slot, and samples
+    # one. Lower the temperature towards 0 to make the room draft the consensus straight down;
+    # raise it to make it reachier. NEED_MULT=1.0 turns the positional tilt off entirely.
+    draft_autopick_topk: int = 12
+    draft_autopick_temperature: float = 8.0
+    draft_autopick_need_mult: float = 1.5
+
+    # Monte-Carlo iterations behind every availability percentage. 1000 puts the standard
+    # error on a 50% answer at about 1.6 points, which is finer than the question deserves.
+    draft_sim_iterations: int = 1000
+
     # Future projection / odds sources
     balldontlie_api_key: str | None = None
     the_odds_api_key: str | None = None

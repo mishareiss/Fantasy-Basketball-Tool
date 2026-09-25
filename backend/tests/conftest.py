@@ -68,12 +68,26 @@ TIER_PARAMS = {
     "tier_pool": 150,
 }
 
+# The draft engine's shape and dials, pinned for the same reason again: a local DRAFT_MY_SLOT
+# would move every pick number a test asserts, and a hand-tuned temperature would re-roll
+# every simulated draft. Keep in step with the `Settings` defaults (and with the module
+# defaults in `app.draft.config`, which `test_draft_engine` asserts these agree with).
+DRAFT_PARAMS = {
+    "draft_team_count": 10,
+    "draft_rounds": 20,
+    "draft_my_slot": 2,
+    "draft_autopick_topk": 12,
+    "draft_autopick_temperature": 8.0,
+    "draft_autopick_need_mult": 1.5,
+    "draft_sim_iterations": 1000,
+}
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True, scope="session")
 def pinned_settings():
-    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID, the DYNASTY_* curve and the TIER_* params.
+    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID and the DYNASTY_* / TIER_* / DRAFT_* params.
 
     Nobody's local `.env` should be able to move the expected ages, and the import pipeline
     falls back to `ESPN_SEASON` when a caller omits the season — so a checkout with no league
@@ -81,10 +95,11 @@ def pinned_settings():
     The league id is pinned for the same reason: a projection import looks up the scoring
     coefficients for the configured league, and the fixtures are stored under `LEAGUE_ID`.
     And the dynasty curve, for the same reason again: it is what orders the dynasty board —
-    as the tier parameters are what cuts it up.
+    as the tier parameters are what cuts it up, and as the DRAFT_* values are what decide
+    which pick numbers are mine and how the simulated room drafts.
     """
     settings = get_settings()
-    pinned = DYNASTY_CURVE | TIER_PARAMS
+    pinned = DYNASTY_CURVE | TIER_PARAMS | DRAFT_PARAMS
     original = (settings.age_as_of, settings.espn_season, settings.espn_league_id)
     original_pinned = {field: getattr(settings, field) for field in pinned}
     settings.age_as_of = AGE_AS_OF
