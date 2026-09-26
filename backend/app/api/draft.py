@@ -6,13 +6,15 @@ status codes, and builds the one thing the engine deliberately stops short of �
 round-by-round PLAN, which is my board joined to the availability numbers at each of my
 upcoming picks.
 
-Six verbs over one draft, and they are the six things that happen in a draft room:
+Seven verbs over one draft, and they are the things that happen in a draft room:
 
 * `POST /draft` — start one. There is ONE (see below); a second is a 409 unless it is told to
   replace the first. The config is SNAPSHOTTED onto the row, so the draft is self-describing
   and replays identically whatever `DRAFT_*` becomes later (`app.db.models.draft`).
 * `GET /draft` — where it stands: the log, the rosters, the clock, my remaining picks.
 * `POST /draft/picks` — a pick, entered. Mine, or somebody else's typed in off the screen.
+* `PUT /draft/picks/{n}` — a pick already made, re-decided: the mis-entry noticed too late
+  for undo to be the fix.
 * `POST /draft/simulate` — the room, advanced: auto-pick the OPPONENTS up to my next pick and
   commit what they took. A single seeded draw — one live mock, not a distribution.
 * `POST /draft/undo` — take the last pick back, auto or manual. The fix for a mis-entry, and
@@ -42,6 +44,7 @@ computed over, and `build_state` is the only place a stored log becomes a runnab
 module is serialization, status codes, and which of my board's players to ask about.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from random import Random, randrange
@@ -213,9 +216,29 @@ class DraftPickWrite(BaseModel):
     )
 
 
+class DraftPickEdit(BaseModel):
+    """A pick already made, re-decided: who it should have taken instead."""
+
+    player_id: int = Field(
+        ...,
+        description="Our canonical (ESPN) player id. The seat is NOT in this body — the snake "
+        "owns which team picks at a pick number, and an edit changes who was taken, never "
+        "whose turn it was.",
+    )
+
+
 class DraftSimulateWrite(BaseModel):
     """How to roll the room forward. Every field is optional."""
 
+    count: int | None = Field(
+        None,
+        ge=1,
+        description="Stop after at most this many opponent picks. Omitted, the room runs to "
+        "my next pick, which is the usual thing to want; `count: 1` is the step button, for "
+        "watching the room one name at a time. It is a CAP and not a target — the advance "
+        "still stops at my seat and at the end of the draft, so a count larger than the gap "
+        "makes fewer picks than asked and a count while I am already on the clock makes none.",
+    )
     seed: int | None = Field(
         None,
         description="The RNG seed for this one advance. Omitted, a fresh random one is drawn "
@@ -418,6 +441,21 @@ def _state_response(db: Session, draft: Draft, state: DraftState) -> DraftStateR
     )
 
 
+def _stop_after(limit: int) -> Callable[[DraftState], bool]:
+    """The `count` cap, as the stop predicate `simulate_opponents_until` takes.
+
+    A predicate rather than a loop of one-pick advances, because re-rolling would draw from a
+    fresh `Random` each time and ten steps would not be the same mock as one advance of ten.
+    It reads the state's own pick count, so there is no counter to get out of step with what
+    was actually applied.
+    """
+
+    def reached(current: DraftState) -> bool:
+        return len(current.picks) >= limit
+
+    return reached
+
+
 def _remaining(state: DraftState) -> list[int]:
     """My pick numbers that are still to come. Empty once the draft is complete."""
     start = state.next_pick_number
@@ -592,6 +630,84 @@ def post_draft_pick(
     return response
 
 
+@router.put("/picks/{pick_number}", response_model=DraftStateResponse)
+def put_draft_pick(
+    pick_number: int,
+    payload: DraftPickEdit = Body(...),
+    db: Session = Depends(get_db),
+) -> DraftStateResponse:
+    """Change who a pick took. The fix for a mis-entry deeper than the last pick, and the
+    manual override for a room pick the sim got wrong.
+
+    Undo is the fix for the pick that just happened; this is the fix for pick 7 noticed at
+    pick 30, which undo can only reach by throwing away twenty-three picks that were right.
+    It edits IN PLACE: the `team_slot` is untouched (the snake owns it, and a pick number that
+    changed hands would desynchronise every later one), and the player who was there goes back
+    on the board for anyone to take.
+
+    Stored `is_auto=false` whatever it was, because an edited pick is a decision somebody made
+    — including the one case worth having, an auto-picked opponent corrected to what the room
+    really did.
+
+    REPLAY STAYS VALID, which is what makes this safe at all: `build_state` walks the log by
+    `pick_number` and applies whoever is on each row, so an edited row is simply a different
+    player applied at the same slot. The one thing that could break it — the new player being
+    taken at another pick — is the 422 below.
+    """
+    draft = _require(db)
+    state, _ = _load(db, draft)
+
+    made = len(state.selections)
+    if not 1 <= pick_number <= made:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"pick {pick_number} has not been made; this draft is {made} pick"
+            f"{'' if made == 1 else 's'} in. Only a pick that happened can be edited — "
+            "POST /draft/picks makes the next one.",
+        )
+    if payload.player_id not in state.universe:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"player {payload.player_id} is not in this draft's universe "
+            f"({len(state.universe)} players); nobody ranks him",
+        )
+
+    row = db.scalars(
+        select(DraftPick).where(
+            DraftPick.draft_id == draft.id, DraftPick.pick_number == pick_number
+        )
+    ).one()
+    if row.player_id == payload.player_id:
+        # Already who he is. A no-op 200 rather than a 422: re-submitting the same name is not
+        # a mistake worth refusing, and the caller wants the state either way.
+        return _state_response(db, draft, state)
+
+    conflict = db.scalars(
+        select(DraftPick).where(
+            DraftPick.draft_id == draft.id,
+            DraftPick.player_id == payload.player_id,
+            DraftPick.pick_number != pick_number,
+        )
+    ).first()
+    if conflict is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"player {payload.player_id} was already drafted at pick {conflict.pick_number} "
+            f"by team slot {conflict.team_slot}; edit or undo that pick first",
+        )
+
+    row.player_id = payload.player_id
+    row.is_auto = False
+    _touch(draft)
+    db.flush()
+    # Re-replayed rather than patched: the edit changes who is available from this pick
+    # onwards, and the honest way to say that is to run the log again.
+    state, _ = _load(db, draft)
+    response = _state_response(db, draft, state)
+    db.commit()
+    return response
+
+
 @router.post("/simulate", response_model=DraftAdvanceResponse)
 def post_draft_simulate(
     payload: DraftSimulateWrite = Body(default_factory=DraftSimulateWrite),
@@ -608,16 +724,23 @@ def post_draft_simulate(
     (`app.draft.autopick`). So an advance while I am already on the clock is an empty list and
     a 200, not an error; the room has nothing to do until I take somebody. `POST /draft/undo`
     re-rolls an advance one pick at a time.
+
+    `count` caps how many picks the room makes, and caps ONLY — the two stops above still
+    apply first. That is the step button: `count: 1` is one opponent pick, and watching the
+    room name by name is the same draft as letting it run, because the cap is a predicate
+    inside the one seeded roll rather than a series of separate ones.
     """
     settings = get_settings()
     draft = _require(db)
     state, board = _load(db, draft)
 
     seed = payload.seed if payload.seed is not None else randrange(2**32)
+    stop = _stop_after(len(state.picks) + payload.count) if payload.count is not None else None
     made = simulate_opponents_until(
         state,
         board,
         Random(seed),
+        stop=stop,
         top_k=payload.top_k or settings.draft_autopick_topk,
         temperature=payload.temperature or settings.draft_autopick_temperature,
         need_mult=payload.need_mult or settings.draft_autopick_need_mult,

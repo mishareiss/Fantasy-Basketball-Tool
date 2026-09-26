@@ -25,16 +25,9 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = b930441. Tasks 1-19 + the CI fix are all merged. CI green.
-- T20 (draft plan + live drafted-state backend) BUILT + REVIEWED (this session), STAGED on branch
-  `task-20-draft-plan`, NOT committed — awaiting Misha's commit/merge/push. Full suite 878 passed,
-  ruff clean, verified independently: single alembic head f3a9c41d7b62 AND autogenerate diff == NONE
-  (migration is exactly the models); frozen GET /master/board byte-identical with draft params off;
-  /draft/simulate never creates a pick for my_slot; plan availabilities in [0,1], monotone, drafted
-  excluded; build_state round-trips. Suggested commit msg (no trailers):
-  "Add draft plan + live drafted-state backend: Draft/DraftPick persistence, state + simulate +
-  undo endpoints, per-pick target/best-available plan with availability, and My Board draft-mode
-  annotation". After merge, main moves off b930441 — update this line.
+- main = a738569. Tasks 1-20 + the CI fix are all merged. CI green.
+- T20 (draft plan + live drafted-state backend) MERGED at a738569 (parent b930441). 878 tests,
+  autogenerate-clean migration f3a9c41d7b62, frozen /master/board guarded. Draft backend COMPLETE.
 - T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
   (41 pure + 8 db), full suite 813 passed, ruff clean. Reviewed independently this session:
   snake my_pick_numbers exact, pure modules zero app.db/app.api/sqlalchemy imports, availability
@@ -138,16 +131,35 @@ T19 = PURE in-memory draft engine in app/draft/ + unit tests. NO endpoints/model
 Roster (from settings, agreed): 10 teams, snake, 20 rounds, my_slot=2 → my picks 2,19,22,39,42,…
 Roster slots PG/SG/SF/PF/C=1, UT=2, BE=13. All DRAFT_* live in Settings + pinned in conftest.
 
-## T21 CARRY-FORWARD (from T20 review — flag before/while building the draft room UI)
-1. REFETCH-AFTER-WRITE: the draft-mode annotation params live only on GET /master/board. A write
-   (PUT /master/order, PUT /master/entries/{id}) returns UN-annotated rows, so the draft room must
-   REFETCH the board after any master-board write rather than render the write's response.
-2. OFF-BOARD PLAYER GAP (decide in T21 or a follow-up): a player no SELECTED field source ranks is
-   not in the draft universe — he cannot be entered as a pick (422) and never appears in plan lists.
-   Harmless with the default field = ALL sources over the full ESPN pool, but in live/manual mode a
-   genuinely obscure real pick can't be recorded. If live-following the real draft matters, T21 (or a
-   small backend follow-up) may need an "mark drafted / off-board removal" path that removes a player
-   without requiring him on the field board.
+## T21 = DRAFT ROOM UI (frontend), SPLIT into 21a + 21b (decisions settled 2026-09-25)
+- T21a BUILT + REVIEWED (staged on task-21a-draft-room, NOT committed, awaiting Misha's commit).
+  Backend 891 pass, ruff clean, no migration; frontend 186 pass + build + lint (Mac toolchain).
+  Verified independently: edit-pick validation + frees old player, count=prefix-of-full-roll,
+  snake formula (slot2/10 col = my_pick_numbers, round-trips 200). Suggested commit msg (no trailers):
+  "Add draft room: /draft snake board, search pick entry, sim controls (advance/step/undo/reset),
+  plus edit-any-pick and simulate count endpoints". After merge, main moves off a738569.
+  NEXT: T21b (plan panels + My Board draft-mode toggle) — the last task in the draft-plan sequence.
+- T21a scope delivered = /draft page scaffold:
+  * FULL SNAKE GRID (rounds x teams), my column highlighted, on-the-clock cell marked.
+  * PICK ENTRY = search box (draft any available player for the on-the-clock seat) — this is how BOTH
+    my picks and (manual mode) every opponent pick get entered, since the snake only lets the clock pick.
+  * SIM CONTROLS: Advance to my pick, Step one pick, Undo, Reset, + EDIT ANY PICK.
+  * Two SMALL BACKEND ADDITIONS in 21a (with tests, no migration): `count` param on POST /draft/simulate
+    (step-one = count:1, still stops at my seat); PUT /draft/picks/{pick_number} to edit/override any
+    made pick (swap player, free the old, is_auto=false, 422 on taken/unmade).
+  * api.ts draft client (mirror app/api/draft.py models) + lib/draft.ts snake helpers + Vitest tests.
+  * Mode toggle (simulation|manual) is CLIENT-SIDE (backend doesn't enforce mode; no persist endpoint).
+- T21b (AFTER 21a merges) = the PLAN PANELS (targets + best_available per upcoming pick with
+  availability %, from GET /draft/plan) wired into /draft (panel click-to-draft), PLUS the My Board
+  draft-mode toggle: draft_mode/hide_drafted params on api.masterBoard + the 3 new MasterPlayerRow
+  fields; a 3-state toggle on /my-board (off / annotate-drafted / hide-drafted). When NOT hiding, make
+  it visually clear which rows are drafted vs available (Misha's ask).
+- T21 CARRY-FORWARD (bake into 21a/21b): draft-mode annotation lives ONLY on GET /master/board, so any
+  master-board WRITE (PUT order/entries) returns UN-annotated rows — the draft room + My Board must
+  REFETCH the board after a write rather than render the write's response.
+- Design: FUNCTION-FIRST, consistent with existing pages (Tailwind zinc, Segmented/Segment). Whole-app
+  design polish still deferred. Off-board-player limitation: NON-ISSUE per Misha (only ~200 of a larger
+  pool ever drafted) — dropped.
 
 ## Reuse surfaces
 Consensus/pool: app/ranking/sources.py (load_catalog, available_specs, SourceCatalog, percentile_for),

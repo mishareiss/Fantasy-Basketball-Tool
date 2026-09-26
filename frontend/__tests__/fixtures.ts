@@ -1,5 +1,8 @@
 import type {
   AliasResponse,
+  DraftAdvanceResponse,
+  DraftPickRow,
+  DraftStateResponse,
   BoardResponse,
   BoardRow,
   ConsensusMethod,
@@ -838,4 +841,131 @@ export function deepMasterBoard(size = 400, cuts: number[] = [1, 13, 60, 200]): 
     };
   });
   return masterBoard({ players, total_ranked: size, set_aside: [], added: 0, stale: 0, tiers });
+}
+
+/* ---------------------------------------------------------------------------------------- *
+ * The draft room — app/api/draft.py
+ *
+ * DELIBERATELY TINY: 4 teams x 3 rounds, twelve picks, my seat at 2. The page's claims are
+ * about the snake and the clock, and both are visible on a grid you can check by hand — a
+ * 10x20 fixture would prove nothing more and would put 200 cells through every userEvent
+ * test — which on CI's slower runner is how a component test hits the 5s default timeout.
+ *
+ * The snake here is built by CONCATENATION — forward, backward, forward — rather than by the
+ * formula `lib/draft.ts` uses, so the grid test is checking one derivation against another
+ * and not against itself.
+ * ---------------------------------------------------------------------------------------- */
+
+export const DRAFT_TEAMS = 4;
+export const DRAFT_ROUNDS = 3;
+export const DRAFT_MY_SLOT = 2;
+
+/** Team slot per 1-based pick number: [1,2,3,4, 4,3,2,1, 1,2,3,4] at 4x3. */
+export function snakeOrder(teamCount = DRAFT_TEAMS, rounds = DRAFT_ROUNDS): number[] {
+  const forward = Array.from({ length: teamCount }, (_, index) => index + 1);
+  const backward = [...forward].reverse();
+  return Array.from({ length: rounds }, (_, index) =>
+    index % 2 === 0 ? forward : backward,
+  ).flat();
+}
+
+const DRAFT_POOL = new Map(
+  [...MASTER_SEEDS, MASTER_ASIDE].map((seed) => [seed.espn_player_id, seed]),
+);
+
+export type DraftSeed = {
+  /** One of the MASTER_SEEDS ids, so the catalog `masterBoard()` returns can offer him. */
+  playerId: number;
+  isAuto?: boolean;
+};
+
+/**
+ * A draft, `picks` deep, with every derived field computed the way the backend computes it.
+ *
+ * Rosters, open needs, the clock and my remaining picks are all replayed from the log here
+ * for the same reason `GET /draft` replays them: a fixture that stated them independently
+ * could disagree with its own log, and then the page would be tested against a draft that
+ * cannot exist.
+ */
+export function draftState({
+  teamCount = DRAFT_TEAMS,
+  rounds = DRAFT_ROUNDS,
+  mySlot = DRAFT_MY_SLOT,
+  mode = "simulation",
+  picks = [],
+}: {
+  teamCount?: number;
+  rounds?: number;
+  mySlot?: number;
+  mode?: string;
+  picks?: DraftSeed[];
+} = {}): DraftStateResponse {
+  const order = snakeOrder(teamCount, rounds);
+  const total = teamCount * rounds;
+  const log: DraftPickRow[] = picks.map((made, index) => {
+    const seed = DRAFT_POOL.get(made.playerId);
+    if (!seed) throw new Error(`no seed for player ${made.playerId}`);
+    const slot = order[index];
+    return {
+      pick_number: index + 1,
+      round: Math.floor(index / teamCount) + 1,
+      team_slot: slot,
+      is_mine: slot === mySlot,
+      espn_player_id: seed.espn_player_id,
+      name: seed.name,
+      positions: seed.positions,
+      is_auto: made.isAuto ?? false,
+    };
+  });
+
+  const next = log.length + 1 <= total ? log.length + 1 : null;
+  const mine = order
+    .map((slot, index) => (slot === mySlot ? index + 1 : 0))
+    .filter((number) => number > 0);
+
+  return {
+    team_count: teamCount,
+    rounds,
+    my_slot: mySlot,
+    roster_slots: { PG: 1, SG: 1, SF: 1, PF: 1, C: 1, UT: 2, BE: 13 },
+    field_horizon: "dynasty",
+    field_source_ids: null,
+    mode,
+    universe_size: DRAFT_POOL.size,
+    total_picks: total,
+    picks_made: log.length,
+    on_the_clock: next === null ? null : order[next - 1],
+    next_pick_number: next,
+    current_round: next === null ? null : Math.floor((next - 1) / teamCount) + 1,
+    is_my_pick: next !== null && order[next - 1] === mySlot,
+    is_complete: next === null,
+    my_pick_numbers: mine,
+    my_remaining_pick_numbers: next === null ? [] : mine.filter((number) => number >= next),
+    created_at: "2027-10-01T09:00:00Z",
+    updated_at: "2027-10-01T09:05:00Z",
+    log,
+    teams: Array.from({ length: teamCount }, (_, index) => index + 1).map((slot) => ({
+      team_slot: slot,
+      is_me: slot === mySlot,
+      player_ids: log.filter((pick) => pick.team_slot === slot).map((p) => p.espn_player_id),
+      open_needs: DEDICATED.filter(
+        (position) =>
+          !log.some(
+            (pick) => pick.team_slot === slot && pick.positions.includes(position),
+          ),
+      ),
+    })),
+  };
+}
+
+/** The five dedicated starter slots, in the order a lineup card prints them. */
+const DEDICATED = ["PG", "SG", "SF", "PF", "C"];
+
+/** What `POST /draft/simulate` answers with: the room's picks, plus the state after them. */
+export function draftAdvance(
+  state: DraftStateResponse,
+  made: DraftPickRow[],
+  seed = 4242,
+): DraftAdvanceResponse {
+  return { seed, picks: made, state };
 }

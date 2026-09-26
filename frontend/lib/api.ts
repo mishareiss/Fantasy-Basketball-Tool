@@ -633,6 +633,127 @@ export type MasterEntryWriteBody = {
   excluded?: boolean;
 };
 
+/* -------------------------------------------------------------------------------------- *
+ * The draft room — app/api/draft.py, over app/draft
+ *
+ * ONE live draft, and every verb below answers with the WHOLE state of it. That is the
+ * contract worth knowing before using any of this: a pick, an edit, an advance, an undo and
+ * a reset all hand back `DraftStateResponse`, so the page never patches its own board — it
+ * replaces it with what the server says the draft is. The log is the record; everything else
+ * on the response (the rosters, the clock, the open needs) is replayed from it.
+ * -------------------------------------------------------------------------------------- */
+
+/** The two ways the room is run — app/db/models/draft.py: DRAFT_MODES.
+ *  A stored PREFERENCE and nothing more: the backend enforces neither, and every verb works
+ *  under both. It decides which controls the page shows. */
+export const DRAFT_MODES = ["simulation", "manual"] as const;
+export type DraftMode = (typeof DRAFT_MODES)[number];
+
+/** One pick that happened — draft.py: DraftPickRow. */
+export type DraftPickRow = {
+  /** 1-based, in snake order. The log is contiguous 1..N — a draft cannot skip a pick. */
+  pick_number: number;
+  round: number;
+  team_slot: number;
+  is_mine: boolean;
+  espn_player_id: number;
+  name: string;
+  positions: string[];
+  /** The simulated field took him, rather than this being typed in. Display only. */
+  is_auto: boolean;
+};
+
+/** One seat: what it has taken, and what it still starts nobody at — draft.py: DraftTeamRow. */
+export type DraftTeamRow = {
+  team_slot: number;
+  is_me: boolean;
+  /** Player ids, in the order this seat drafted them. Their names are in `log`. */
+  player_ids: number[];
+  /** Its unfilled DEDICATED starter positions (PG/SG/SF/PF/C). Empty once five are set. */
+  open_needs: string[];
+};
+
+/** The whole draft: its shape, the log, the rosters and the clock — draft.py:
+ *  DraftStateResponse. */
+export type DraftStateResponse = {
+  team_count: number;
+  rounds: number;
+  my_slot: number;
+  roster_slots: Record<string, number>;
+  /** Which consensus the simulated room drafts off, and whose. Null sources = all of them.
+      Both typed as the backend types them (`str`). */
+  field_horizon: string;
+  field_source_ids: string[] | null;
+  /** One of DRAFT_MODES. Typed as the backend types it, so a mode added server-side reads
+      as itself rather than failing to compile. */
+  mode: string;
+  /** How many players the field ranks at all. A pick outside it is a 422. */
+  universe_size: number;
+  total_picks: number;
+  picks_made: number;
+  /** Null once the draft is complete, all three of them. */
+  on_the_clock: number | null;
+  next_pick_number: number | null;
+  current_round: number | null;
+  is_my_pick: boolean;
+  is_complete: boolean;
+  /** Every pick number my seat owns, and the ones still to come. At slot 2 of 10 the first
+      is [2, 19, 22, 39, 42, ...] — the alternating wait the plan is about. */
+  my_pick_numbers: number[];
+  my_remaining_pick_numbers: number[];
+  created_at: string;
+  updated_at: string;
+  log: DraftPickRow[];
+  /** Every seat, 1..team_count, mine included. */
+  teams: DraftTeamRow[];
+};
+
+/** What the room did, and where that leaves the draft — draft.py: DraftAdvanceResponse. */
+export type DraftAdvanceResponse = {
+  /** The seed this advance was rolled with, echoed so a mock worth keeping can be re-run. */
+  seed: number;
+  /** The opponents' picks, in order. EMPTY when my seat is already on the clock or the draft
+      is over: the advance never picks for me. */
+  picks: DraftPickRow[];
+  state: DraftStateResponse;
+};
+
+/** The body of POST /draft — draft.py: DraftCreate. Every field is optional, and an empty
+ *  body is our league: the shape comes from DRAFT_*, the field from the consensus. */
+export type DraftCreateBody = {
+  my_slot?: number;
+  mode?: DraftMode;
+  field_horizon?: string;
+  field_source_ids?: string[];
+  roster_slots?: Record<string, number>;
+};
+
+/** The body of POST /draft/picks — draft.py: DraftPickWrite. */
+export type DraftPickWriteBody = {
+  player_id: number;
+  /** Whose pick it is. Omit and the backend uses whoever is on the clock; pass it and the
+      pick is REFUSED unless it matches, which is what a typed-in room wants. */
+  team_slot?: number;
+};
+
+/** The body of PUT /draft/picks/{n} — draft.py: DraftPickEdit. No seat: the snake owns which
+ *  team picks at a pick number, and an edit changes who was taken, never whose turn it was. */
+export type DraftPickEditBody = {
+  player_id: number;
+};
+
+/** The body of POST /draft/simulate — draft.py: DraftSimulateWrite. All optional. */
+export type DraftSimulateBody = {
+  /** At most this many opponent picks. A CAP, not a target: the advance still stops at my
+      seat and at the end of the draft. `1` is the step button. */
+  count?: number;
+  /** Omitted, a fresh one is drawn and echoed back on the response. */
+  seed?: number;
+  top_k?: number;
+  temperature?: number;
+  need_mult?: number;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -894,4 +1015,59 @@ export const api = {
    */
   resetMasterBoard: (horizon?: Horizon) =>
     post<MasterBoardResponse>(`/master/seed${query({ reset: "true", horizon })}`, {}),
+
+  /* --- the draft room ----------------------------------------------------------------- */
+
+  /**
+   * Where the draft stands, or a 404 when there isn't one.
+   *
+   * The 404 is a STATE, not a failure: it is what the page's setup form is for. Callers
+   * check `status === 404` and offer to start one rather than rendering an error.
+   */
+  getDraft: () => request<DraftStateResponse>("/draft"),
+
+  /**
+   * Start the draft, with its config snapshotted onto it.
+   *
+   * An empty body is a complete request — the shape comes from `DRAFT_*` and the field from
+   * the consensus. A second draft is a 409 unless `reset` is true, because the picks on the
+   * first are a record of something that happened.
+   */
+  createDraft: (body: DraftCreateBody = {}, reset = false) =>
+    post<DraftStateResponse>(`/draft${query({ reset: reset ? "true" : undefined })}`, body),
+
+  /** Throw the picks away and keep the config: the same draft, from pick 1. */
+  resetDraft: () => post<DraftStateResponse>("/draft/reset", {}),
+
+  /**
+   * Enter a pick: mine, or a rival's read off the screen.
+   *
+   * Strictly in pick order — the draft has one clock — so `team_slot` is left off unless the
+   * caller wants it checked. Everything the engine refuses comes back as a 422 carrying its
+   * own message: a player already drafted, a player the field doesn't rank, the wrong seat.
+   */
+  applyPick: (body: DraftPickWriteBody) => post<DraftStateResponse>("/draft/picks", body),
+
+  /**
+   * Change who an already-made pick took — the mis-entry noticed too late for undo.
+   *
+   * The seat is untouched and the player who was there goes back on the board. A 422 when
+   * the pick hasn't happened, when the field doesn't rank the new man, or when he was taken
+   * at another pick; editing him to who he already is is a no-op 200.
+   */
+  editPick: (pickNumber: number, body: DraftPickEditBody) =>
+    put<DraftStateResponse>(`/draft/picks/${pickNumber}`, body),
+
+  /**
+   * Let the room draft, and commit what it took.
+   *
+   * One seeded draw — a mock happening, not a distribution. It STOPS AT MY SEAT and never
+   * picks for me, so an advance while I am on the clock is an empty `picks` and a 200.
+   * `{ count: 1 }` steps it one opponent pick at a time.
+   */
+  simulate: (body: DraftSimulateBody = {}) =>
+    post<DraftAdvanceResponse>("/draft/simulate", body),
+
+  /** Take the last pick back, auto or manual. A draft with no picks in it is a 409. */
+  undoPick: () => post<DraftStateResponse>("/draft/undo", {}),
 };

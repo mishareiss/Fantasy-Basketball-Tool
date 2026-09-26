@@ -207,6 +207,7 @@ def test_every_endpoint_is_a_404_with_a_way_forward_before_a_draft_exists(api, s
         ("post", "/draft/reset", None),
         ("post", "/draft/undo", None),
         ("post", "/draft/picks", {"player_id": field[0]}),
+        ("put", "/draft/picks/1", {"player_id": field[0]}),
         ("post", "/draft/simulate", {}),
     ):
         response = getattr(api, method)(path, **({"json": body} if body is not None else {}))
@@ -374,6 +375,111 @@ def test_undo_is_callable_until_the_draft_is_empty_and_then_is_a_409(api, synced
     assert "nothing to undo" in refused.json()["detail"]
 
 
+def test_editing_a_pick_swaps_the_player_and_frees_the_one_he_replaced(api, synced, field):
+    """The mis-entry noticed at pick 30, fixed without throwing pick 8 through 29 away."""
+    create(api)
+    pick(api, field[0])
+    pick(api, field[1])
+    pick(api, field[2])
+
+    state = api.put("/draft/picks/2", json={"player_id": field[5]}).json()
+
+    assert state["picks_made"] == 3
+    entry = next(row for row in state["log"] if row["pick_number"] == 2)
+    assert entry["espn_player_id"] == field[5]
+    # The snake owns the seat: an edit changes who was taken, never whose turn it was.
+    assert entry["team_slot"] == 2 and entry["is_mine"] is True
+    assert team(state, 2)["player_ids"] == [field[5]]
+    # The player he replaced is back on the board, for anyone.
+    assert pick(api, field[1])["picks_made"] == 4
+
+
+def test_an_edited_pick_is_a_manual_decision_however_it_was_made(api, synced, field):
+    create(api)
+    advance = api.post("/draft/simulate", json={"seed": 7}).json()
+    assert advance["picks"] and all(row["is_auto"] for row in advance["picks"])
+    edited = advance["picks"][0]["pick_number"]
+
+    state = api.put(f"/draft/picks/{edited}", json={"player_id": field[-1]}).json()
+
+    row = next(entry for entry in state["log"] if entry["pick_number"] == edited)
+    assert row["espn_player_id"] == field[-1] and row["is_auto"] is False
+    # Only the edited one: the rest of the advance is still the room's.
+    assert all(entry["is_auto"] for entry in state["log"] if entry["pick_number"] != edited)
+
+
+def test_editing_a_pick_to_the_player_he_already_is_changes_nothing(api, synced, field):
+    create(api)
+    pick(api, field[0])
+
+    response = api.put("/draft/picks/1", json={"player_id": field[0]})
+
+    assert response.status_code == 200
+    state = response.json()
+    assert state["picks_made"] == 1
+    assert state["log"][0]["espn_player_id"] == field[0]
+
+
+def test_editing_a_pick_to_someone_drafted_elsewhere_is_a_422_naming_the_clash(api, synced, field):
+    create(api)
+    pick(api, field[0])
+    pick(api, field[1])
+
+    response = api.put("/draft/picks/1", json={"player_id": field[1]})
+
+    assert response.status_code == 422
+    assert "already drafted at pick 2" in response.json()["detail"]
+    # Refused, not half-applied.
+    assert ids_of(api.get("/draft").json()["log"]) == [field[0], field[1]]
+
+
+def test_editing_a_pick_that_has_not_happened_is_a_422(api, synced, field):
+    create(api)
+    pick(api, field[0])
+
+    for number in (2, 0, 999):
+        response = api.put(f"/draft/picks/{number}", json={"player_id": field[3]})
+        assert response.status_code == 422, number
+        assert "has not been made" in response.json()["detail"]
+
+
+def test_a_player_the_field_does_not_rank_cannot_be_edited_in_either(api, synced, field, db):
+    db.add(Player(espn_player_id=888888, full_name="Nobody At All", positions=["SF"]))
+    db.commit()
+    create(api)
+    pick(api, field[0])
+
+    response = api.put("/draft/picks/1", json={"player_id": 888888})
+
+    assert response.status_code == 422
+    assert "universe" in response.json()["detail"]
+
+
+def test_an_edited_log_still_replays_into_the_same_state(api, synced, field, db):
+    """The rule the edit rests on: replay walks by pick number and applies whoever is there."""
+    create(api)
+    for player_id in field[:4]:
+        pick(api, player_id)
+    edited = api.put("/draft/picks/3", json={"player_id": field[9]}).json()
+
+    # A second read is a fresh `build_state` off the stored rows — it cannot disagree.
+    replayed = api.get("/draft").json()
+
+    assert (
+        ids_of(replayed["log"])
+        == ids_of(edited["log"])
+        == [
+            field[0],
+            field[1],
+            field[9],
+            field[3],
+        ]
+    )
+    assert [row["team_slot"] for row in replayed["log"]] == [1, 2, 3, 4]
+    stored = db.scalars(select(DraftPick).order_by(DraftPick.pick_number)).all()
+    assert [row.player_id for row in stored] == [field[0], field[1], field[9], field[3]]
+
+
 # --- the sim advance ----------------------------------------------------------------------------
 
 
@@ -507,6 +613,100 @@ def test_undo_re_rolls_one_pick_of_an_advance(api, synced, field):
     assert state["picks_made"] == len(advance["picks"]) - 1
     # He is on the board again, whoever put him on a roster.
     assert pick(api, took)["picks_made"] == len(advance["picks"])
+
+
+def test_a_count_of_one_makes_exactly_one_opponent_pick(api, synced, field):
+    """The step button: the room, one name at a time."""
+    create(api)
+
+    advance = api.post("/draft/simulate", json={"seed": 13, "count": 1}).json()
+
+    assert len(advance["picks"]) == 1
+    assert advance["picks"][0]["pick_number"] == 1 and advance["picks"][0]["is_auto"] is True
+    assert advance["state"]["picks_made"] == 1
+    assert advance["state"]["on_the_clock"] == 2 and advance["state"]["is_my_pick"] is True
+
+
+def test_a_count_is_a_cap_and_my_seat_still_stops_it(api, synced, field):
+    """Sixteen picks between my 2 and my 19, so a count of fifty still stops at nineteen."""
+    create(api)
+    pick(api, field[0])
+    # Mine, taken from the bottom of the field so no advance can have wanted him.
+    pick(api, field[-1])
+
+    advance = api.post("/draft/simulate", json={"seed": 14, "count": 50}).json()
+
+    assert [row["pick_number"] for row in advance["picks"]] == list(range(3, 19))
+    assert advance["state"]["next_pick_number"] == 19
+    assert advance["state"]["is_my_pick"] is True
+
+
+def test_a_counted_advance_stops_at_the_end_of_the_draft_too(api, synced, small, field):
+    """3 teams x 2 rounds, my seat at 2: my picks are 2 and 5, and 6 ends it."""
+    create(api)
+    pick(api, field[0])
+    pick(api, field[1])
+    # Picks 3 and 4 are the room's; a count of 99 still stops at my 5.
+    assert [
+        row["pick_number"]
+        for row in api.post("/draft/simulate", json={"seed": 15, "count": 99}).json()["picks"]
+    ] == [3, 4]
+    pick(api, field[-1])
+
+    advance = api.post("/draft/simulate", json={"seed": 15, "count": 99}).json()
+
+    # One pick left in the draft, so the cap is not what stopped it.
+    assert [row["pick_number"] for row in advance["picks"]] == [6]
+    assert advance["state"]["is_complete"] is True
+    assert advance["state"]["next_pick_number"] is None
+
+
+def test_a_counted_advance_while_i_am_on_the_clock_makes_no_picks(api, synced, field):
+    create(api)
+    pick(api, field[0])
+    assert api.get("/draft").json()["is_my_pick"] is True
+
+    response = api.post("/draft/simulate", json={"seed": 16, "count": 1})
+
+    assert response.status_code == 200
+    assert response.json()["picks"] == []
+    assert response.json()["state"]["picks_made"] == 1
+
+
+def test_a_cap_stops_a_mock_early_rather_than_rolling_a_different_one(api, synced, field):
+    """`count` is a predicate inside the one seeded roll, so a capped advance is a PREFIX.
+
+    The reason it is implemented that way rather than as a loop of one-pick advances: re-
+    rolling would draw from a fresh `Random` each time, and stepping the room three times
+    would show a different draft from letting it run.
+    """
+    create(api)
+    pick(api, field[0])
+    pick(api, field[-1])
+    capped = ids_of(api.post("/draft/simulate", json={"seed": 17, "count": 3}).json()["picks"])
+    api.post("/draft/reset")
+    pick(api, field[0])
+    pick(api, field[-1])
+
+    whole = ids_of(api.post("/draft/simulate", json={"seed": 17}).json()["picks"])
+
+    assert len(capped) == 3 and len(whole) == 16
+    assert whole[:3] == capped
+
+
+def test_an_unseeded_counted_advance_is_still_reproducible(api, synced, field):
+    create(api)
+    pick(api, field[0])
+    pick(api, field[-1])
+
+    first = api.post("/draft/simulate", json={"count": 4}).json()
+    api.post("/draft/reset")
+    pick(api, field[0])
+    pick(api, field[-1])
+    again = api.post("/draft/simulate", json={"seed": first["seed"], "count": 4}).json()
+
+    assert len(first["picks"]) == 4
+    assert ids_of(again["picks"]) == ids_of(first["picks"])
 
 
 # --- the plan -----------------------------------------------------------------------------------
