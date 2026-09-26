@@ -25,15 +25,22 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = bee3f2c. Tasks 1-18 + the CI fix are all merged. CI green.
-- T19 BUILT + REVIEWED (this session), STAGED on branch `task-19-draft-engine`, NOT committed —
-  awaiting Misha's commit/merge/push. Full suite 813 passed, ruff clean, verified independently
-  (snake my_pick_numbers exact, pure modules have zero app.db/app.api/sqlalchemy imports, availability
-  deterministic + monotone + no-ops at my seat). Suggested commit msg (no trailers):
-  "Add draft engine: snake config, draft state, need-aware opponent auto-pick, and Monte-Carlo
-  availability sim (pure, tested)". After merge, main moves off bee3f2c — update this line.
-- History tail: 6bc5ed5 (T16) → e1240bc (T17) → 9623d39 (T18) → bee3f2c (CI fix: shrank a deep-board
-  Vitest fixture that timed out at 5s on CI's slower node-22 runner; standing rule below).
+- main = b930441. Tasks 1-19 + the CI fix are all merged. CI green.
+- T20 (draft plan + live drafted-state backend) BUILT + REVIEWED (this session), STAGED on branch
+  `task-20-draft-plan`, NOT committed — awaiting Misha's commit/merge/push. Full suite 878 passed,
+  ruff clean, verified independently: single alembic head f3a9c41d7b62 AND autogenerate diff == NONE
+  (migration is exactly the models); frozen GET /master/board byte-identical with draft params off;
+  /draft/simulate never creates a pick for my_slot; plan availabilities in [0,1], monotone, drafted
+  excluded; build_state round-trips. Suggested commit msg (no trailers):
+  "Add draft plan + live drafted-state backend: Draft/DraftPick persistence, state + simulate +
+  undo endpoints, per-pick target/best-available plan with availability, and My Board draft-mode
+  annotation". After merge, main moves off b930441 — update this line.
+- T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
+  (41 pure + 8 db), full suite 813 passed, ruff clean. Reviewed independently this session:
+  snake my_pick_numbers exact, pure modules zero app.db/app.api/sqlalchemy imports, availability
+  deterministic + monotone + no-ops at my seat.
+- History tail: 6bc5ed5 (T16) → e1240bc (T17) → 9623d39 (T18) → bee3f2c (CI fix shrank a deep-board
+  Vitest fixture that timed out at 5s on CI's slower node-22 runner; standing rule below) → b930441 (T19 draft engine).
 - STANDING CI RULE (learned the hard way): a `userEvent`-driven Vitest test over a full-depth fixture
   (deepMasterBoard(400)) can pass on Misha's node 25 but time out at 5s on CI node 22. Keep such tests on
   a small fixture (just past the 175 window, ~210) or set an explicit `it(..., 15000)` timeout.
@@ -92,7 +99,21 @@ Task sequence:
 - (later) per-source weighting on consensus; whole-app design/UX polish (deferred, function-first).
 
 ## T19 (DONE — built + reviewed 2026-09-25; staged on task-19-draft-engine, awaiting Misha's commit)
->>> NEXT after T19 merges: T20 — plan + targets backend (see task sequence below). <<<
+>>> NEXT: T20 PROMPTED → docs/prompts/20-draft-plan-backend.md (unstaged). Decisions settled 2026-09-25:
+  - ONE active draft (singleton Draft row + DraftPick rows, config snapshot on the row); 2nd create 409s
+    unless reset=true. Draft log is mode-agnostic + linear; is_auto flag distinguishes sim vs manual picks;
+    `mode` ('simulation'|'manual') stored as UI preference, NOT enforced.
+  - PLAN returns TWO lists per upcoming pick: `targets` (my tag='target' still-available) + `best_available`
+    (top of my master board still-available), each joined w/ availability% at that pick, + my open needs.
+  - My Board draft mode = ADDITIVE params on existing GET /master/board: ?draft_mode=true annotates every
+    row (drafted / drafted_by_slot / drafted_by_me); ?hide_drafted=true also omits drafted rows. Both off =
+    endpoint byte-for-byte unchanged (guard the frozen endpoint).
+  - FULL state backend in T20: POST /draft, GET /draft, /draft/reset, /draft/picks (manual, any team),
+    /draft/simulate (commit opponents to my next pick, is_auto, seeded single draw), /draft/undo, GET
+    /draft/plan. New model app/db/models/draft.py + ONE migration from e5c18b7a2f90. Rehydration seam
+    app/draft/session.py build_state() replays the log via field_ranks/positions_for/DraftState. T21 = pure UI.
+  - Availability stays the ephemeral Monte-Carlo (1000, deterministic under seed); sim-advance is a separate
+    single seeded draw. Await Misha's paste of T20 CC results to review. <<<
 Engine shipped in app/draft/: config.py (DraftConfig+snake), state.py (DraftState/Pick, pass_pick for
 the no-op clock advance), needs.py (RosterFill greedy fill, open dedicated slots), autopick.py
 (FieldBoard, need-aware softmax auto_pick, simulate_opponents_until), availability.py (Monte-Carlo),
@@ -116,6 +137,17 @@ T19 = PURE in-memory draft engine in app/draft/ + unit tests. NO endpoints/model
 4. SIM ITERATIONS: DRAFT_SIM_ITERATIONS=1000, parameterized, deterministic under a passed seed.
 Roster (from settings, agreed): 10 teams, snake, 20 rounds, my_slot=2 → my picks 2,19,22,39,42,…
 Roster slots PG/SG/SF/PF/C=1, UT=2, BE=13. All DRAFT_* live in Settings + pinned in conftest.
+
+## T21 CARRY-FORWARD (from T20 review — flag before/while building the draft room UI)
+1. REFETCH-AFTER-WRITE: the draft-mode annotation params live only on GET /master/board. A write
+   (PUT /master/order, PUT /master/entries/{id}) returns UN-annotated rows, so the draft room must
+   REFETCH the board after any master-board write rather than render the write's response.
+2. OFF-BOARD PLAYER GAP (decide in T21 or a follow-up): a player no SELECTED field source ranks is
+   not in the draft universe — he cannot be entered as a pick (422) and never appears in plan lists.
+   Harmless with the default field = ALL sources over the full ESPN pool, but in live/manual mode a
+   genuinely obscure real pick can't be recorded. If live-following the real draft matters, T21 (or a
+   small backend follow-up) may need an "mark drafted / off-board removal" path that removes a player
+   without requiring him on the field board.
 
 ## Reuse surfaces
 Consensus/pool: app/ranking/sources.py (load_catalog, available_specs, SourceCatalog, percentile_for),

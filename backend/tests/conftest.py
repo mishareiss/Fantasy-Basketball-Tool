@@ -80,6 +80,7 @@ DRAFT_PARAMS = {
     "draft_autopick_temperature": 8.0,
     "draft_autopick_need_mult": 1.5,
     "draft_sim_iterations": 1000,
+    "draft_plan_size": 15,
 }
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"

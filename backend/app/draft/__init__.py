@@ -5,7 +5,7 @@ startup draft — *who will still be on it seventeen picks from now* — and it 
 drafting the other nine teams, a thousand times, off the equal-weight consensus of whichever
 sources I say the room reads (FEATURE_SPEC: the round-by-round plan).
 
-Four pure modules and one adapter:
+Five pure modules and two adapters:
 
 * `config` — the shape: 10 teams, 20 rounds, my seat, the roster's slots, and the snake
   flattened once so `my_pick_numbers` is [2, 19, 22, 39, 42, ...] and not a modulo puzzle.
@@ -17,11 +17,13 @@ Four pure modules and one adapter:
   `exp(-rank / T)` with a 1.5x nudge towards need, sampled from a seeded `Random`.
 * `availability` — the Monte Carlo over all of the above: player -> {my pick number -> % still
   there}, deterministic under a seed.
-* `field` — the only module that touches a `Session`, and a thin one: `load_catalog` ->
-  `catalog.select` -> `consensus_positions`, reusing the consensus path rather than growing a
-  parallel ranking.
+* `field` — the first of the two modules that touch a `Session`, and a thin one:
+  `load_catalog` -> `catalog.select` -> `consensus_positions`, reusing the consensus path
+  rather than growing a parallel ranking.
+* `session` — the other one: a stored `Draft` row and its pick log, replayed into a
+  `DraftState` sitting exactly where it was left. The seam the endpoints stand on.
 
-The pure four import nothing from `app.db`, `app.api` or SQLAlchemy, which is what lets a
+The pure five import nothing from `app.db`, `app.api` or SQLAlchemy, which is what lets a
 whole simulated draft be asserted on a dozen hand-written players and four teams.
 
 THE MODELLING CHOICE worth knowing before reading a number off this: the simulation never
@@ -29,9 +31,9 @@ picks for me. Availability at my next pick is therefore exact given the committe
 availability at a later pick is computed as though I take nobody in between. See
 `app.draft.availability` for why that is the right-signed simplification.
 
-Still ahead, and deliberately not here: persistence of a live draft, the endpoints over it,
-and the round-by-round target list built on top of these numbers (Task 20), plus the draft
-room itself (Task 21). Nothing in this package knows what HTTP is.
+Still ahead, and deliberately not here: the draft room itself (Task 21). The endpoints over
+all of this live in `app.api.draft`, and the round-by-round target list is built there on top
+of these numbers — nothing in this package knows what HTTP is.
 """
 
 from app.draft.autopick import (
@@ -56,6 +58,7 @@ from app.draft.config import (
 )
 from app.draft.field import UnknownSources, field_ranks, positions_for
 from app.draft.needs import RosterFill, fill_roster, fills_need, normalize_positions
+from app.draft.session import build_state, draft_config
 from app.draft.state import DraftState, Pick
 
 __all__ = [
@@ -75,7 +78,9 @@ __all__ = [
     "RosterFill",
     "UnknownSources",
     "auto_pick",
+    "build_state",
     "candidates",
+    "draft_config",
     "field_ranks",
     "fill_roster",
     "fills_need",

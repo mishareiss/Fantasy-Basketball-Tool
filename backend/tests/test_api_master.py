@@ -467,3 +467,126 @@ def test_the_existing_boards_are_byte_identical_before_and_after_all_of_this(
     assert api.get("/players/board?horizon=dynasty").text == value_board
     assert api.get("/board/consensus?horizon=dynasty&limit=1000").text == consensus
     assert api.get("/sources?horizon=dynasty").text == sources
+
+
+# --- draft mode: the board, read while a draft is happening ---------------------------------------
+
+
+def start_draft(api, my_slot: int = 2) -> dict:
+    response = api.post("/draft", json={"my_slot": my_slot})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def draft_pick(api, player_id: int) -> dict:
+    response = api.post("/draft/picks", json={"player_id": player_id})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_draft_mode_flags_every_row_with_who_took_him(api, synced):
+    board = ids_of(api.get("/master/board").json())
+    start_draft(api)
+    # Pick 1 is team 1's and pick 2 is mine, so this is one of each.
+    draft_pick(api, board[0])
+    draft_pick(api, board[1])
+
+    body = api.get("/master/board?draft_mode=true").json()
+
+    theirs = row_for(body, board[0])
+    mine = row_for(body, board[1])
+    assert (theirs["drafted"], theirs["drafted_by_slot"], theirs["drafted_by_me"]) == (
+        True,
+        1,
+        False,
+    )
+    assert (mine["drafted"], mine["drafted_by_slot"], mine["drafted_by_me"]) == (True, 2, True)
+    # Nothing is hidden: a drafted player is still a row, in his place, with his rank.
+    assert ids_of(body) == board
+    assert theirs["rank"] == 1 and mine["rank"] == 2
+    # And everyone still on the board is unmarked.
+    assert all(not row["drafted"] for row in body["players"][2:])
+
+
+def test_draft_mode_reads_my_seat_off_the_draft_and_not_off_the_setting(api, synced):
+    """A draft started at another seat has to label its own picks, not DRAFT_MY_SLOT's."""
+    board = ids_of(api.get("/master/board").json())
+    start_draft(api, my_slot=1)
+    draft_pick(api, board[0])
+
+    row = row_for(api.get("/master/board?draft_mode=true").json(), board[0])
+
+    assert row["drafted_by_slot"] == 1 and row["drafted_by_me"] is True
+
+
+def test_hide_drafted_leaves_them_out_without_renumbering_anybody(api, synced):
+    board = ids_of(api.get("/master/board").json())
+    start_draft(api)
+    draft_pick(api, board[0])
+    draft_pick(api, board[1])
+
+    body = api.get("/master/board?hide_drafted=true").json()
+
+    assert ids_of(body) == board[2:]
+    assert body["total_ranked"] == len(board) - 2
+    # The ranks are ours and they are decisions: the gap at 1 and 2 IS the information.
+    assert ranks_of(body)[board[2]] == 3
+    # Hiding implies annotating, so the rows that remain are still draft-aware.
+    assert all(row["drafted"] is False for row in body["players"])
+
+
+def test_hide_drafted_narrows_the_set_aside_tray_the_same_way(api, synced):
+    board = ids_of(api.get("/master/board").json())
+    api.put(f"/master/entries/{board[3]}", json={"excluded": True})
+    start_draft(api)
+    draft_pick(api, board[0])
+    # He is set aside AND the room took him — a player parked and then gone.
+    api.post("/draft/picks", json={"player_id": board[3]})
+
+    annotated = api.get("/master/board?draft_mode=true").json()
+    hidden = api.get("/master/board?hide_drafted=true").json()
+
+    assert row_for(annotated, board[3], "set_aside")["drafted"] is True
+    assert board[3] not in ids_of_key(hidden, "set_aside")
+
+
+def ids_of_key(body, key: str) -> list[int]:
+    return [row["espn_player_id"] for row in body[key]]
+
+
+def test_draft_mode_narrows_with_position_rather_than_fighting_it(api, synced):
+    board = api.get("/master/board?position=C").json()
+    centres = ids_of(board)
+    start_draft(api)
+    draft_pick(api, centres[0])
+
+    annotated = api.get("/master/board?position=C&draft_mode=true").json()
+    hidden = api.get("/master/board?position=C&hide_drafted=true").json()
+
+    assert row_for(annotated, centres[0])["drafted"] is True
+    assert ids_of(hidden) == centres[1:]
+
+
+def test_the_flags_are_a_no_op_when_no_draft_has_been_started(api, synced):
+    api.get("/master/board")  # the seed-on-read, so `seeded` is false on all three below
+    plain = api.get("/master/board").text
+
+    assert api.get("/master/board?draft_mode=true").text == plain
+    assert api.get("/master/board?hide_drafted=true").text == plain
+
+
+def test_the_board_with_the_draft_params_off_is_exactly_what_it_was(api, synced):
+    """Acceptance criterion 4: the frozen endpoint, guarded against the draft it now knows about.
+
+    The new fields are optional and defaulted, so a response taken while a draft is halfway
+    through has to be byte-identical to the one taken before the draft existed.
+    """
+    board = ids_of(api.get("/master/board").json())  # seeds it; `before` is a warm read
+    before = api.get("/master/board").text
+    start_draft(api)
+    draft_pick(api, board[0])
+    api.post("/draft/simulate", json={"seed": 4})
+
+    assert api.get("/master/board").text == before
+    assert '"drafted":false' in before.replace(" ", "")
+    assert '"drafted_by_slot":null' in before.replace(" ", "")

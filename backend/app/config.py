@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     # error on a 50% answer at about 1.6 points, which is finer than the question deserves.
     draft_sim_iterations: int = 1000
 
+    # How many names the round-by-round plan lists per pick, in each of its two lists (the
+    # targets I tagged, and the best available off my board). Fifteen is about a round and a
+    # half of the board — long enough that the list still has somebody on it after the room
+    # takes ten, short enough to read while a clock is running. `?size=` overrides it.
+    draft_plan_size: int = 15
+
     # Future projection / odds sources
     balldontlie_api_key: str | None = None
     the_odds_api_key: str | None = None

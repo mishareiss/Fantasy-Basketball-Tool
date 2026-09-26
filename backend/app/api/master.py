@@ -12,7 +12,9 @@ Four endpoints, and the shape of the whole feature is in them:
   before it answers, it seeds an empty board from the consensus, inserts anyone the sources
   now rank who has no entry yet (flagged `is_new`), and flags anyone whose sources have gone
   away (`is_stale`). It is therefore a GET that writes, which is unusual enough to say out
-  loud: the alternative is a board that silently doesn't contain this year's rookies.
+  loud: the alternative is a board that silently doesn't contain this year's rookies. It is
+  also what the draft room reads: `?draft_mode=true` annotates it with what has been drafted
+  (see below).
 * `PUT /master/order` — what a drag-drop saves. The whole non-excluded order, validated as a
   permutation of it.
 * `PUT /master/entries/{player_id}` — tag, note, set aside / bring back.
@@ -37,6 +39,14 @@ centre you are about to reach for is the last of his tier. `?position=PG` narrow
 and nothing else: the ranks on the rows are still overall board ranks, because a point guard's
 place on our board is his place on our board.
 
+DRAFT MODE IS AN ANNOTATION, NOT A SECOND BOARD. `?draft_mode=true` marks every row with
+whether the live draft (`app.api.draft`) has taken him and by which seat; `?hide_drafted=true`
+additionally drops those rows. Both default false, and with them off this endpoint is exactly
+what it was before there was a draft at all — which is deliberate, because the board is the
+thing being read WHILE a draft happens and a second endpoint for that would be one order,
+tiered twice, reconciled twice, drifting. No active draft makes the flags a no-op: nobody is
+drafted.
+
 THE HORIZON IS A LENS, NOT A BOARD. `?horizon=` picks the consensus the reference column is
 computed against — the same player against the dynasty field and against the win-now field are
 two genuinely different readings, and flipping between them is the point. It does NOT select a
@@ -58,9 +68,14 @@ from sqlalchemy.orm import Session
 # are internals of the consensus API that this module is a second view over, the same way
 # `app.api.market` reaches for `app.api.imports._resolve_season`.
 from app.api.consensus import HORIZON_DESCRIPTION, SourceInfo, _load, _source_info
+
+# The live draft, borrowed the same way: `_current` is the one place "which draft is THE draft"
+# is answered, and a second copy of that query here could disagree with it.
+from app.api.draft import _current as _current_draft
 from app.api.players import TIERS_OFF, ranked_board
 from app.config import get_settings
 from app.db.models import Player
+from app.db.models.draft import DraftPick
 from app.db.models.master_rank import MASTER_TAGS
 from app.db.models.master_tier import SCOPE_OVERALL, TIER_SCOPES
 from app.db.session import get_db
@@ -102,6 +117,20 @@ SCOPE_DESCRIPTION = (
     "Which order the cut ranks are over: " + ", ".join(repr(scope) for scope in TIER_SCOPES) + ". "
     f"{SCOPE_OVERALL!r} is the whole board; a position is that position's sub-order, so its cut "
     "ranks count point guards rather than board ranks."
+)
+
+DRAFT_MODE_DESCRIPTION = (
+    "Annotate every row with what the live draft has taken: `drafted`, `drafted_by_slot`, "
+    "`drafted_by_me`. Nothing is hidden — a drafted player is still a row, because a board that "
+    "removed him could not show that the tier above mine just emptied. A no-op when no draft "
+    "exists."
+)
+
+HIDE_DRAFTED_DESCRIPTION = (
+    "Leave the drafted players out of `players` and `set_aside` entirely, for reading the board "
+    "as who is actually still there. Implies `draft_mode`. Ranks and tiers are untouched: they "
+    "are our decisions about the whole board, so the rows that remain keep the numbers they "
+    "have — a gap in the rank column is a player the room took."
 )
 
 TAG_DESCRIPTION = (
@@ -155,6 +184,17 @@ class MasterPlayerRow(BaseModel):
     # Which position `position_tier` is counted in, so the number is never ambiguous for a
     # player listed at two.
     position_scope: str | None = None
+
+    # --- the live draft, when this request asked about it (`?draft_mode=`) -------------------
+    # Somebody in the draft has taken him. Always false without `draft_mode` or `hide_drafted`,
+    # and false when there is no draft — so every response that predates the feature is
+    # byte-identical to what it was.
+    drafted: bool = False
+    # Which seat took him, 1-based. Null when he is still on the board.
+    drafted_by_slot: int | None = None
+    # That seat is mine. Hoisted out of `drafted_by_slot` because "I have him" and "he is gone"
+    # are opposite facts about a row and the page styles them oppositely.
+    drafted_by_me: bool = False
 
     # When we last touched this row — moved him, tagged him, wrote the note.
     updated_at: datetime
@@ -361,6 +401,56 @@ class _Tiers:
         ]
 
 
+@dataclass(frozen=True)
+class _Drafted:
+    """Who the live draft has taken, and by which seat. Empty when nobody asked, or no draft.
+
+    One query for the whole board rather than a lookup per row — the board is a thousand rows
+    and this is a dict on the way in. Empty is the honest default: with `draft_mode` off, or
+    with no draft started, nothing on the board is drafted and every row carries the flags
+    every row carried before this feature existed.
+    """
+
+    # player id -> the 1-based seat that took him.
+    by_slot: dict[int, int]
+    # The draft's OWN `my_slot` snapshot, not `DRAFT_MY_SLOT` — a draft carries its seat, and
+    # reading the setting instead would mislabel my picks in a draft started at another one.
+    my_slot: int | None = None
+
+    def slot_of(self, player_id: int) -> int | None:
+        return self.by_slot.get(player_id)
+
+    def __contains__(self, player_id: int) -> bool:
+        return player_id in self.by_slot
+
+
+NOT_DRAFTED = _Drafted(by_slot={})
+
+
+def _drafted(db: Session, enabled: bool) -> _Drafted:
+    """The live draft's taken players, or nothing at all.
+
+    `enabled` is false on every write endpoint and on a plain `GET /master/board`, and then this
+    costs zero queries — which is the whole reason the flags are a parameter and not always-on.
+    """
+    if not enabled:
+        return NOT_DRAFTED
+    draft = _current_draft(db)
+    if draft is None:
+        return NOT_DRAFTED
+    return _Drafted(
+        by_slot={
+            player_id: team_slot
+            for player_id, team_slot in db.execute(
+                select(DraftPick.player_id, DraftPick.team_slot).where(
+                    DraftPick.draft_id == draft.id
+                )
+            ).all()
+        },
+        my_slot=draft.my_slot,
+    )
+
+
 def _dynasty_values(db: Session) -> dict[int, float]:
     """player id -> his dynasty value, from the ONE value path there is.
 
@@ -420,10 +510,12 @@ def _row(
     positions: dict[int, int],
     tiers: _Tiers,
     wanted: str | None,
+    drafted: _Drafted = NOT_DRAFTED,
 ) -> MasterPlayerRow:
     entry = row.entry
     consensus_rank = positions.get(entry.player_id)
     position_tier, position_scope = tiers.position(player, wanted)
+    drafted_by_slot = drafted.slot_of(entry.player_id)
     return MasterPlayerRow(
         rank=entry.rank,
         espn_player_id=entry.player_id,
@@ -444,6 +536,9 @@ def _row(
         overall_tier=tiers.overall(entry.player_id) if entry.rank else None,
         position_tier=position_tier if entry.rank else None,
         position_scope=position_scope if entry.rank else None,
+        drafted=drafted_by_slot is not None,
+        drafted_by_slot=drafted_by_slot,
+        drafted_by_me=drafted_by_slot is not None and drafted_by_slot == drafted.my_slot,
         updated_at=entry.updated_at,
     )
 
@@ -469,7 +564,12 @@ def _wanted_position(position: str | None) -> str | None:
 
 
 def _response(
-    db: Session, board: MasterBoard, reference: _Reference, position: str | None = None
+    db: Session,
+    board: MasterBoard,
+    reference: _Reference,
+    position: str | None = None,
+    drafted: _Drafted = NOT_DRAFTED,
+    hide_drafted: bool = False,
 ) -> MasterBoardResponse:
     players = _identities(db, board)
     tiers = _tiers(db, board, players)
@@ -479,12 +579,17 @@ def _response(
 
         The `in players` guard is unreachable while the FK cascades — a deleted player takes
         his entry with him — and cheaper than a 500 if it ever isn't.
+
+        `hide_drafted` narrows it the same way `?position=` does: a filter over WHO is listed,
+        applied after the board has been reconciled and tiered, so hiding the players the room
+        took cannot change anybody's rank or anybody's tier.
         """
         return [
-            _row(row, players[row.player_id], reference.positions, tiers, position)
+            _row(row, players[row.player_id], reference.positions, tiers, position, drafted)
             for row in rows
             if row.player_id in players
             and (position is None or position in (players[row.player_id].positions or ()))
+            and not (hide_drafted and row.player_id in drafted)
         ]
 
     ranked = shown(board.ranked)
@@ -521,6 +626,8 @@ def master_board(
         + " It does not change the board's order or who is on it.",
     ),
     position: str | None = Query(None, description=POSITION_DESCRIPTION),
+    draft_mode: bool = Query(False, description=DRAFT_MODE_DESCRIPTION),
+    hide_drafted: bool = Query(False, description=HIDE_DRAFTED_DESCRIPTION),
 ) -> MasterBoardResponse:
     """Our board, complete and up to date, with the field's opinion beside each row.
 
@@ -546,6 +653,13 @@ def master_board(
     change because we are looking at the guards. The whole tier structure for every scope is on
     the response either way.
 
+    `?draft_mode=true` is how the draft room reads this board: every row comes back marked with
+    whether the live draft has taken him and by which seat, so the page can grey out what is
+    gone and highlight what is mine WITHOUT the board becoming a different list. Add
+    `?hide_drafted=true` to drop those rows instead. Both are off by default and both are a
+    no-op when no draft exists — with them off this is exactly the response it was before there
+    was a draft at all.
+
     A cold database — nothing synced, nothing imported — is an empty board and a clean 200, not
     a 404: "I haven't ranked anyone yet" is the honest answer and the starting state of the
     feature.
@@ -553,7 +667,11 @@ def master_board(
     wanted = _wanted_position(position)
     reference = _reference(db, horizon or get_settings().master_seed_horizon)
     board = reconcile(db, reference.membership)
-    response = _response(db, board, reference, wanted)
+    # Hiding implies annotating: the rows that survive the filter still say who took the ones
+    # that didn't, and asking for one without the other would be asking for a board with an
+    # unexplained gap in it.
+    drafted = _drafted(db, draft_mode or hide_drafted)
+    response = _response(db, board, reference, wanted, drafted, hide_drafted)
     # A GET that commits. What it persists is exactly what it would have had to invent again
     # on the next call — the seed, the slot a new player was given, and the first cut of the
     # tiers — and leaving that uncommitted would hand a different board to two identical

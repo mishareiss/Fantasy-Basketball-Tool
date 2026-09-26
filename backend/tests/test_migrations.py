@@ -763,3 +763,211 @@ def test_a_from_scratch_apply_reaches_the_tier_break_table(migrated):
     command.upgrade(config, "head")
 
     assert "master_tier_break" in _table_names(engine)
+
+
+# --- draft / draft_pick --------------------------------------------------------------------------
+
+# The revision that added the live draft, and the one it sits on.
+DRAFT_BEFORE = TIER
+DRAFT = "f3a9c41d7b62"
+
+
+def _seed_draft(engine, *, draft_id=1, my_slot=2, sources=None, mode="simulation"):
+    """One draft row, inserted the way the API does — WITHOUT its timestamps.
+
+    The omission is the point: `created_at` / `updated_at` are server defaults, and a draft is
+    typed rather than synced, so an INSERT that leaves them out has to work on both dialects.
+    """
+    sources_sql = "NULL" if sources is None else f"'{sources}'"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO draft "
+                "(id, team_count, rounds, my_slot, roster_slots, field_horizon, "
+                "field_source_ids, mode) VALUES "
+                f"({draft_id}, 10, 20, {my_slot}, '{{\"PG\": 1, \"BE\": 19}}', 'dynasty', "
+                f"{sources_sql}, '{mode}')"
+            )
+        )
+
+
+def _seed_draft_pick(engine, *, draft_id=1, pick_number=1, team_slot=1, player_id=1, is_auto=0):
+    with engine.begin() as connection:
+        _seed_players(connection, (player_id,))
+        connection.execute(
+            text(
+                "INSERT INTO draft_pick "
+                "(draft_id, pick_number, team_slot, player_id, is_auto) VALUES "
+                f"({draft_id}, {pick_number}, {team_slot}, {player_id}, {is_auto})"
+            )
+        )
+
+
+def _picks(engine) -> list[tuple]:
+    with engine.begin() as connection:
+        return list(
+            connection.execute(
+                text(
+                    "SELECT draft_id, pick_number, team_slot, player_id, is_auto FROM draft_pick "
+                    "ORDER BY pick_number"
+                )
+            )
+        )
+
+
+def test_the_draft_tables_arrive_keyed_and_indexed(migrated):
+    config, engine = migrated
+
+    command.upgrade(config, DRAFT)
+
+    assert {"draft", "draft_pick"} <= _table_names(engine)
+    inspector = inspect(engine)
+    assert {c["name"] for c in inspector.get_unique_constraints("draft_pick")} == {
+        "uq_draft_pick_draft_number"
+    }
+    assert {index["name"] for index in inspector.get_indexes("draft_pick")} == {
+        "ix_draft_pick_player_id"
+    }
+    nullable = {column["name"]: column["nullable"] for column in inspector.get_columns("draft")}
+    # NULL sources means "every source this horizon offers" — a different instruction from [].
+    assert nullable["field_source_ids"]
+    # The config snapshot is what makes a pick number mean something, so none of it is optional.
+    assert not any(
+        nullable[column]
+        for column in ("team_count", "rounds", "my_slot", "roster_slots", "field_horizon", "mode")
+    )
+    pick_nullable = {
+        column["name"]: column["nullable"] for column in inspector.get_columns("draft_pick")
+    }
+    # A pick that took nobody is a projection stepping over my seat, and is never stored.
+    assert not pick_nullable["player_id"]
+    assert not pick_nullable["is_auto"]
+
+
+def test_a_draft_and_a_pick_can_be_written_without_timestamps_or_an_auto_flag(migrated):
+    """The defaults the application actually leans on."""
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+
+    _seed_draft(engine)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        connection.execute(
+            text(
+                "INSERT INTO draft_pick (draft_id, pick_number, team_slot, player_id) "
+                "VALUES (1, 1, 1, 1)"
+            )
+        )
+        draft_row = connection.execute(
+            text("SELECT created_at, updated_at, field_source_ids FROM draft")
+        ).one()
+        pick_row = connection.execute(text("SELECT is_auto, created_at FROM draft_pick")).one()
+
+    assert draft_row[0] is not None and draft_row[1] is not None
+    assert draft_row[2] is None
+    assert not pick_row[0] and pick_row[1] is not None
+
+
+def test_one_pick_number_can_exist_once_in_a_draft(migrated):
+    """The log IS the draft: two rows at pick 19 would make "available at 19" ambiguous."""
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine, pick_number=19, player_id=1)
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _seed_players(connection, (2,))
+        connection.execute(
+            text(
+                "INSERT INTO draft_pick (draft_id, pick_number, team_slot, player_id) "
+                "VALUES (1, 19, 2, 2)"
+            )
+        )
+
+
+def test_the_same_pick_number_in_a_second_draft_is_a_different_pick(migrated):
+    """The key is per draft, so replacing a draft cannot collide with the one it replaced."""
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine, draft_id=1)
+    _seed_draft(engine, draft_id=2, my_slot=7, sources='["adp:espn"]', mode="manual")
+
+    _seed_draft_pick(engine, draft_id=1, pick_number=1, player_id=1)
+    _seed_draft_pick(engine, draft_id=2, pick_number=1, player_id=1, is_auto=1)
+
+    assert _picks(engine) == [(1, 1, 1, 1, 0), (2, 1, 1, 1, 1)]
+
+
+def test_dropping_the_draft_takes_its_log_with_it(migrated):
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(text("DELETE FROM draft WHERE id = 1"))
+        remaining = connection.scalar(text("SELECT count(*) FROM draft_pick"))
+
+    assert remaining == 0
+
+
+def test_dropping_a_player_takes_the_picks_that_took_him_with_them(migrated):
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine, player_id=1)
+
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        connection.execute(text("DELETE FROM player WHERE espn_player_id = 1"))
+        remaining = connection.scalar(text("SELECT count(*) FROM draft_pick"))
+
+    assert remaining == 0
+
+
+def test_the_draft_downgrade_removes_both_tables_and_leaves_the_board_alone(migrated):
+    """Lossy and un-resyncable — a draft log is a record of something that happened."""
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    command.downgrade(config, DRAFT_BEFORE)
+
+    assert not {"draft", "draft_pick"} & _table_names(engine)
+    # The board the draft was read against is untouched by going back past it.
+    assert {"master_rank_entry", "master_tier_break"} <= _table_names(engine)
+
+
+def test_the_draft_upgrade_downgrade_upgrade_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    command.downgrade(config, DRAFT_BEFORE)
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    assert _picks(engine) == [(1, 1, 1, 1, 0)]
+
+
+def test_a_from_scratch_apply_reaches_the_draft_tables(migrated):
+    """A cold database, all the way up, on SQLite — `make migrate` is still the Postgres check."""
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    assert {"draft", "draft_pick"} <= _table_names(engine)
+
+
+def test_there_is_exactly_one_head_after_this_revision(migrated):
+    """Acceptance criterion 3: one head, so `alembic upgrade head` is unambiguous."""
+    from alembic.script import ScriptDirectory
+
+    config, _ = migrated
+
+    assert ScriptDirectory.from_config(config).get_heads() == [DRAFT]
