@@ -564,7 +564,36 @@ export type MasterPlayerRow = {
   /** Which position `position_tier` counts in — the requested `?position=` when there is one,
       otherwise the first position he is listed at. Typed as the backend types it (`str`). */
   position_scope: string | null;
+
+  /* --- the live draft, and ONLY when the request asked about it (`draft_mode`) ----------
+     All three are annotation, not stored state: they are false/null on a plain board read,
+     false/null when no draft exists, and false/null on every WRITE response — the flags ride
+     on `GET /master/board` alone, which is why the page re-reads after a save while the lens
+     is on rather than rendering what the write handed back. */
+  /** Somebody in the draft has taken him. */
+  drafted: boolean;
+  /** Which seat took him, 1-based. Null while he is still on the board. */
+  drafted_by_slot: number | null;
+  /** That seat is mine. Hoisted out of `drafted_by_slot` because "I have him" and "he is
+      gone" are opposite facts about a row and the page styles them oppositely. */
+  drafted_by_me: boolean;
+
   updated_at: string;
+};
+
+/**
+ * The draft lens on `GET /master/board` — master.py's `draft_mode` / `hide_drafted`.
+ *
+ * Both default off, and off means the request is byte-identical to what it was before the
+ * draft existed. `hide_drafted` IMPLIES `draft_mode` server-side; the page sends both anyway,
+ * because the URL it built should say what it asked for.
+ */
+export type MasterBoardLens = {
+  /** Annotate every row with what the live draft has taken. Nothing is hidden. */
+  draft_mode?: boolean;
+  /** Leave the drafted players out of `players` and `set_aside` entirely. Ranks and tiers
+      are untouched, so a gap in the rank column is a player the room took. */
+  hide_drafted?: boolean;
 };
 
 /**
@@ -752,6 +781,81 @@ export type DraftSimulateBody = {
   top_k?: number;
   temperature?: number;
   need_mult?: number;
+};
+
+/** One name on the plan: where I have him, and how likely he is to last — draft.py:
+ *  PlanPlayerRow. */
+export type PlanPlayerRow = {
+  espn_player_id: number;
+  name: string;
+  positions: string[];
+  /** MY board rank and MY tier band. The tier is null when the board's 'overall' dividers
+      have never been read into existence — a plan request does not seed them. */
+  rank: number | null;
+  tier: number | null;
+  /** One of MASTER_TAGS, or null. Every row in `targets` carries 'target' by construction.
+      Typed as the backend types it (`str`), like `MasterPlayerRow.tag`. */
+  tag: string | null;
+  note: string | null;
+  /** His place on the FIELD's board — the room's opinion, which is what the availability
+      number is actually computed from. Read the two together. */
+  field_rank: number | null;
+  /**
+   * The chance he is still on the board when this pick comes up, in [0, 1]. Non-increasing
+   * across my later picks, by construction — and 1 at the pick I am on the clock for, since
+   * nothing happens between now and it.
+   */
+  availability: number;
+  /** Would he cover a dedicated starter slot I still have open? */
+  fills_need: boolean;
+};
+
+/** One of my upcoming picks, and who to be thinking about at it — draft.py: PlanPickRow. */
+export type PlanPickRow = {
+  pick_number: number;
+  round: number;
+  /** How many picks away it is. 0 means I am on the clock now. */
+  picks_away: number;
+  /** My unfilled dedicated starter positions. THE SAME at every planned pick, because the
+      projection takes nobody for me in between. */
+  open_needs: string[];
+  /** The players I tagged 'target' who are still available, in my board order. */
+  targets: PlanPlayerRow[];
+  /** The top of my board that is still available, in my board order. */
+  best_available: PlanPlayerRow[];
+};
+
+/** The round-by-round plan: my board, at each of my upcoming picks, with the odds —
+ *  draft.py: DraftPlanResponse. */
+export type DraftPlanResponse = {
+  /** The Monte Carlo behind every `availability` on this response. */
+  iterations: number;
+  seed: number;
+  /** How long each list is, at most. */
+  size: number;
+  /** The field the availability was computed against — the DRAFT's, not the request's.
+      Typed as the backend types them (`str`). */
+  field_horizon: string;
+  field_source_ids: string[] | null;
+  /** How many ranked, non-excluded players on my board are still available. */
+  available_on_board: number;
+  /** Nothing to plan for: the draft is over, and `picks` is empty. */
+  is_complete: boolean;
+  picks: PlanPickRow[];
+};
+
+/** The query of GET /draft/plan. Every one of them is optional — the backend's defaults are
+ *  DRAFT_SIM_ITERATIONS, a FIXED seed, all of my remaining picks, and DRAFT_PLAN_SIZE. */
+export type DraftPlanParams = {
+  /** How many of my upcoming picks to plan for. Pass 3 or 4 while a clock is running:
+      planning all of them from pick 1 simulates nearly the whole draft a thousand times. */
+  picks?: number;
+  /** How many names in each list. */
+  size?: number;
+  iterations?: number;
+  /** Fixed by default, deliberately: a percentage someone compares between two refreshes
+      must not move on its own. */
+  seed?: number;
 };
 
 export class ApiError extends Error {
@@ -956,9 +1060,23 @@ export const api = {
    * change because we are looking at the guards. It is a view of the order, never a re-sort.
    * A position the backend doesn't know is a 422 here (unlike `GET /players/board`, where it
    * is an empty page), because the filter also picks a tier scope.
+   *
+   * `lens` is the DRAFT annotation, and it is the only parameter here that is off by
+   * default in a way worth saying out loud: with neither flag set the URL is exactly what it
+   * was before the draft room existed, so every caller that doesn't care — the draft room's
+   * own catalog read included — keeps the response it always had.
    */
-  masterBoard: (horizon?: Horizon, position?: Position | null) =>
-    request<MasterBoardResponse>(`/master/board${query({ horizon, position })}`),
+  masterBoard: (horizon?: Horizon, position?: Position | null, lens: MasterBoardLens = {}) =>
+    request<MasterBoardResponse>(
+      `/master/board${query({
+        horizon,
+        position,
+        // Sent only when asked for: the backend reads both as false when absent, and an
+        // explicit `draft_mode=false` would put a parameter in the URL that says nothing.
+        draft_mode: lens.draft_mode ? "true" : undefined,
+        hide_drafted: lens.hide_drafted ? "true" : undefined,
+      })}`,
+    ),
 
   /**
    * Save a reorder: rank = place in the list, for the WHOLE non-excluded board.
@@ -1070,4 +1188,25 @@ export const api = {
 
   /** Take the last pick back, auto or manual. A draft with no picks in it is a 409. */
   undoPick: () => post<DraftStateResponse>("/draft/undo", {}),
+
+  /**
+   * My board at each of my upcoming picks, with the chance each name is still there.
+   *
+   * The point of the whole draft engine, and the one read on this page that is a
+   * PROBABILITY rather than a fact: `simulate` is one draw that commits picks, this is a
+   * thousand draws that commit nothing. Two lists per pick — the targets I tagged and have
+   * not lost, and the top of my board that is still there.
+   *
+   * A 404 means there is no draft, which callers handle the way `getDraft` does. Ask for
+   * `picks` while a clock is running: the cost is the picks it has to simulate.
+   */
+  draftPlan: (params: DraftPlanParams = {}) =>
+    request<DraftPlanResponse>(
+      `/draft/plan${query({
+        picks: params.picks,
+        size: params.size,
+        iterations: params.iterations,
+        seed: params.seed,
+      })}`,
+    ),
 };

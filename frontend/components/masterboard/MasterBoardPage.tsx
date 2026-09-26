@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Segment, Segmented } from "@/components/board/BoardControls";
@@ -9,6 +10,7 @@ import {
   POSITIONS,
   api,
   type Horizon,
+  type MasterBoardLens,
   type MasterBoardResponse,
   type MasterPlayerRow,
   type Position,
@@ -78,6 +80,19 @@ import { TierBreakSlot, TierDivider, type DividerHandlers } from "./TierDivider"
  * * Reordering is OFF under a filter. A move in a filtered sub-order ("one above the next
  *   centre") has no honest expression as a full-board permutation, and `PUT /master/order`
  *   takes nothing less than the whole board. Tags, notes, exclude and the dividers stay.
+ *
+ * DRAFT MODE is the third dial, and it is OFF by default: with it off the request this page
+ * makes is byte-identical to the one it made before the draft room existed. On, every row
+ * comes back marked with whether the live draft has taken him and by which seat; on and
+ * hiding, the drafted rows are simply not in the response. It is a LENS and not a lock —
+ * a drafted player can still be moved, tagged and noted, because this board outlives the
+ * draft it is being read against.
+ *
+ * WHICH COSTS US THE "REPLACE FROM THE WRITE" PATH, in draft mode only. The annotation
+ * lives on `GET /master/board` alone, so every write answers with UN-annotated rows: render
+ * one and every "drafted" chip on screen vanishes until the next read. So while the lens is
+ * on, a successful write bumps `reload` instead of rendering its own response. The
+ * optimistic order stays on screen in the meantime, which is exactly what it is for.
  */
 
 type Settled =
@@ -98,6 +113,36 @@ function scopeNoun(position: Position | null): string {
   return position === null ? "on the board" : `among ${scopeLabel(position)}`;
 }
 
+/**
+ * The three states of the draft lens, and what each one asks the backend for.
+ *
+ * Three rather than a checkbox pair, because "annotate" and "hide" are one decision made in
+ * one place: marking a drafted row and removing it are two answers to "what do I want to see
+ * of what the room has taken", and nobody wants `hide_drafted` without `draft_mode`.
+ */
+const DRAFT_LENSES = ["off", "show", "hide"] as const;
+type DraftLens = (typeof DRAFT_LENSES)[number];
+
+const LENS_LABEL: Record<DraftLens, string> = {
+  off: "Off",
+  show: "Show drafted",
+  hide: "Hide drafted",
+};
+
+const LENS_TITLE: Record<DraftLens, string> = {
+  off: "No draft annotation at all — the board exactly as it reads with no draft running.",
+  show:
+    "Mark every row the live draft has taken, and which seat took him. Nothing is hidden: a board that removed him could not show that the tier above yours just emptied.",
+  hide: "Leave the drafted players out entirely, for reading the board as who is actually still there. The ranks that remain are untouched, so a gap in the rank column is a player the room took.",
+};
+
+/** What each state sends. `{}` is the pre-draft request, unchanged. */
+const LENS_PARAMS: Record<DraftLens, MasterBoardLens> = {
+  off: {},
+  show: { draft_mode: true },
+  hide: { draft_mode: true, hide_drafted: true },
+};
+
 const BUTTON =
   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed " +
   "disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500";
@@ -109,10 +154,12 @@ const FIELD =
 export function MasterBoardPage() {
   const [horizon, setHorizon] = useState<Horizon>("dynasty");
   const [position, setPosition] = useState<Position | null>(null);
+  const [lens, setLens] = useState<DraftLens>("off");
   const [reload, setReload] = useState(0);
   // Keyed by the request it answers, the same guard the board and market pages use: a board
   // read against the horizon you were looking at a moment ago is not this horizon's board.
   // The position rides in the key for the same reason — the centres' board is not the board.
+  // So does the draft lens: an un-annotated board is not the annotated one.
   const [settled, setSettled] = useState<(Settled & { key: string }) | null>(null);
 
   const [term, setTerm] = useState("");
@@ -138,15 +185,17 @@ export function MasterBoardPage() {
   const [cutDrop, setCutDrop] = useState<number | null>(null);
 
   const scope = activeScope(position);
-  const key = `${horizon}:${scope}`;
+  const key = `${horizon}:${scope}:${lens}`;
+  // With the lens off there is nothing to preserve across a write and the old path stands.
+  const annotating = lens !== "off";
 
   useEffect(() => {
     let cancelled = false;
-    // Rebuilt here rather than closed over, so the effect's dependencies are the two dials
+    // Rebuilt here rather than closed over, so the effect's dependencies are the three dials
     // the request is actually made of.
-    const answering = `${horizon}:${activeScope(position)}`;
+    const answering = `${horizon}:${activeScope(position)}:${lens}`;
     api
-      .masterBoard(horizon, position)
+      .masterBoard(horizon, position, LENS_PARAMS[lens])
       .then((board) => {
         if (!cancelled) setSettled({ key: answering, status: "ready", board });
       })
@@ -156,7 +205,7 @@ export function MasterBoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [horizon, position, reload]);
+  }, [horizon, position, lens, reload]);
 
   const fresh = settled?.key === key ? settled : null;
   // The board on screen: the current view's if it has arrived, otherwise the one we were
@@ -192,7 +241,11 @@ export function MasterBoardPage() {
       try {
         const response = await run();
         if (ticket === pending.current) {
-          setSettled({ key, status: "ready", board: response });
+          // A write's response carries no draft annotation — the flags ride on
+          // `GET /master/board` and nowhere else — so under the lens we re-read rather than
+          // render it, and every "drafted" chip survives the save. See the header.
+          if (annotating) setReload((count) => count + 1);
+          else setSettled({ key, status: "ready", board: response });
           setNote(message);
         }
       } catch (caught: unknown) {
@@ -205,7 +258,7 @@ export function MasterBoardPage() {
         if (ticket === pending.current) setSaving(false);
       }
     },
-    [key],
+    [annotating, key],
   );
 
   /** Apply a move locally, then save the WHOLE order it produced. */
@@ -492,6 +545,22 @@ export function MasterBoardPage() {
             ))}
           </Segmented>
 
+          {/* The lens onto the live draft. Off by default and off is the pre-draft board:
+              the request carries neither flag, so nothing about this page changes until you
+              ask it to. */}
+          <Segmented label="Draft">
+            {DRAFT_LENSES.map((option) => (
+              <Segment
+                key={option}
+                active={lens === option}
+                onClick={() => setLens(option)}
+                title={LENS_TITLE[option]}
+              >
+                {LENS_LABEL[option]}
+              </Segment>
+            ))}
+          </Segmented>
+
           <div className="flex flex-col gap-1">
             <label
               htmlFor="master-search"
@@ -580,6 +649,32 @@ export function MasterBoardPage() {
               order saves as a whole board or not at all. Switch to All to move anyone. Tags,
               notes, setting aside and the tier dividers below all work as usual, and these
               dividers are the {scopeLabel(position as Position)}&rsquo; own.
+            </p>
+          ) : null}
+
+          {annotating ? (
+            <p
+              data-draft-lens={lens}
+              className="rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400"
+            >
+              {lens === "hide" ? (
+                <>
+                  Showing who is <strong className="font-semibold">still there</strong> — the
+                  players the live draft has taken are left out. Their ranks go with them, so a
+                  jump in the rank column is a man the room took; nothing has been renumbered.
+                </>
+              ) : (
+                <>
+                  Marked with what the live draft has taken. Drafted players{" "}
+                  <strong className="font-semibold">stay in place</strong>, because a board that
+                  removed them couldn&rsquo;t show you that the tier above yours just emptied.
+                  You can still move, tag and note any of them — this is a lens, not a lock.
+                </>
+              )}{" "}
+              <Link href="/draft" className="underline">
+                The draft room
+              </Link>{" "}
+              is where the picks go in.
             </p>
           ) : null}
 

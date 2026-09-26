@@ -30,6 +30,13 @@ import {
  * The row also accepts a DROP while a tier divider is being dragged, which is why the `<tr>`
  * keeps its drag handlers even when the order is frozen under a position filter: the page
  * decides from its own drag state whether a drop over this row moves a player or a line.
+ *
+ * DRAFT MODE IS A LENS, NOT A LOCK. `row.drafted` is annotation the board read asked for
+ * (`?draft_mode=true`) and it is false on every response that didn't, so this component
+ * needs no flag from the page: a drafted row strikes its name and prints a chip, and
+ * everything else on it — the tag, the note, the drag handle, the move box — still works.
+ * You reorder players you have already taken, and players the room took, all the time: the
+ * board is your opinion about next year as much as it is a draft sheet.
  */
 
 export type RowHandlers = {
@@ -286,10 +293,37 @@ function MasterRowInner({
 
       <td className="py-1.5 pr-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</span>
+          <span
+            className={`font-medium ${
+              row.drafted
+                ? "text-zinc-400 line-through dark:text-zinc-600"
+                : "text-zinc-900 dark:text-zinc-100"
+            }`}
+          >
+            {row.name}
+          </span>
           <span className="text-xs text-zinc-500">
             {positionList(row.positions)} · {whole(row.age)} · {row.nba_team ?? MISSING}
           </span>
+          {/* Two opposite facts, and they are styled oppositely: he is gone, or he is mine.
+              Both carry their word, so neither is only a colour. */}
+          {row.drafted ? (
+            <span
+              data-drafted={row.drafted_by_slot ?? ""}
+              className={`${BADGE} ${
+                row.drafted_by_me
+                  ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200"
+                  : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+              }`}
+              title={
+                row.drafted_by_me
+                  ? `You took him${row.drafted_by_slot === null ? "" : ` at seat ${row.drafted_by_slot}`} in the live draft. His place here is still yours to move.`
+                  : `Taken in the live draft${row.drafted_by_slot === null ? "" : ` by team ${row.drafted_by_slot}`}. His rank is untouched — the board is the whole order, not who is left.`
+              }
+            >
+              {row.drafted_by_me ? "Yours" : "Drafted"}
+            </span>
+          ) : null}
           {row.is_new ? (
             <span
               className={`${BADGE} bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300`}

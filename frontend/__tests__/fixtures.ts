@@ -2,6 +2,7 @@ import type {
   AliasResponse,
   DraftAdvanceResponse,
   DraftPickRow,
+  DraftPlanResponse,
   DraftStateResponse,
   BoardResponse,
   BoardRow,
@@ -22,6 +23,8 @@ import type {
   MarketPlayer,
   MasterBoardResponse,
   MasterPlayerRow,
+  PlanPickRow,
+  PlanPlayerRow,
   Position,
   TierScope,
   TierScopeRow,
@@ -670,6 +673,14 @@ function tierOfRank(cuts: number[], rank: number): number | null {
   return tier === 0 ? null : tier;
 }
 
+/**
+ * The seat that has taken each player, and which seat is mine — `?draft_mode=true`.
+ *
+ * An empty map is the honest default and it is also what the endpoint answers with the lens
+ * OFF, which is why every fixture built without one is byte-identical to what it was.
+ */
+export type DraftedBy = { slots?: Record<number, number>; mySlot?: number };
+
 function masterRow(
   seed: MasterSeed,
   rank: number | null,
@@ -679,7 +690,9 @@ function masterRow(
     position: null,
     scope: null,
   },
+  drafted: DraftedBy = {},
 ): MasterPlayerRow {
+  const slot = drafted.slots?.[seed.espn_player_id] ?? null;
   const consensusRank = seed.consensus[horizon];
   return {
     rank,
@@ -701,6 +714,11 @@ function masterRow(
     overall_tier: rank === null ? null : tiers.overall,
     position_tier: rank === null ? null : tiers.position,
     position_scope: rank === null ? null : tiers.scope,
+    // False/null unless the caller asked about a draft — master.py's own defaults, so a
+    // fixture built the way every pre-draft test builds it says nothing about a draft.
+    drafted: slot !== null,
+    drafted_by_slot: slot,
+    drafted_by_me: slot !== null && slot === drafted.mySlot,
     updated_at: "2027-10-01T09:00:00Z",
   };
 }
@@ -739,6 +757,8 @@ export function masterBoard(
     aside = [MASTER_ASIDE],
     position = null,
     cuts = MASTER_CUTS,
+    drafted = {},
+    hideDrafted = false,
   }: {
     horizon?: Horizon;
     order?: number[];
@@ -746,6 +766,11 @@ export function masterBoard(
     /** The `?position=` this response answers — it narrows the rows and nothing else. */
     position?: Position | null;
     cuts?: Partial<Record<TierScope, number[]>>;
+    /** What `?draft_mode=true` annotates the rows with. Empty = the lens is off. */
+    drafted?: DraftedBy;
+    /** What `?hide_drafted=true` does: the drafted rows are simply not in the response, and
+        the ranks of the ones that remain are UNTOUCHED — a gap is a man the room took. */
+    hideDrafted?: boolean;
   } = {},
 ): MasterBoardResponse {
   const byId = new Map([...MASTER_SEEDS, MASTER_ASIDE].map((seed) => [seed.espn_player_id, seed]));
@@ -768,19 +793,26 @@ export function masterBoard(
       // FIRST position he is listed at — master.py: `_Tiers.position`.
       const scope = position ?? seed.positions.find((spot) => (POSITIONS as readonly string[]).includes(spot)) ?? null;
       const inScope = scope === null ? -1 : orders[scope].indexOf(seed);
-      return masterRow(seed, rank, horizon, {
-        overall: tierOfRank(cutsFor(SCOPE_OVERALL), rank),
-        position:
-          scope === null || inScope === -1
-            ? null
-            : tierOfRank(cutsFor(scope as TierScope), inScope + 1),
-        scope: inScope === -1 ? null : scope,
-      });
+      return masterRow(
+        seed,
+        rank,
+        horizon,
+        {
+          overall: tierOfRank(cutsFor(SCOPE_OVERALL), rank),
+          position:
+            scope === null || inScope === -1
+              ? null
+              : tierOfRank(cutsFor(scope as TierScope), inScope + 1),
+          scope: inScope === -1 ? null : scope,
+        },
+        drafted,
+      );
     })
     // The filter narrows WHO comes back and leaves the ranks alone, which is the whole claim
     // `?position=` makes: a point guard's place on our board doesn't change because we are
-    // looking at the guards.
-    .filter((row) => position === null || row.positions.includes(position));
+    // looking at the guards. `hide_drafted` narrows it exactly the same way.
+    .filter((row) => position === null || row.positions.includes(position))
+    .filter((row) => !hideDrafted || !row.drafted);
 
   const tiers: TierScopeRow[] = TIER_SCOPES.map((scope) => {
     const size = orders[scope].length;
@@ -802,7 +834,9 @@ export function masterBoard(
     position,
     tiers,
     players,
-    set_aside: aside.map((seed) => masterRow(seed, null, horizon)),
+    set_aside: aside
+      .map((seed) => masterRow(seed, null, horizon, undefined, drafted))
+      .filter((row) => !hideDrafted || !row.drafted),
     ...overrides,
   };
 }
@@ -968,4 +1002,102 @@ export function draftAdvance(
   seed = 4242,
 ): DraftAdvanceResponse {
   return { seed, picks: made, state };
+}
+
+/* ---------------------------------------------------------------------------------------- *
+ * The plan — `GET /draft/plan`
+ *
+ * Derived from a draft STATE rather than stated, for the same reason the state derives its
+ * rosters from its log: a plan whose `picks_away` disagreed with the clock it was supposed
+ * to describe would be a page tested against a draft that cannot happen.
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * The shape the engine produces, arithmetically: 1 at the pick I am on the clock for (nothing
+ * happens between now and it) and falling from there, faster for the better player.
+ *
+ * Non-increasing in `picksAway` by construction, which is the one property `app.draft
+ * .availability` guarantees and the one the panels are read against.
+ */
+function availabilityOf(index: number, picksAway: number): number {
+  const survival = 1 - (index + 1) * 0.08;
+  return Number(Math.max(0, Math.min(1, survival ** picksAway)).toFixed(4));
+}
+
+function planPlayer(seed: MasterSeed, rank: number, picksAway: number): PlanPlayerRow {
+  return {
+    espn_player_id: seed.espn_player_id,
+    name: seed.name,
+    positions: seed.positions,
+    rank,
+    tier: tierOfRank(MASTER_CUTS.overall, rank),
+    tag: seed.tag ?? null,
+    note: seed.note ?? null,
+    // The field's board is the consensus one, which is where availability is computed.
+    field_rank: seed.consensus.dynasty,
+    availability: availabilityOf(rank - 1, picksAway),
+    // He covers a slot nobody is starting for me yet. Left to the caller's `needs`, below.
+    fills_need: false,
+  };
+}
+
+/**
+ * My board at my next `count` picks, with the odds — built off a `draftState()`.
+ *
+ * `targets` and `best` are player ids in board order; whoever is already in the state's log
+ * is dropped from both, because the endpoint only ever lists players who are still there.
+ */
+export function draftPlan({
+  state = draftState(),
+  count = 2,
+  targets = [MASTER_SEEDS[1].espn_player_id],
+  best = MASTER_SEEDS.slice(0, 2).map((seed) => seed.espn_player_id),
+  size = 6,
+}: {
+  state?: DraftStateResponse;
+  count?: number;
+  targets?: number[];
+  best?: number[];
+  size?: number;
+} = {}): DraftPlanResponse {
+  const gone = new Set(state.log.map((pick) => pick.espn_player_id));
+  const next = state.next_pick_number;
+  const planned = state.my_remaining_pick_numbers.slice(0, count);
+  const needs = state.teams.find((team) => team.is_me)?.open_needs ?? [];
+  const rankOf = new Map(MASTER_SEEDS.map((seed, index) => [seed.espn_player_id, index + 1]));
+
+  const rows = (ids: number[], picksAway: number): PlanPlayerRow[] =>
+    ids
+      .filter((id) => !gone.has(id))
+      .map((id) => {
+        const seed = DRAFT_POOL.get(id);
+        if (!seed) throw new Error(`no seed for player ${id}`);
+        const row = planPlayer(seed, rankOf.get(id) ?? 1, picksAway);
+        return { ...row, fills_need: seed.positions.some((spot) => needs.includes(spot)) };
+      });
+
+  const picks: PlanPickRow[] = planned.map((number) => {
+    const picksAway = number - (next ?? number);
+    return {
+      pick_number: number,
+      round: Math.floor((number - 1) / state.team_count) + 1,
+      picks_away: picksAway,
+      // The same at every planned pick: the projection takes nobody for me in between.
+      open_needs: needs,
+      targets: rows(targets, picksAway),
+      best_available: rows(best, picksAway),
+    };
+  });
+
+  return {
+    iterations: 1000,
+    seed: 20261,
+    size,
+    field_horizon: state.field_horizon,
+    field_source_ids: state.field_source_ids,
+    available_on_board: best.filter((id) => !gone.has(id)).length,
+    is_complete: state.is_complete,
+    // Empty once the draft is over, which is the backend's own short-circuit.
+    picks: state.is_complete ? [] : picks,
+  };
 }

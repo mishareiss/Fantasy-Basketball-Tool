@@ -67,6 +67,17 @@ const [WEMBY, BOOZER, GIANNIS, PAUL] = MASTER_SEEDS;
 const AYTON = MASTER_ASIDE;
 
 /**
+ * What the board read carries with the draft lens off — nothing, which is the point.
+ *
+ * `api.masterBoard` drops both flags from the URL when they are absent, so this is the
+ * request /my-board made before the draft room existed, asserted here so a lens that ever
+ * became on-by-default would break the tests that predate it rather than pass quietly.
+ */
+const LENS_OFF = {};
+const LENS_SHOW = { draft_mode: true };
+const LENS_HIDE = { draft_mode: true, hide_drafted: true };
+
+/**
  * The order actually on screen, read off the rows rather than off the ranks they print.
  *
  * `[data-player]` rather than every `tr`, because the tbody also carries the tier dividers
@@ -480,7 +491,7 @@ describe("the horizon", () => {
     await user.click(screen.getByRole("button", { name: "Win now" }));
 
     // The position rides along on every read now, and "All" is an explicit null.
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null, LENS_OFF));
     await waitFor(() =>
       expect(
         rowFor(BOOZER.espn_player_id).querySelector("[data-edge]")?.textContent,
@@ -801,7 +812,7 @@ describe("the position filter", () => {
 
     await user.click(screen.getByRole("button", { name: "PF" }));
 
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", "PF"));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", "PF", LENS_OFF));
     await waitFor(() =>
       expect(onScreen()).toEqual([BOOZER.espn_player_id, GIANNIS.espn_player_id]),
     );
@@ -903,7 +914,7 @@ describe("the position filter", () => {
     board.mockResolvedValue(masterBoard());
     await user.click(screen.getByRole("button", { name: "All" }));
 
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", null));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", null, LENS_OFF));
     await waitFor(() => expect(onScreen()).toHaveLength(4));
     expect(dividersOnScreen()).toEqual([1, 3]);
     expect(screen.queryByText(/Reordering is off here/)).toBeNull();
@@ -934,12 +945,12 @@ describe("the position filter", () => {
 
     board.mockResolvedValue(masterBoard({}, { horizon: "current_year" }));
     await user.click(screen.getByRole("button", { name: "Win now" }));
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", null, LENS_OFF));
 
     board.mockResolvedValue(masterBoard({}, { horizon: "current_year", position: "PF" }));
     await user.click(screen.getByRole("button", { name: "PF" }));
 
-    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", "PF"));
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("current_year", "PF", LENS_OFF));
   });
 });
 
@@ -1015,4 +1026,123 @@ describe("cut ranks", () => {
     expect(shownTier([1, 4, 12], 3)).toBe(1);
     expect(shownTier([], 3)).toBeNull();
   });
+});
+
+/* --- the draft lens --------------------------------------------------------------------- */
+
+/**
+ * `?draft_mode=` / `?hide_drafted=` on /my-board.
+ *
+ * Four claims, and the last one is the carry-forward that makes the feature hold together:
+ *
+ * * OFF is the board as it was. The request carries neither flag, which is asserted in
+ *   `LENS_OFF` above and left standing by every test that predates this section;
+ * * "Show drafted" marks the rows and leaves them where they are, because a board that
+ *   removed them couldn't show that the tier above yours just emptied;
+ * * "Hide drafted" leaves them out — the backend does the omitting, and the ranks that
+ *   remain are untouched;
+ * * a WRITE while the lens is on re-reads. The annotation rides on `GET /master/board` and
+ *   nowhere else, so rendering the write's own answer would silently un-mark the board.
+ */
+describe("my board, read against the live draft", () => {
+  /** Boozer taken by my seat, Giannis by somebody else. */
+  const DRAFTED = { slots: { [BOOZER.espn_player_id]: 2, [GIANNIS.espn_player_id]: 4 }, mySlot: 2 };
+
+  /** The chip a row prints for the draft, or null when it prints none. */
+  function draftedChip(playerId: number): { text: string; slot: string | null } | null {
+    const chip = rowFor(playerId).querySelector("[data-drafted]");
+    return chip === null
+      ? null
+      : { text: chip.textContent ?? "", slot: chip.getAttribute("data-drafted") };
+  }
+
+  async function switchTo(name: RegExp, user: ReturnType<typeof userEvent.setup>) {
+    await user.click(within(screen.getByRole("group", { name: "Draft" })).getByRole("button", { name }));
+  }
+
+  it("asks for nothing extra until you turn it on", async () => {
+    await openBoard();
+
+    expect(board).toHaveBeenCalledWith("dynasty", null, LENS_OFF);
+    // And nothing on the board says anything about a draft.
+    expect(document.querySelector("[data-drafted]")).toBeNull();
+  });
+
+  it("refetches with the annotation on, and marks who is gone and who is mine", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    board.mockResolvedValue(masterBoard({}, { drafted: DRAFTED }));
+    await switchTo(/show drafted/i, user);
+
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", null, LENS_SHOW));
+    // The drafted rows stay exactly where they were — the lens is not a filter here.
+    await waitFor(() =>
+      expect(onScreen()).toEqual([
+        WEMBY.espn_player_id,
+        BOOZER.espn_player_id,
+        GIANNIS.espn_player_id,
+        PAUL.espn_player_id,
+      ]),
+    );
+
+    // My own pick and somebody else's read as opposite facts, and both carry their word.
+    expect(draftedChip(BOOZER.espn_player_id)).toEqual({ text: "Yours", slot: "2" });
+    expect(draftedChip(GIANNIS.espn_player_id)).toEqual({ text: "Drafted", slot: "4" });
+    expect(draftedChip(WEMBY.espn_player_id)).toBeNull();
+  }, 15000);
+
+  it("drops the drafted rows entirely on Hide, and renumbers nobody", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    board.mockResolvedValue(masterBoard({}, { drafted: DRAFTED, hideDrafted: true }));
+    await switchTo(/hide drafted/i, user);
+
+    await waitFor(() => expect(board).toHaveBeenLastCalledWith("dynasty", null, LENS_HIDE));
+    await waitFor(() =>
+      expect(onScreen()).toEqual([WEMBY.espn_player_id, PAUL.espn_player_id]),
+    );
+    // Chris Paul is still the FOURTH man on the board. A gap in the rank column is a
+    // player the room took, not a board that reflowed.
+    expect(rowFor(PAUL.espn_player_id).getAttribute("data-rank")).toBe("4");
+  }, 15000);
+
+  it("re-reads after a write instead of rendering the un-annotated response", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    const annotated = masterBoard({}, { drafted: DRAFTED });
+    board.mockResolvedValue(annotated);
+    await switchTo(/show drafted/i, user);
+    await waitFor(() => expect(draftedChip(BOOZER.espn_player_id)).not.toBeNull());
+    const reads = board.mock.calls.length;
+
+    // What `PUT /master/entries/{id}` really answers with: the board, with no draft on it.
+    putEntry.mockResolvedValue(masterBoard());
+
+    await user.click(screen.getByRole("button", { name: `Tag ${WEMBY.name}` }));
+
+    await waitFor(() => expect(putEntry).toHaveBeenCalledTimes(1));
+    // The write's answer is NOT what gets rendered: a fresh annotated read is.
+    await waitFor(() => expect(board.mock.calls.length).toBeGreaterThan(reads));
+    expect(board).toHaveBeenLastCalledWith("dynasty", null, LENS_SHOW);
+    expect(draftedChip(BOOZER.espn_player_id)).toEqual({ text: "Yours", slot: "2" });
+  }, 15000);
+
+  it("still renders a write's own board when the lens is off", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+    expect(board).toHaveBeenCalledTimes(1);
+
+    // Giannis loses his tag, and the response says so — with no second read behind it.
+    putEntry.mockResolvedValue(
+      masterBoard({}, { order: [WEMBY, BOOZER, PAUL].map((seed) => seed.espn_player_id) }),
+    );
+
+    await user.click(screen.getByRole("button", { name: `Tag ${GIANNIS.name}` }));
+
+    await waitFor(() => expect(onScreen()).toHaveLength(3));
+    expect(board).toHaveBeenCalledTimes(1);
+  }, 15000);
 });

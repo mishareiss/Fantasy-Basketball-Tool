@@ -25,7 +25,7 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = a738569. Tasks 1-20 + the CI fix are all merged. CI green.
+- main = 93722e5. Tasks 1-21a + the CI fix are all merged. CI green.
 - T20 (draft plan + live drafted-state backend) MERGED at a738569 (parent b930441). 878 tests,
   autogenerate-clean migration f3a9c41d7b62, frozen /master/board guarded. Draft backend COMPLETE.
 - T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
@@ -132,13 +132,34 @@ Roster (from settings, agreed): 10 teams, snake, 20 rounds, my_slot=2 → my pic
 Roster slots PG/SG/SF/PF/C=1, UT=2, BE=13. All DRAFT_* live in Settings + pinned in conftest.
 
 ## T21 = DRAFT ROOM UI (frontend), SPLIT into 21a + 21b (decisions settled 2026-09-25)
-- T21a BUILT + REVIEWED (staged on task-21a-draft-room, NOT committed, awaiting Misha's commit).
-  Backend 891 pass, ruff clean, no migration; frontend 186 pass + build + lint (Mac toolchain).
-  Verified independently: edit-pick validation + frees old player, count=prefix-of-full-roll,
-  snake formula (slot2/10 col = my_pick_numbers, round-trips 200). Suggested commit msg (no trailers):
-  "Add draft room: /draft snake board, search pick entry, sim controls (advance/step/undo/reset),
-  plus edit-any-pick and simulate count endpoints". After merge, main moves off a738569.
-  NEXT: T21b (plan panels + My Board draft-mode toggle) — the last task in the draft-plan sequence.
+- T21a (draft room: /draft snake board, search entry, sim controls, edit-pick + count endpoints)
+  MERGED at 93722e5. Backend 891, frontend 186, verified (snake mapping, edit-pick, count).
+- T21b (plan panels + My Board draft mode) BUILT + REVIEWED — staged on task-21b-draft-plan-ui, NOT
+  committed, awaiting Misha's commit. Frontend-only (git-confirmed 0 backend files); npm 204 pass +
+  build + lint; backend still 891 / single head. Verified: off-lens URL byte-unchanged, refetch-after-
+  write when annotating, panel-click gated to is_my_pick && picks_away===0. Suggested commit (no trailers):
+  "Add draft plan panels and My Board draft mode: per-pick target/best-available with availability %,
+  auto-refresh, and Off/Show/Hide drafted lens".
+>>> AFTER T21b MERGES: THE DRAFT-PLAN BUILDER IS COMPLETE (tasks 1-21b). Tool is draft-ready end to end. <<<
+- T22 PROMPTED → docs/prompts/22-draft-room-redesign.md (unstaged): draft-room UI redesign from Misha's
+  notes (2026-09-26). MERGE T21b FIRST (branch T22 off that). ONE task. Backend adds: team_names on Draft
+  (+migration), PUT /draft/config (change my_slot only when picks_made==0; merge team_names anytime),
+  GET /draft/availability (full-board availability at my next pick, candidates=None). Frontend: /draft
+  becomes persistent LEFT SIDEBAR (available by my rank + search + targets-only + position chips + tags +
+  availability% + Draft buttons disabled off my pick) + MAIN PANEL with tabs [Board|List|Roster|Rankings],
+  default Board. Board = fluid grid, all 10 cols visible (no h-scroll), names truncate. Rankings = 6 cols
+  (overall+PG/SG/SF/PF/C) by my rank w/ per-position tier breaks + availability. Roster = per-team, unmade
+  picks shown as numbered blanks. Team names default 'Team N', mine '(You)'. Seat changeable pre-draft.
+  REMOVES the T21b plan panels (DraftPlan); /draft/plan endpoint stays (now UI-unused). Heavy derivations
+  go in lib/draft.ts (pure, tested).
+Remaining backlog (no prompts written):
+  1. Per-source consensus WEIGHTING (trust Dizzle 2x ESPN) — the one deferred ranking feature; needs a
+     store for weights + a calibration path (see app/ranking/consensus.py EQUAL-WEIGHT note).
+  2. Whole-app DESIGN/UX POLISH (function-first so far). CC's T21b notes to fold in: /draft plan+grid
+     stack gets long (side-by-side or tabs); Targets vs Best-available overlap (dedupe the 2nd list?);
+     three status lines in the room (one status region); plan rows show field rank but not WHICH
+     consensus except in the config line.
+  3. In-season features (games-maximizer / streaming, trade analyzer, league mirror) — see PLAN.md phases.
 - T21a scope delivered = /draft page scaffold:
   * FULL SNAKE GRID (rounds x teams), my column highlighted, on-the-clock cell marked.
   * PICK ENTRY = search box (draft any available player for the on-the-clock seat) — this is how BOTH

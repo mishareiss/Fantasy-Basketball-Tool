@@ -114,3 +114,80 @@ export function candidates(
   }
   return found;
 }
+
+/* --- the plan's one number ---------------------------------------------------------------- *
+ *
+ * `availability` is the only figure on this site that is a probability, and the page has to
+ * make it readable at a glance without ever making the colour the thing that says it. So:
+ * three bands, each with its own word, and the percentage printed beside all of them. The
+ * ramp mirrors `EDGE_*` in lib/masterboard.ts — same shape, different question.
+ * ------------------------------------------------------------------------------------------ */
+
+/** How a chance of surviving to a pick reads: calm, a coin-flip, or act now. */
+export type AvailabilityTone = "likely" | "even" | "unlikely";
+
+/**
+ * Which band a [0, 1] availability falls in.
+ *
+ * Two thirds and one third, so "even" is genuinely the middle and not a sliver. Anything
+ * outside [0, 1] is clamped rather than thrown for: a percentage is a display, and a
+ * backend that ever hands back 1.0000001 should not blank the panel.
+ */
+export function availabilityTone(value: number): AvailabilityTone {
+  if (value >= 2 / 3) return "likely";
+  if (value >= 1 / 3) return "even";
+  return "unlikely";
+}
+
+/** The percentage, rounded the way it is printed. Clamped into 0..100. */
+export function availabilityPercent(value: number): number {
+  return Math.round(Math.min(1, Math.max(0, value)) * 100);
+}
+
+export const AVAILABILITY_LABEL: Record<AvailabilityTone, string> = {
+  likely: "likely there",
+  even: "coin-flip",
+  unlikely: "likely gone",
+};
+
+/** The bar's fill. Emerald / amber / rose, the app's own ramp — never the only signal. */
+export const AVAILABILITY_FILL: Record<AvailabilityTone, string> = {
+  likely: "bg-emerald-500 dark:bg-emerald-400",
+  even: "bg-amber-500 dark:bg-amber-400",
+  unlikely: "bg-rose-500 dark:bg-rose-400",
+};
+
+/** The number's own colour, so the figure reads as urgent even with the bar ignored. */
+export const AVAILABILITY_TEXT: Record<AvailabilityTone, string> = {
+  likely: "text-emerald-700 dark:text-emerald-300",
+  even: "text-amber-700 dark:text-amber-300",
+  unlikely: "text-rose-700 dark:text-rose-300",
+};
+
+/** The sentence the chip carries in its tooltip and to a screen reader. */
+export function availabilityDescription(value: number, picksAway: number): string {
+  const percent = availabilityPercent(value);
+  if (picksAway === 0) {
+    return `He is on the board right now — this is your pick (${percent}%)`;
+  }
+  const waiting = `${picksAway} ${picksAway === 1 ? "pick" : "picks"} from now`;
+  return (
+    `${percent}% of simulated rooms still had him when this pick came up, ${waiting}. ` +
+    "Computed as though you take nobody in between, so it can only overstate who survives."
+  );
+}
+
+/**
+ * How many of my remaining picks the plan should ask for next.
+ *
+ * The panels open on the next few rather than all twenty: planning from pick 1 simulates
+ * nearly the whole draft a thousand times, and the answer for round 14 is not a decision
+ * anybody is making on the clock. "Show more" walks it out a step at a time, and stops once
+ * every remaining pick is on screen.
+ */
+export const PLAN_PICKS = 4;
+
+export function morePlanPicks(wanted: number, remaining: number): number | null {
+  const next = Math.min(wanted + PLAN_PICKS, remaining);
+  return next > wanted ? next : null;
+}

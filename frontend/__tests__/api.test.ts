@@ -4,6 +4,9 @@ import { API_BASE_URL, ApiError, api } from "@/lib/api";
 import { DEFAULT_CONTROLS } from "@/components/board/BoardView";
 import { parseControls, toQuery } from "@/components/board/BoardPage";
 import { EMPTY_FORM, buildRequest, formKey, validate } from "@/lib/importing";
+import { MASTER_SEEDS, masterBoard } from "./fixtures";
+
+const [WEMBY, BOOZER] = MASTER_SEEDS;
 
 /**
  * The client's half of the contract: which URL each call builds, and what an error becomes.
@@ -294,6 +297,65 @@ describe("the master ranking calls", () => {
       status: 422,
       detail: "`ordered_player_ids` must be exactly the board's",
     });
+  });
+
+  it("asks for the draft annotation only when it is wanted, so Off is the old request", async () => {
+    // The whole promise of the lens's default: with neither flag set the URL is byte for
+    // byte what /my-board asked for before the draft room existed.
+    await api.masterBoard("dynasty", null, {});
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board?horizon=dynasty`);
+
+    fetchMock.mockClear();
+    await api.masterBoard("dynasty", null, { draft_mode: true });
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/master/board?horizon=dynasty&draft_mode=true`);
+
+    fetchMock.mockClear();
+    await api.masterBoard("dynasty", "PF", { draft_mode: true, hide_drafted: true });
+    expect(requestedUrl()).toBe(
+      `${API_BASE_URL}/master/board?horizon=dynasty&position=PF&draft_mode=true&hide_drafted=true`,
+    );
+  });
+
+  it("parses the draft annotation a board read answers with", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(masterBoard({}, { drafted: { slots: { [BOOZER.espn_player_id]: 2 }, mySlot: 2 } })),
+    );
+
+    const board = await api.masterBoard("dynasty", null, { draft_mode: true });
+    const boozer = board.players.find((row) => row.espn_player_id === BOOZER.espn_player_id);
+    expect(boozer).toMatchObject({ drafted: true, drafted_by_slot: 2, drafted_by_me: true });
+    // Everyone the draft has not taken carries the same three fields, false and null —
+    // which is what makes "Off" a rendering decision rather than a missing-field check.
+    const wemby = board.players.find((row) => row.espn_player_id === WEMBY.espn_player_id);
+    expect(wemby).toMatchObject({ drafted: false, drafted_by_slot: null, drafted_by_me: false });
+  });
+});
+
+describe("api.draftPlan", () => {
+  it("asks for the whole plan when given nothing — the backend's defaults are the point", async () => {
+    await api.draftPlan();
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/draft/plan`);
+  });
+
+  it("passes every parameter the plan endpoint takes", async () => {
+    await api.draftPlan({ picks: 4, size: 8, iterations: 250, seed: 7 });
+
+    const url = new URL(requestedUrl());
+    expect(url.origin + url.pathname).toBe(`${API_BASE_URL}/draft/plan`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      picks: "4",
+      size: "8",
+      iterations: "250",
+      seed: "7",
+    });
+  });
+
+  it("leaves the 404 that means 'no draft yet' for the caller to read off the status", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: "There is no draft." }, 404));
+
+    const error = await api.draftPlan({ picks: 4 }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
   });
 });
 

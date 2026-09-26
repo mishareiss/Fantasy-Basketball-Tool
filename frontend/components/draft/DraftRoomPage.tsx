@@ -13,6 +13,7 @@ import {
 import { draftedIds } from "@/lib/draft";
 import { DraftBoard } from "./DraftBoard";
 import { DraftControls, OnTheClock } from "./DraftControls";
+import { DraftPlan } from "./DraftPlan";
 import { DraftSetup } from "./DraftSetup";
 import { CatalogUnavailable, DraftFailed, DraftLoading } from "./DraftStates";
 import { PickSearch } from "./PickSearch";
@@ -34,6 +35,12 @@ import { PickSearch } from "./PickSearch";
  * keystroke would be a thousand-row request to filter a dozen names out of. What makes that
  * safe is that the catalog is never the source of who is GONE: the drafted set comes off the
  * live state's log, so it is current for free.
+ *
+ * THE PLAN IS A THIRD READ, and it owns itself. `DraftPlan` fetches `GET /draft/plan` and
+ * re-reads it whenever the draft moves, because availability is a statement about the picks
+ * already made and one more pick changes every number in it. It is kept out of `commit` on
+ * purpose: a plan is a thousand simulated rooms and takes long enough that making a pick
+ * wait on it would put the Monte Carlo between the click and the board.
  *
  * A 404 FROM `GET /draft` IS NOT AN ERROR. There is one draft at a time and none of them
  * exists until somebody starts one, so the 404 is the setup form's cue — the page's ordinary
@@ -306,6 +313,10 @@ export function DraftRoomPage() {
 
       {failure ? <DraftFailed error={failure} /> : null}
       {catalogError ? <CatalogUnavailable error={catalogError} /> : null}
+
+      {/* Above the pick entry, because it is what you read before typing a name into it —
+          and on the clock it IS the pick entry, for the names it lists. */}
+      <DraftPlan state={live} onPick={makePick} isBusy={busy} />
 
       {live.is_complete ? null : (
         <PickSearch

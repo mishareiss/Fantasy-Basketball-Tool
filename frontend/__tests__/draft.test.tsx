@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api } from "@/lib/api";
+import { ApiError, api, type DraftStateResponse } from "@/lib/api";
 import { DraftRoomPage } from "@/components/draft/DraftRoomPage";
 import {
   candidates,
@@ -19,6 +19,7 @@ import {
   DRAFT_TEAMS,
   MASTER_SEEDS,
   draftAdvance,
+  draftPlan,
   draftState,
   masterBoard,
   snakeOrder,
@@ -59,6 +60,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       editPick: vi.fn(),
       simulate: vi.fn(),
       undoPick: vi.fn(),
+      draftPlan: vi.fn(),
       masterBoard: vi.fn(),
     },
   };
@@ -71,6 +73,7 @@ const applyPick = vi.mocked(api.applyPick);
 const editPick = vi.mocked(api.editPick);
 const simulate = vi.mocked(api.simulate);
 const undoPick = vi.mocked(api.undoPick);
+const plan = vi.mocked(api.draftPlan);
 const board = vi.mocked(api.masterBoard);
 
 const [WEMBY, BOOZER, GIANNIS, PAUL] = MASTER_SEEDS;
@@ -88,6 +91,37 @@ async function openRoom() {
   await screen.findByRole("grid");
 }
 
+/**
+ * Open the room on one draft, with the plan derived FROM that draft.
+ *
+ * The two reads have to describe the same room or the panels are about a draft that isn't
+ * on screen — `draftPlan` takes the state for exactly that reason.
+ */
+async function openRoomOn(
+  state: DraftStateResponse,
+  options: Parameters<typeof draftPlan>[0] = {},
+) {
+  getDraft.mockResolvedValue(state);
+  plan.mockResolvedValue(draftPlan({ state, ...options }));
+  render(<DraftRoomPage />);
+  await screen.findByRole("grid");
+  await waitFor(() => expect(plan).toHaveBeenCalled());
+}
+
+/** One plan panel, by the pick number it plans for. */
+function panelFor(pickNumber: number): HTMLElement {
+  const panel = document.querySelector(`[data-plan-pick="${pickNumber}"]`);
+  if (!panel) throw new Error(`no plan panel for pick ${pickNumber}`);
+  return panel as HTMLElement;
+}
+
+/** Every pick number the plan has a panel for, in the order they are drawn. */
+function panelsOnScreen(): number[] {
+  return Array.from(document.querySelectorAll("[data-plan-pick]")).map((panel) =>
+    Number(panel.getAttribute("data-plan-pick")),
+  );
+}
+
 beforeEach(() => {
   getDraft.mockResolvedValue(draftState());
   board.mockResolvedValue(masterBoard());
@@ -97,6 +131,7 @@ beforeEach(() => {
   editPick.mockResolvedValue(draftState());
   undoPick.mockResolvedValue(draftState());
   simulate.mockResolvedValue(draftAdvance(draftState(), []));
+  plan.mockResolvedValue(draftPlan());
 });
 
 afterEach(() => {
@@ -465,5 +500,184 @@ describe("the draft room", () => {
     for (const number of pickNumbersFor(DRAFT_MY_SLOT, DRAFT_TEAMS, DRAFT_ROUNDS)) {
       expect(document.querySelector(`[data-cell="${number}"]`)).toBeTruthy();
     }
+  });
+});
+
+/* --- the plan panels -------------------------------------------------------------------- */
+
+/**
+ * `GET /draft/plan`, on screen.
+ *
+ * Four claims, and three of them are about restraint rather than about markup:
+ *
+ * * the panels show my next few picks — not all twenty, because planning from pick 1 means
+ *   simulating nearly the whole draft a thousand times for an answer nobody needs yet;
+ * * they RE-READ whenever the draft moves, because availability is a statement about the
+ *   picks already made and one more pick changes every number in them;
+ * * a name drafts the man only from the panel I am on the clock for. Elsewhere it is not a
+ *   button at all, because the pick in between hasn't happened and a click could not mean
+ *   anything;
+ * * a plan that fails is a note beside a working draft, not an error instead of one.
+ *
+ * The fixture is the same tiny 4x3 draft the rest of the file uses. My seat is 2, so my
+ * picks are 2, 7 and 10 and only two of them fit in the default two-panel plan.
+ */
+describe("the plan panels", () => {
+  it("shows my next picks with both lists and the odds on every name", async () => {
+    await openRoomOn(draftState());
+
+    // My seat's remaining picks in a 4x3 snake are 2, 7, 10; the plan fixture asks for two.
+    expect(panelsOnScreen()).toEqual([2, 7]);
+
+    const next = panelFor(2);
+    expect(next.textContent).toContain("round 1");
+    // Pick 2 with pick 1 still to come: one away, not on the clock.
+    expect(next.getAttribute("data-plan-away")).toBe("1");
+    expect(next.textContent).toContain("1 away");
+
+    // Two lists, and they are different lists: the target I tagged, and the top of my board.
+    const targets = within(next).getByRole("list", { name: /targets at pick 2/i });
+    const best = within(next).getByRole("list", { name: /best available at pick 2/i });
+    expect(within(targets).getByText(BOOZER.name)).toBeTruthy();
+    expect(within(best).getByText(WEMBY.name)).toBeTruthy();
+    expect(within(best).getByText(BOOZER.name)).toBeTruthy();
+
+    // The availability is a NUMBER before it is a colour — both are on the row, and the
+    // percentage is what a greyscale screenshot still carries.
+    const wemby = best.querySelector(`[data-plan-player="${WEMBY.espn_player_id}"]`);
+    const availability = wemby?.querySelector("[data-availability]");
+    expect(availability?.getAttribute("data-availability")).toBe("92");
+    expect(availability?.getAttribute("data-availability-tone")).toBe("likely");
+    expect(availability?.textContent).toContain("92%");
+
+    // And my open needs, which are the same at every planned pick by construction.
+    expect(Array.from(next.querySelectorAll("[data-need]")).map((chip) => chip.textContent))
+      .toEqual(["PG", "SG", "SF", "PF", "C"]);
+  });
+
+  it("falls off across my later picks — the one property the simulation guarantees", async () => {
+    await openRoomOn(draftState());
+
+    const at = (pickNumber: number) =>
+      Number(
+        panelFor(pickNumber)
+          .querySelector(`[data-plan-player="${WEMBY.espn_player_id}"] [data-availability]`)
+          ?.getAttribute("data-availability"),
+      );
+
+    // Pick 7 is five picks further out than pick 2, and nothing of mine intervenes.
+    expect(at(7)).toBeLessThan(at(2));
+  });
+
+  it("re-reads the plan when the draft moves, because every number in it just changed", async () => {
+    const user = userEvent.setup();
+    await openRoomOn(draftState());
+    const first = plan.mock.calls.length;
+
+    // The room takes Wemby at pick 1 — entered through the search box, the way an
+    // opponent's pick always is.
+    const after = draftState({ picks: [{ playerId: WEMBY.espn_player_id }] });
+    applyPick.mockResolvedValue(after);
+    plan.mockResolvedValue(draftPlan({ state: after, best: [BOOZER.espn_player_id] }));
+
+    await user.type(screen.getByLabelText(/pick 1 for team 1/i), "wemb");
+    // Scoped to the search result: the plan lists him too, which is the whole point.
+    await user.click(
+      await waitFor(() => {
+        const found = document.querySelector(`[data-candidate="${WEMBY.espn_player_id}"]`);
+        if (!found) throw new Error("no candidate yet");
+        return found as HTMLElement;
+      }),
+    );
+
+    await waitFor(() => expect(plan.mock.calls.length).toBeGreaterThan(first));
+    // And the re-read is what is on screen: the man who just went is gone from the lists.
+    await waitFor(() =>
+      expect(
+        panelFor(2).querySelector(`[data-plan-player="${WEMBY.espn_player_id}"]`),
+      ).toBeNull(),
+    );
+  }, 15000);
+
+  it("drafts from the panel only when it is my pick AND the panel is that pick", async () => {
+    const user = userEvent.setup();
+    // Pick 1 is in, so pick 2 — mine — is on the clock and zero away.
+    const mine = draftState({ picks: [{ playerId: WEMBY.espn_player_id }] });
+    await openRoomOn(mine, { best: [BOOZER.espn_player_id, GIANNIS.espn_player_id] });
+
+    const now = panelFor(2);
+    expect(now.getAttribute("data-plan-away")).toBe("0");
+    expect(now.textContent).toContain("on the clock");
+
+    // The later panel is reference: no button on it at all, rather than a disabled one that
+    // implies a click could ever work there.
+    const later = panelFor(7);
+    expect(within(later).queryAllByRole("button")).toEqual([]);
+
+    const row = now.querySelector(
+      `[data-plan-player="${GIANNIS.espn_player_id}"] button`,
+    ) as HTMLElement;
+    await user.click(row);
+
+    await waitFor(() => expect(applyPick).toHaveBeenCalledTimes(1));
+    // No `team_slot`: the backend defaults it to whoever is on the clock, same as the box.
+    expect(applyPick).toHaveBeenCalledWith({ player_id: GIANNIS.espn_player_id });
+  }, 15000);
+
+  it("is read-only on every panel while somebody else is on the clock", async () => {
+    await openRoomOn(draftState());
+
+    // Pick 2 is mine and it is the next one, but the clock is team 1's — so nothing here
+    // is clickable, and the panel is not styled as the one on the clock either.
+    expect(panelFor(2).getAttribute("data-plan-away")).toBe("1");
+    expect(within(panelFor(2)).queryAllByRole("button")).toEqual([]);
+    expect(within(panelFor(7)).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("asks for a few picks, and for more only when asked", async () => {
+    const user = userEvent.setup();
+    // Six rounds, so I own six picks and the opening four are genuinely a subset — in the
+    // 4x3 draft the rest of this file uses, four already covers everything I have left.
+    await openRoomOn(draftState({ rounds: 6 }));
+
+    expect(plan).toHaveBeenLastCalledWith({ picks: 4 });
+
+    // One press walks it out to all six, and the button goes: there is nothing further to
+    // plan for, and offering to plan it anyway would re-run the simulation for nothing.
+    await user.click(screen.getByRole("button", { name: /plan 2 more picks/i }));
+    await waitFor(() => expect(plan).toHaveBeenLastCalledWith({ picks: 6 }));
+    expect(screen.queryByRole("button", { name: /plan .* more/i })).toBeNull();
+  }, 15000);
+
+  it("says the draft is over instead of planning for picks that don't exist", async () => {
+    await openRoomOn(
+      draftState({
+        teamCount: 2,
+        rounds: 1,
+        picks: [{ playerId: WEMBY.espn_player_id }, { playerId: BOOZER.espn_player_id }],
+      }),
+    );
+
+    expect(panelsOnScreen()).toEqual([]);
+    expect(document.querySelector('[data-plan="empty"]')?.textContent).toMatch(
+      /draft is over/i,
+    );
+  });
+
+  it("degrades to a note when the plan fails, and leaves the draft working", async () => {
+    getDraft.mockResolvedValue(draftState());
+    plan.mockRejectedValue(new ApiError("/draft/plan responded 404", 404, "There is no draft."));
+    render(<DraftRoomPage />);
+    await screen.findByRole("grid");
+
+    const note = await waitFor(() => {
+      const found = document.querySelector('[data-plan="unavailable"]');
+      if (!found) throw new Error("no notice yet");
+      return found;
+    });
+    expect(note.textContent).toContain("There is no draft.");
+    // A note, not the page's error panel — and the grid and clock are untouched.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelector("[data-clock]")).toBeTruthy();
   });
 });
