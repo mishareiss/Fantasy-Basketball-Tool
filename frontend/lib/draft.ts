@@ -12,8 +12,17 @@
  * maps back, so the grid and the search can both be exercised without a DOM.
  */
 
-import type { DraftPickRow, DraftStateResponse, MasterPlayerRow } from "@/lib/api";
-import { matches } from "@/lib/masterboard";
+import {
+  POSITIONS,
+  SCOPE_OVERALL,
+  type DraftPickRow,
+  type DraftStateResponse,
+  type MasterPlayerRow,
+  type Position,
+  type TierScope,
+  type TierScopeRow,
+} from "@/lib/api";
+import { matches, scopeTiers, tierAt } from "@/lib/masterboard";
 
 /** How many names the pick-entry search offers at once. Enough to see the one you meant. */
 export const SEARCH_LIMIT = 12;
@@ -164,15 +173,28 @@ export const AVAILABILITY_TEXT: Record<AvailabilityTone, string> = {
   unlikely: "text-rose-700 dark:text-rose-300",
 };
 
-/** The sentence the chip carries in its tooltip and to a screen reader. */
-export function availabilityDescription(value: number, picksAway: number): string {
+/**
+ * The sentence the chip carries in its tooltip and to a screen reader.
+ *
+ * `pickNumber` is named whenever there is one, because the number is ALWAYS about a later pick
+ * than the clock — my next one while I am waiting, the one after this one while I am on the
+ * clock — and "42%" read as a statement about the pick in front of me is the one way this
+ * figure can mislead. The `picksAway === 0` branch is the degenerate case the backend no
+ * longer produces, kept because a tooltip is not the place to throw.
+ */
+export function availabilityDescription(
+  value: number,
+  picksAway: number,
+  pickNumber: number | null = null,
+): string {
   const percent = availabilityPercent(value);
-  if (picksAway === 0) {
-    return `He is on the board right now — this is your pick (${percent}%)`;
+  const pick = pickNumber === null ? "this pick" : `pick ${pickNumber}`;
+  if (picksAway <= 0) {
+    return `He is on the board right now — ${pick} is on the clock (${percent}%)`;
   }
   const waiting = `${picksAway} ${picksAway === 1 ? "pick" : "picks"} from now`;
   return (
-    `${percent}% of simulated rooms still had him when this pick came up, ${waiting}. ` +
+    `${percent}% of simulated rooms still had him when ${pick} came up, ${waiting}. ` +
     "Computed as though you take nobody in between, so it can only overstate who survives."
   );
 }
@@ -190,4 +212,282 @@ export const PLAN_PICKS = 4;
 export function morePlanPicks(wanted: number, remaining: number): number | null {
   const next = Math.min(wanted + PLAN_PICKS, remaining);
   return next > wanted ? next : null;
+}
+
+/* --- the available board, and the columns drawn off it ------------------------------------ *
+ *
+ * The sidebar and the rankings view are the same two ingredients joined six different ways:
+ * MY board (the catalog — ranks, tags, positions and the tier cuts, all static while a draft
+ * runs) minus the LIVE drafted set, which comes off the state's log and so is never stale.
+ *
+ * All of it is here and pure for the reason the snake is: a column that quietly drops a
+ * player, or bands him into the wrong tier, still renders as a working page. A test can
+ * check these against a hand-written board in a few lines; a component test could only check
+ * that something was on screen.
+ * ------------------------------------------------------------------------------------------ */
+
+/**
+ * The players still on my board, in my order.
+ *
+ * "On my board" is three conditions and each one is a different fact: he is RANKED (a
+ * set-aside player has no place in the order), he is not EXCLUDED (the tray is not a draft
+ * list), and nobody has TAKEN him. Sorted by rank rather than trusting the response's order,
+ * because a caller can hand this a board it filtered or windowed itself.
+ */
+export function availableBoard(
+  catalog: MasterPlayerRow[],
+  drafted: Set<number>,
+): MasterPlayerRow[] {
+  return catalog
+    .filter(
+      (row) =>
+        row.rank !== null && !row.excluded && !drafted.has(row.espn_player_id),
+    )
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+}
+
+/** One row of a rankings column: the player, where he sits in the scope, and his band. */
+export type ColumnRow = {
+  player: MasterPlayerRow;
+  /**
+   * His place in the FULL scope order — drafted players INCLUDED. For 'overall' that is his
+   * board rank; for a position it is his place among every player on my board listed there.
+   * It is the number the tier cuts are counted in, and deliberately not his place in the
+   * available list: a tier is a band over the board, and the board does not renumber itself
+   * because the room took somebody out of it.
+   */
+  scopeRank: number;
+  /** His band in this scope, 1 being the top. Null when the scope carries no dividers. */
+  tier: number | null;
+  /** The tier changed at this row going down the AVAILABLE list — draw a divider above it.
+      True on the first row of the column whenever it has a tier at all. */
+  startsTier: boolean;
+};
+
+/** One column of the rankings view: a scope, its available players, and how deep it runs. */
+export type BoardColumn = {
+  scope: TierScope;
+  rows: ColumnRow[];
+  /** How many players the FULL scope order holds, drafted ones included. */
+  size: number;
+};
+
+/**
+ * The available players eligible at one scope, in my board order, each carrying its tier.
+ *
+ * THE TIER IS A BAND OVER THE FULL ORDER, which is the one thing in here worth being careful
+ * about. The third-best available point guard is not the third point guard on my board — six
+ * of them may be gone — and his tier has to be the one I drew around HIM, not the one his
+ * place in what's left would fall into. So the scope order is built from the whole catalog,
+ * his place in it is found there, and the cuts are read at that number. Dividers then appear
+ * wherever that tier increments down the available list, which is how a column with four of
+ * its tier-1 guards gone still says the men at the top of it are tier 2.
+ *
+ * `scope` is 'overall' (board rank, board cuts) or a position (its sub-order, its own cuts).
+ * A position nobody on the board plays is an empty column rather than an error.
+ */
+export function boardColumn(
+  available: MasterPlayerRow[],
+  catalog: MasterPlayerRow[],
+  tiers: TierScopeRow[],
+  scope: TierScope,
+): BoardColumn {
+  // The full order this scope's cut ranks count in: every ranked, non-excluded player on my
+  // board, in board order, narrowed to the ones listed at the position.
+  const ordered = catalog
+    .filter((row) => row.rank !== null && !row.excluded)
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+    .filter((row) => scope === SCOPE_OVERALL || row.positions.includes(scope));
+  const scopeRanks = new Map(
+    ordered.map((row, index) => [row.espn_player_id, index + 1]),
+  );
+
+  const cuts = scopeTiers(tiers, scope)?.cut_ranks ?? [];
+  const rows: ColumnRow[] = [];
+  let previous: number | null = null;
+  for (const player of available) {
+    const scopeRank = scopeRanks.get(player.espn_player_id);
+    if (scopeRank === undefined) continue; // not eligible here, or not on the board at all
+    const tier = tierAt(cuts, scopeRank) || null;
+    rows.push({ player, scopeRank, tier, startsTier: tier !== null && tier !== previous });
+    previous = tier;
+  }
+  return { scope, rows, size: ordered.length };
+}
+
+/** The position column, by name — `boardColumn` with the scope spelled out. */
+export function positionColumn(
+  available: MasterPlayerRow[],
+  catalog: MasterPlayerRow[],
+  tiers: TierScopeRow[],
+  position: Position,
+): BoardColumn {
+  return boardColumn(available, catalog, tiers, position);
+}
+
+/** The rankings view's six: best available, then one column per position, in lineup order. */
+export function rankingsColumns(
+  available: MasterPlayerRow[],
+  catalog: MasterPlayerRow[],
+  tiers: TierScopeRow[],
+): BoardColumn[] {
+  return [SCOPE_OVERALL as TierScope, ...POSITIONS].map((scope) =>
+    boardColumn(available, catalog, tiers, scope),
+  );
+}
+
+/** A run of consecutive rows in one tier — what a divider heads. */
+export type TierRun = { tier: number | null; rows: ColumnRow[] };
+
+/**
+ * A column, bucketed into its tiers for rendering.
+ *
+ * The band arithmetic is not repeated here: every row already carries the tier `tierAt` gave
+ * it over the scope's stored cuts (`lib/masterboard.ts` owns that, the same way the dividers
+ * on /my-board do). This only groups the runs, so a divider is drawn once per band rather
+ * than tested for per row.
+ */
+export function tierRuns(rows: ColumnRow[]): TierRun[] {
+  const runs: TierRun[] = [];
+  for (const row of rows) {
+    const last = runs[runs.length - 1];
+    if (last === undefined || row.startsTier) runs.push({ tier: row.tier, rows: [row] });
+    else last.rows.push(row);
+  }
+  return runs;
+}
+
+/**
+ * The sidebar's three filters, applied in one pass.
+ *
+ * All three narrow and none of them reorders: the list is my board's order whatever is
+ * showing, because "who is the best man left" is the question it exists to answer and a
+ * filter is only ever about which of them are on screen. Positions are multi-select and read
+ * as ANY of them — the reason to tick PG and SG is that either would do.
+ */
+export type SidebarFilters = {
+  term: string;
+  targetsOnly: boolean;
+  positions: Position[];
+};
+
+export function filterAvailable(
+  available: MasterPlayerRow[],
+  { term, targetsOnly, positions }: SidebarFilters,
+): MasterPlayerRow[] {
+  return available.filter((row) => {
+    if (targetsOnly && row.tag !== "target") return false;
+    if (positions.length > 0 && !positions.some((spot) => row.positions.includes(spot))) {
+      return false;
+    }
+    return matches(row, term);
+  });
+}
+
+/**
+ * His chance of lasting until my next pick, or null.
+ *
+ * Null rather than 0 for a name the map has nothing for: the field doesn't rank him, so he
+ * is not in the draft's universe and there is no simulation he could have survived. "No
+ * answer" and "gone in every room" are opposite things to print.
+ */
+export function availabilityOf(
+  map: Record<string, number>,
+  playerId: number,
+): number | null {
+  const value = map[String(playerId)];
+  return value === undefined ? null : value;
+}
+
+/* --- a team's roster, laid out in slots ---------------------------------------------------- *
+ *
+ * The sidebar's Teams tab asks a question the board and the rosters view can't answer: not
+ * "what has that seat taken" but "what does that seat's LINEUP CARD look like" — which of the
+ * five dedicated spots are filled, whether the utility slots have gone, and what is on the
+ * bench. That is a slot ASSIGNMENT, and the assignment is a rule rather than a fact on the
+ * response: nothing stored says which slot a drafted player occupies.
+ *
+ * So it is computed here, and it mirrors `app/draft/needs.py:RosterFill.add` exactly, because
+ * the same rule already decides `open_needs` on every seat of `GET /draft`. Two greedy
+ * assignments that disagreed would put a man in the PG slot on screen while the backend
+ * counted him at SG and went on calling PG a need — a page contradicting its own data.
+ * ------------------------------------------------------------------------------------------ */
+
+/** The positionless slots, named as `app/draft/config.py` names them. */
+export const UTILITY_SLOT = "UT";
+export const BENCH_SLOT = "BE";
+
+/** Who is in a slot. `positions` and `name` come off the catalog; the id is the log's. */
+export type SlotOccupant = { playerId: number; name: string; positions: string[] };
+
+/** One row of a lineup card: the slot's label, and who is in it or null. */
+export type RosterSlotRow = { slot: string; occupant: SlotOccupant | null };
+
+/** The catalog, indexed — what turns a seat's `player_ids` back into names and positions. */
+export function playersById(catalog: MasterPlayerRow[]): Map<number, MasterPlayerRow> {
+  return new Map(catalog.map((row) => [row.espn_player_id, row]));
+}
+
+/**
+ * One seat's lineup card: every slot the roster has, in lineup order, each filled or open.
+ *
+ * The slots run PG, SG, SF, PF, C (each as many times as `roster_slots` says), then UT, then
+ * BE — the order a lineup card prints them, not the order the dict happens to be in.
+ *
+ * ASSIGNMENT IS GREEDY IN DRAFT ORDER and matches `RosterFill.add` step for step: each player
+ * takes an open dedicated slot he is eligible for, else a utility slot, else the bench. His
+ * OWN position order decides which dedicated slot, which is what the backend iterates — ESPN
+ * lists positions in lineup order, so a PG/SG taken while both are open lands at PG either
+ * way, but iterating anything else here would eventually disagree with `open_needs`.
+ *
+ * Greedy, so not optimal, and deliberately: this is the card the backend's needs are counted
+ * on, not a lineup optimizer. A player past every slot is dropped rather than drawn in a slot
+ * that doesn't exist — a roster deeper than its own `roster_slots` is a draft with more rounds
+ * than the league has places, and inventing a bench row for him would be a fiction.
+ *
+ * A player the catalog has never heard of still gets his slot, listed by id: he is in the log,
+ * so the seat really does hold him, and dropping him would silently shorten the card.
+ */
+export function teamRoster(
+  playerIds: number[],
+  byId: Map<number, MasterPlayerRow>,
+  rosterSlots: Record<string, number>,
+): RosterSlotRow[] {
+  const count = (slot: string) => Math.max(0, Math.trunc(rosterSlots[slot] ?? 0));
+  const rows: RosterSlotRow[] = [
+    ...POSITIONS.flatMap((spot) =>
+      Array.from({ length: count(spot) }, () => ({ slot: spot as string, occupant: null })),
+    ),
+    ...Array.from({ length: count(UTILITY_SLOT) }, () => ({
+      slot: UTILITY_SLOT,
+      occupant: null as SlotOccupant | null,
+    })),
+    ...Array.from({ length: count(BENCH_SLOT) }, () => ({
+      slot: BENCH_SLOT,
+      occupant: null as SlotOccupant | null,
+    })),
+  ];
+
+  /** The first open row at this slot, or -1. The greedy step, over the card itself. */
+  const openAt = (slot: string) =>
+    rows.findIndex((row) => row.slot === slot && row.occupant === null);
+
+  for (const playerId of playerIds) {
+    const known = byId.get(playerId);
+    const occupant: SlotOccupant = {
+      playerId,
+      name: known?.name ?? `Player ${playerId}`,
+      positions: known?.positions ?? [],
+    };
+    let index = -1;
+    for (const spot of occupant.positions) {
+      index = openAt(spot.trim().toUpperCase());
+      if (index !== -1) break;
+    }
+    if (index === -1) index = openAt(UTILITY_SLOT);
+    if (index === -1) index = openAt(BENCH_SLOT);
+    if (index === -1) continue; // no place left on the card; see the header
+    rows[index].occupant = occupant;
+  }
+  return rows;
 }

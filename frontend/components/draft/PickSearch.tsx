@@ -7,18 +7,19 @@ import { candidates } from "@/lib/draft";
 import { FIELD } from "./DraftStates";
 
 /**
- * How a name gets into the draft — the one control that enters every pick in the room.
+ * Type a name, get a player — the search that RE-DECIDES a pick already made.
  *
- * There is one of these and it does two jobs, because in a snake there is only ever one seat
- * that can pick: the search under the board drafts for whoever is ON THE CLOCK, which is my
- * own pick when it is mine and TEAM SEVEN'S when it is team seven's. That is how manual mode
- * works — you type in each opponent's pick as it happens and the clock walks itself along.
- * The same component, opened from a filled cell, is the edit affordance for a pick already
- * made.
+ * It used to be two jobs: a standing box under the board that entered every pick in the room,
+ * and an edit affordance opened from a filled cell. The standing box is gone — the sidebar's
+ * list is the room's player search now, and its Draft button enters the pick on the clock for
+ * whichever seat owns it, so a second search offering the same names a few inches away was
+ * asking you to choose between two ways to do one thing. What is left is the job the sidebar
+ * cannot do: pick 7 was Jokić and should have been Jokić's teammate, and the sidebar only ever
+ * talks about the pick that is NEXT.
  *
  * WHAT IT OFFERS is the master board minus whoever has been drafted, and no narrower (see
  * `candidates` in lib/draft.ts). A player no source ranks is not in the draft's universe and
- * `POST /draft/picks` refuses him with a 422 naming him — which is a better answer than his
+ * `PUT /draft/picks/{n}` refuses him with a 422 naming him — which is a better answer than his
  * quietly not being in this list, so the list does not try to predict that refusal.
  */
 
@@ -29,7 +30,7 @@ export type PickSearchProps = {
   drafted: Set<number>;
   onChoose: (playerId: number) => void;
   isDisabled: boolean;
-  /** The edit panel opens under a cell you just clicked; the standing box does not steal focus. */
+  /** The edit panel opens under a cell you just clicked, so it asks for the cursor. */
   shouldAutoFocus?: boolean;
 };
 
@@ -56,8 +57,7 @@ export function PickSearch({
 
   useEffect(() => {
     // Mount only, and only where the caller asked: the edit panel appears under a cell you
-    // just clicked, so the cursor belongs in it. The standing box under the board does not
-    // steal focus — you might be reading the grid.
+    // just clicked, so the cursor belongs in it.
     if (shouldAutoFocus) input.current?.focus();
   }, [shouldAutoFocus]);
 

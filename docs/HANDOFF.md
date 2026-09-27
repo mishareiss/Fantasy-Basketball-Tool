@@ -25,7 +25,7 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = 93722e5. Tasks 1-21a + the CI fix are all merged. CI green.
+- main = 0584aea. Tasks 1-21b + the CI fix are all merged. CI green.
 - T20 (draft plan + live drafted-state backend) MERGED at a738569 (parent b930441). 878 tests,
   autogenerate-clean migration f3a9c41d7b62, frozen /master/board guarded. Draft backend COMPLETE.
 - T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
@@ -141,17 +141,34 @@ Roster slots PG/SG/SF/PF/C=1, UT=2, BE=13. All DRAFT_* live in Settings + pinned
   "Add draft plan panels and My Board draft mode: per-pick target/best-available with availability %,
   auto-refresh, and Off/Show/Hide drafted lens".
 >>> AFTER T21b MERGES: THE DRAFT-PLAN BUILDER IS COMPLETE (tasks 1-21b). Tool is draft-ready end to end. <<<
-- T22 PROMPTED → docs/prompts/22-draft-room-redesign.md (unstaged): draft-room UI redesign from Misha's
-  notes (2026-09-26). MERGE T21b FIRST (branch T22 off that). ONE task. Backend adds: team_names on Draft
-  (+migration), PUT /draft/config (change my_slot only when picks_made==0; merge team_names anytime),
-  GET /draft/availability (full-board availability at my next pick, candidates=None). Frontend: /draft
-  becomes persistent LEFT SIDEBAR (available by my rank + search + targets-only + position chips + tags +
-  availability% + Draft buttons disabled off my pick) + MAIN PANEL with tabs [Board|List|Roster|Rankings],
-  default Board. Board = fluid grid, all 10 cols visible (no h-scroll), names truncate. Rankings = 6 cols
-  (overall+PG/SG/SF/PF/C) by my rank w/ per-position tier breaks + availability. Roster = per-team, unmade
-  picks shown as numbered blanks. Team names default 'Team N', mine '(You)'. Seat changeable pre-draft.
-  REMOVES the T21b plan panels (DraftPlan); /draft/plan endpoint stays (now UI-unused). Heavy derivations
-  go in lib/draft.ts (pure, tested).
+- T22a BUILT + REVIEWED (this session) → docs/prompts/22a-draft-room-tweaks.md, STAGED on the SAME
+  task-22-draft-redesign BRANCH. Verified: availability flips to my FOLLOWING pick on the clock
+  (remaining[1]; last-pick-on-clock → complete/empty); teamRoster greedy fill matches needs.py;
+  board search removed + sidebar Draft now enters the on-the-clock seat so manual entry survives.
+  Backend 910 pass, no migration; frontend 228 pass + build + lint.
+  alongside T22, NOT committed. Backend 910 pass, ruff clean, still one head (a71f4e0c9d53, no new
+  migration); frontend 228 pass + build + lint. What it folded in: (1) sidebar Available/Teams tabs — Teams = team dropdown (default
+  my seat) showing that team's slot roster PG/SG/SF/PF/C/UT/UT/BE with position labels + blanks, no
+  pick numbers (pure roster-fill in lib/draft.ts mirroring needs.py); (2) GET /draft/availability targets
+  my FOLLOWING pick when I'm on the clock (_remaining[1] if is_my_pick else [0]; last-pick-on-clock →
+  complete/empty); (3) REMOVE the board PickSearch — sidebar becomes sole entry, so its Draft button is
+  enabled for the ON-THE-CLOCK seat (reverses T22's my-pick-only gating; labels whose pick), edit-pick
+  search stays (sidebar `data-sidebar="available"|"teams"`, rows `data-roster-slot`; page helper
+  `clockWords` prints "Your pick — N" / "Pick N · Team X"; availability now labelled with its target
+  pick, which is always a FUTURE one). No migration. Also NOTED: field-source SELECTION for the sim is already a backend param
+  (DraftCreate.field_source_ids) — only the setup UI to pick sources is unbuilt; queued as a small next task.
+- T22 (draft-room redesign) BUILT + REVIEWED — staged on task-22-draft-redesign, NOT committed, awaiting
+  Misha's commit. Backend 909 pass, ruff clean, migration a71f4e0c9d53 autogenerate-clean (single head);
+  frontend 219 pass + build + lint. Verified: PUT /draft/config guards (range + picks_made==0, names
+  anytime), GET /draft/availability (my next pick, candidates=None), per-position tier math (full sub-
+  order ranks). Delivered: fit-to-width board (--teams fluid grid, no h-scroll), left sidebar (available
+  by rank + search + targets-only + multi position chips + tags + availability% + on-clock-only Draft),
+  tabs [Board|List|Roster|Rankings] default Board, team names ('Team N'/'(You)'), pre-draft seat change.
+  DraftPlan.tsx deleted; /draft/plan endpoint kept (UI-unused). Suggested commit (no trailers): "Redesign
+  draft room: fit-to-width board, available-players sidebar, and Board/List/Roster/Rankings tabs; add team
+  names, pre-draft seat change, and full-board availability" — T22a is folded into the same commit.
+  Stray untracked dup
+  'docs/prompts/22-draft-room-redesign 2.md' (iCloud copy) — not staged, delete anytime.
 Remaining backlog (no prompts written):
   1. Per-source consensus WEIGHTING (trust Dizzle 2x ESPN) — the one deferred ranking feature; needs a
      store for weights + a calibration path (see app/ranking/consensus.py EQUAL-WEIGHT note).

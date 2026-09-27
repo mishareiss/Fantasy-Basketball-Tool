@@ -6,7 +6,7 @@ status codes, and builds the one thing the engine deliberately stops short of �
 round-by-round PLAN, which is my board joined to the availability numbers at each of my
 upcoming picks.
 
-Seven verbs over one draft, and they are the things that happen in a draft room:
+Nine verbs over one draft, and they are the things that happen in a draft room:
 
 * `POST /draft` — start one. There is ONE (see below); a second is a 409 unless it is told to
   replace the first. The config is SNAPSHOTTED onto the row, so the draft is self-describing
@@ -20,7 +20,11 @@ Seven verbs over one draft, and they are the things that happen in a draft room:
 * `POST /draft/undo` — take the last pick back, auto or manual. The fix for a mis-entry, and
   the way to re-roll a sim advance.
 * `POST /draft/reset` — same config, no picks. Start the mock over.
-* `GET /draft/plan` — the point of all of it (below).
+* `PUT /draft/config` — the seat, before a pick is made, and the seats' NAMES at any time.
+* `GET /draft/plan` — my board at each of my upcoming picks (below).
+* `GET /draft/availability` — the same probability as the plan's, over the WHOLE available
+  board at the next pick of mine there is a WAIT before, so a page can put a percentage on any
+  name it draws.
 
 ONE ACTIVE DRAFT, deliberately. Not a session per mock: there is one startup and one seat in
 it, and a list of saved drafts would need an owner, a name and a picker, none of which exist.
@@ -95,6 +99,13 @@ FIELD_SOURCES_DESCRIPTION = (
     "is being MODELLED rather than a per-request preference. An unknown id is a 400."
 )
 
+TEAM_NAMES_DESCRIPTION = (
+    "What the seats are called, keyed by seat number as a STRING: "
+    "`{'1': 'Sam', '4': 'The Process'}`. Seats left out (or given an empty name) render as "
+    "'Team {slot}'. Purely cosmetic — no pick, no need, no autopick weight and no "
+    "availability number reads a name. A key outside 1..team_count is a 422."
+)
+
 NO_DRAFT = (
     "There is no draft. POST /draft starts one — it takes the shape from DRAFT_* and the "
     "field from the consensus, so an empty body is a complete request."
@@ -129,6 +140,10 @@ class DraftTeamRow(BaseModel):
     """
 
     team_slot: int
+    # What this seat is CALLED: the stored name, or "Team {slot}" when it has none. Resolved
+    # here rather than on the page so one answer to "what is seat 4 called" exists, and
+    # cosmetic all the way down — nothing in the engine reads it.
+    name: str
     is_me: bool = False
     # In the order this seat drafted them.
     player_ids: list[int] = []
@@ -201,6 +216,24 @@ class DraftCreate(BaseModel):
         description="ESPN's `lineupSlotCounts` shape, `{'PG': 1, ..., 'UT': 2, 'BE': 13}`. "
         "Only the five dedicated starter slots in it affect anything — UT and the bench take "
         "anyone. Defaults to our startup roster.",
+    )
+    team_names: dict[str, str] | None = Field(None, description=TEAM_NAMES_DESCRIPTION)
+
+
+class DraftConfigWrite(BaseModel):
+    """What can be changed about a draft without throwing its picks away."""
+
+    my_slot: int | None = Field(
+        None,
+        description="My 1-based seat. Accepted only while the draft is EMPTY — once a pick "
+        "has been made the seat is part of what those picks mean, and changing it is a "
+        "reconfigure (POST /draft?reset=true), not an edit.",
+    )
+    team_names: dict[str, str] | None = Field(
+        None,
+        description=TEAM_NAMES_DESCRIPTION + " MERGED into what is stored rather than "
+        "replacing it, so naming one seat leaves the others alone; an empty string clears a "
+        "name back to 'Team {slot}'. Accepted at any point in the draft — a name is cosmetic.",
     )
 
 
@@ -332,6 +365,21 @@ class DraftPlanResponse(BaseModel):
     picks: list[PlanPickRow] = []
 
 
+class DraftAvailabilityResponse(BaseModel):
+    """How likely every player still on the board is to last until my next WAITING pick."""
+
+    # Which pick the numbers are about: my next one while I am waiting, the one AFTER this one
+    # while I am on the clock (see `get_draft_availability` — everybody is 1.0 at a pick I am
+    # already making). Null when there isn't one.
+    pick_number: int | None = None
+    # Nothing left to be available FOR: the draft is over, I have no pick remaining in it, or I
+    # am on the clock at my last one. `availability` is empty in all three.
+    is_complete: bool = False
+    # player id -> chance in [0, 1] he is still there at `pick_number`. EVERY available
+    # player the field ranks, so a page can put a number on any name it draws.
+    availability: dict[int, float] = {}
+
+
 # --- the draft, loaded -------------------------------------------------------------------------
 
 
@@ -375,6 +423,49 @@ def _identities(db: Session, player_ids: set[int]) -> dict[int, Player]:
         player.espn_player_id: player
         for player in db.scalars(select(Player).where(Player.espn_player_id.in_(player_ids)))
     }
+
+
+def _team_name(names: dict | None, slot: int) -> str:
+    """What a seat is called: its stored name, or "Team {slot}".
+
+    The default is computed rather than stored, so a draft created without names is a NULL
+    column and not ten rows of the string the page would have printed anyway.
+    """
+    stored = (names or {}).get(str(slot))
+    if isinstance(stored, str) and stored.strip():
+        return stored.strip()
+    return f"Team {slot}"
+
+
+def _clean_names(names: dict[str, str] | None, team_count: int) -> dict[str, str]:
+    """Validate a slot->name map and drop the blanks, or 422.
+
+    Keys are seat numbers as strings (JSON has no integer keys); a key that isn't one, or is
+    outside 1..team_count, is a 422 rather than a name quietly attached to nobody. A blank
+    name is not stored at all — it IS the default, and storing it would be storing the string
+    `_team_name` would have produced.
+    """
+    if not names:
+        return {}
+    cleaned: dict[str, str] = {}
+    for key, value in names.items():
+        try:
+            slot = int(key)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"team_names key {key!r} is not a seat number; keys are 1..{team_count} as "
+                "strings, e.g. {'1': 'Sam'}",
+            ) from None
+        if not 1 <= slot <= team_count:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"team_names has a name for seat {slot}, which is outside 1..{team_count}",
+            )
+        trimmed = (value or "").strip()
+        if trimmed:
+            cleaned[str(slot)] = trimmed
+    return cleaned
 
 
 def _needs(open_dedicated: frozenset[str]) -> list[str]:
@@ -432,6 +523,7 @@ def _state_response(db: Session, draft: Draft, state: DraftState) -> DraftStateR
         teams=[
             DraftTeamRow(
                 team_slot=slot,
+                name=_team_name(draft.team_names, slot),
                 is_me=slot == config.my_slot,
                 player_ids=state.roster(slot),
                 open_needs=_needs(state.open_dedicated(slot)),
@@ -541,6 +633,9 @@ def post_draft(
         field_horizon=horizon,
         field_source_ids=list(source_ids) if source_ids else None,
         mode=mode,
+        # Empty stays NULL: "nobody is named" is the column's own default, not a map of ten
+        # blanks. Validated before anything is written, like the seat above it.
+        team_names=_clean_names(payload.team_names, config.team_count) or None,
     )
 
     if existing is not None:
@@ -581,6 +676,69 @@ def post_draft_reset(db: Session = Depends(get_db)) -> DraftStateResponse:
     db.execute(delete(DraftPick).where(DraftPick.draft_id == draft.id))
     _touch(draft)
     db.flush()
+    state, _ = _load(db, draft)
+    response = _state_response(db, draft, state)
+    db.commit()
+    return response
+
+
+@router.put("/config", response_model=DraftStateResponse)
+def put_draft_config(
+    payload: DraftConfigWrite = Body(...),
+    db: Session = Depends(get_db),
+) -> DraftStateResponse:
+    """Change the seat (before a pick is made) or what the seats are called (at any point).
+
+    TWO FIELDS WITH DIFFERENT RULES, and the difference is the whole endpoint. A NAME is
+    cosmetic: nothing in the engine reads it, so it can be edited at pick 1 or pick 141 and
+    nothing that has happened means anything different afterwards. THE SEAT is not: a pick
+    number only means something under one shape (`app.db.models.draft`), and moving my seat
+    after pick 19 would silently re-label every pick already made as somebody else's. So the
+    seat moves only while the draft is EMPTY — which is the case that actually happens, the
+    "I set it to 2 and I'm actually at 7" noticed before the room starts — and a started
+    draft answers 422 pointing at the reconfigure that can do it, by throwing the picks away.
+
+    Sitting between `POST /draft?reset=true` (replace everything) and nothing at all: an
+    empty draft has no picks to protect, so making the seat correctable without a reset is a
+    button that loses nothing.
+
+    Names MERGE rather than replace, so naming one seat leaves the other nine alone; an empty
+    string clears one back to "Team {slot}".
+    """
+    draft = _require(db)
+    state, _ = _load(db, draft)
+
+    if payload.my_slot is not None and payload.my_slot != draft.my_slot:
+        if not 1 <= payload.my_slot <= draft.team_count:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"my_slot {payload.my_slot} is outside 1..{draft.team_count}",
+            )
+        if len(state.selections) > 0:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"this draft is {len(state.selections)} pick"
+                f"{'' if len(state.selections) == 1 else 's'} in, so the seat is part of what "
+                "those picks mean — reconfigure to change a started draft's seat "
+                "(POST /draft?reset=true), which throws them away. Names can still be "
+                "changed here.",
+            )
+        draft.my_slot = payload.my_slot
+
+    if payload.team_names is not None:
+        merged = dict(draft.team_names or {})
+        merged.update(_clean_names(payload.team_names, draft.team_count))
+        # A name submitted blank is a name removed: `_clean_names` drops it from the update,
+        # so it has to be taken out of the merge explicitly rather than surviving it.
+        for key, value in payload.team_names.items():
+            if not (value or "").strip():
+                merged.pop(str(int(key)), None)
+        draft.team_names = merged or None
+
+    _touch(draft)
+    db.flush()
+    # Re-replayed rather than patched: a new seat changes whose picks the ones already in the
+    # log were, which is `is_mine` on every row and the whole `teams` block.
     state, _ = _load(db, draft)
     response = _state_response(db, draft, state)
     db.commit()
@@ -977,6 +1135,93 @@ def get_draft_plan(
             )
             for number in planned
         ],
+    )
+
+
+@router.get("/availability", response_model=DraftAvailabilityResponse)
+def get_draft_availability(
+    db: Session = Depends(get_db),
+    iterations: int | None = Query(
+        None,
+        ge=1,
+        description="Monte-Carlo iterations. Defaults to DRAFT_SIM_ITERATIONS. The standard "
+        "error on a 50% answer is about 1.6 points at 1,000.",
+    ),
+    seed: int = Query(
+        DEFAULT_SIM_SEED,
+        description="The RNG seed. Fixed by default, deliberately: a percentage someone "
+        "compares between two refreshes must not move on its own.",
+    ),
+) -> DraftAvailabilityResponse:
+    """The whole available board's chance of lasting until my next pick.
+
+    `GET /draft/plan` answers the same question about a SHORTLIST — the top of my board and
+    my targets, at each of my upcoming picks. This answers it about EVERYONE, at one pick.
+    That is the difference worth knowing: a page that draws a rankings column two hundred
+    names deep, or a sidebar the search can reach the whole board through, needs a number for
+    any name it might put on screen, and asking the plan for a `size` big enough to cover
+    that is asking the wrong endpoint a bigger question.
+
+    IT IS CHEAP, which is the fact that makes this endpoint possible at all. The cost of a
+    Monte Carlo here is the opponent picks it has to SIMULATE, not the players it tracks —
+    `simulate_availability` counts from the taken side, so tracking two hundred names and
+    tracking eight cost within a rounding error of each other (`app.draft.availability`).
+    One target pick rather than four also makes it the cheapest availability run on the site.
+
+    ONE PICK, AND IT IS ALWAYS A FUTURE ONE. Availability at a pick nothing of mine
+    intervenes before is the exact number given the committed state, so it needs none of the
+    "as though I take nobody in between" caveat the plan's later picks carry. Which pick that
+    is depends on the clock, and the distinction is the difference between a useful number and
+    a column of 100%:
+
+    * WAITING (somebody else is on the clock): my NEXT pick, `_remaining[0]`. The wait between
+      now and it is exactly the opponent picks the Monte Carlo has to draw.
+    * ON THE CLOCK: the pick AFTER this one, `_remaining[1]`. `_remaining[0]` is the pick I am
+      making right now, and nothing happens between now and it — everybody would be 1.0, which
+      answers no question anybody has. "Can I wait on him?" is a question about the NEXT time
+      round, so that is the pick the number is about.
+
+    Either way `pick_number` says which pick it is, because a percentage about pick 19 read as
+    a percentage about pick 2 is worse than no percentage at all.
+
+    ON THE CLOCK AT MY LAST PICK there is no next time round, so there is nothing to wait for:
+    that reads as complete, the same shape a finished draft answers with.
+
+    Keyed by player id, over every still-available player the FIELD ranks — a player nobody
+    ranks is not in the draft's universe and has no availability to report, so he is absent
+    rather than carrying a 100% that means nothing.
+    """
+    settings = get_settings()
+    draft = _require(db)
+    state, board = _load(db, draft)
+
+    remaining = _remaining(state)
+    # Nothing to be available for — no pick of mine left at all, or, on the clock, no pick of
+    # mine AFTER this one. Reported as complete rather than as an empty map with a pick
+    # number, so the caller doesn't have to tell "no answer" from "0% for all".
+    wanted = 1 if state.is_my_pick else 0
+    if state.is_complete or len(remaining) <= wanted:
+        return DraftAvailabilityResponse(pick_number=None, is_complete=True, availability={})
+
+    number = remaining[wanted]
+    computed = simulate_availability(
+        state,
+        board,
+        [number],
+        iterations=iterations or settings.draft_sim_iterations,
+        seed=seed,
+        top_k=settings.draft_autopick_topk,
+        temperature=settings.draft_autopick_temperature,
+        need_mult=settings.draft_autopick_need_mult,
+        # The whole available field-ranked board. See the docstring: this is the cheap axis.
+        candidates=None,
+    )
+    return DraftAvailabilityResponse(
+        pick_number=number,
+        is_complete=False,
+        availability={
+            player_id: values[number] for player_id, values in computed.items() if number in values
+        },
     )
 
 

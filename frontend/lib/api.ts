@@ -695,6 +695,10 @@ export type DraftPickRow = {
 /** One seat: what it has taken, and what it still starts nobody at — draft.py: DraftTeamRow. */
 export type DraftTeamRow = {
   team_slot: number;
+  /** What this seat is CALLED: its stored name, or "Team {slot}". Resolved server-side, so
+      the page never has to build the default itself. Cosmetic — nothing in the engine reads
+      it, which is why it can be edited mid-draft while the seat cannot. */
+  name: string;
   is_me: boolean;
   /** Player ids, in the order this seat drafted them. Their names are in `log`. */
   player_ids: number[];
@@ -755,6 +759,22 @@ export type DraftCreateBody = {
   field_horizon?: string;
   field_source_ids?: string[];
   roster_slots?: Record<string, number>;
+  /** What the seats are called, keyed by seat number as a STRING (`{ "1": "Sam" }`) — JSON
+      has no integer keys. Seats left out render as "Team {slot}". */
+  team_names?: Record<string, string>;
+};
+
+/** The body of PUT /draft/config — draft.py: DraftConfigWrite.
+ *
+ *  The two fields have different rules and the difference is the endpoint: a NAME is
+ *  cosmetic and merges at any point in the draft; the SEAT is part of what the picks already
+ *  made mean, so it moves only while the draft is EMPTY and is a 422 after that (the
+ *  reconfigure path, which throws the picks away, is the only way to change it then). */
+export type DraftConfigBody = {
+  my_slot?: number;
+  /** MERGED into the stored names, not a replacement: naming one seat leaves the rest alone.
+      An empty string clears one back to "Team {slot}". */
+  team_names?: Record<string, string>;
 };
 
 /** The body of POST /draft/picks — draft.py: DraftPickWrite. */
@@ -846,6 +866,28 @@ export type DraftPlanResponse = {
 
 /** The query of GET /draft/plan. Every one of them is optional — the backend's defaults are
  *  DRAFT_SIM_ITERATIONS, a FIXED seed, all of my remaining picks, and DRAFT_PLAN_SIZE. */
+/**
+ * Every available player's chance of lasting until my next pick — draft.py:
+ * DraftAvailabilityResponse.
+ *
+ * The same probability the plan carries, asked about EVERYBODY rather than about a
+ * shortlist, at ONE pick rather than four. That is what lets a sidebar and a six-column
+ * rankings view put a percentage on any name they draw: the plan's `size` would have to be
+ * the whole board to cover them, and this is the endpoint that question belongs to. The cost
+ * of the Monte Carlo is the opponent picks it simulates, not the players it tracks, so
+ * asking about a thousand names is not a thousand times the work.
+ */
+export type DraftAvailabilityResponse = {
+  /** The pick the numbers are about — my next one. Null when there isn't one. */
+  pick_number: number | null;
+  /** Nothing left to be available FOR: the draft is over, or I have no pick remaining in
+      it. `availability` is empty either way. */
+  is_complete: boolean;
+  /** Player id (as a JSON object key, so a string) -> chance in [0, 1] he is still there. A
+      player the FIELD doesn't rank is absent rather than carrying a meaningless 100%. */
+  availability: Record<string, number>;
+};
+
 export type DraftPlanParams = {
   /** How many of my upcoming picks to plan for. Pass 3 or 4 while a clock is running:
       planning all of them from pick 1 simulates nearly the whole draft a thousand times. */
@@ -1209,4 +1251,25 @@ export const api = {
         seed: params.seed,
       })}`,
     ),
+
+  /**
+   * How likely every player still on the board is to last until my next pick.
+   *
+   * One read for the whole page's percentages — the sidebar and every rankings column join
+   * their rows to this map by player id. Re-read whenever the draft moves, because an
+   * availability is a statement about the picks already made.
+   *
+   * A 404 means there is no draft, which callers handle the way `getDraft` does.
+   */
+  draftAvailability: () => request<DraftAvailabilityResponse>("/draft/availability"),
+
+  /**
+   * Change my seat (only while the draft is EMPTY) or what the seats are called (whenever).
+   *
+   * The asymmetry is the backend's: a name is cosmetic, a seat is part of what the picks
+   * already made mean. A seat change on a started draft is a 422 pointing at the
+   * reconfigure — `createDraft(body, true)` — which can do it by throwing the picks away.
+   */
+  updateDraftConfig: (body: DraftConfigBody) =>
+    put<DraftStateResponse>("/draft/config", body),
 };

@@ -9,7 +9,10 @@ Four sections, and they are four different kinds of claim:
 * the SIM ADVANCE — it commits the room's picks and it STOPS AT MY SEAT. That last one is the
   modelling rule the whole feature rests on, so it is asserted directly rather than inferred;
 * the PLAN — two lists per upcoming pick, joined to availability numbers that are in [0, 1],
-  non-increasing across my later picks, and reproducible under a seed.
+  non-increasing across my later picks, and reproducible under a seed;
+* the SEATS AND THE WHOLE-BOARD AVAILABILITY — what a seat is called (cosmetic, editable at
+  any point), which seat is mine (frozen the moment a pick is made), and the one number the
+  plan answers for a shortlist answered for everybody still on the board.
 
 Offline throughout: the field is the consensus of the recorded ESPN fixtures, the room is the
 seeded autopick, and every availability is a fixed-seed Monte Carlo over a hundred iterations.
@@ -204,6 +207,8 @@ def test_every_endpoint_is_a_404_with_a_way_forward_before_a_draft_exists(api, s
     for method, path, body in (
         ("get", "/draft", None),
         ("get", "/draft/plan", None),
+        ("get", "/draft/availability", None),
+        ("put", "/draft/config", {"my_slot": 3}),
         ("post", "/draft/reset", None),
         ("post", "/draft/undo", None),
         ("post", "/draft/picks", {"player_id": field[0]}),
@@ -910,3 +915,241 @@ def test_an_empty_board_is_an_empty_plan_rather_than_an_error(api, synced):
     assert body["available_on_board"] == 0
     assert body["picks"] == []
     assert body["is_complete"] is False
+
+
+# --- the seats: what they are called, and which one is mine -------------------------------------
+
+
+def test_the_seats_are_named_team_n_until_somebody_names_them(api, synced):
+    body = create(api)
+
+    assert [row["name"] for row in body["teams"]][:3] == ["Team 1", "Team 2", "Team 3"]
+    # Mine is a seat like any other: the name is cosmetic, `is_me` is the fact.
+    assert team(body, 2)["name"] == "Team 2" and team(body, 2)["is_me"] is True
+
+
+def test_team_names_round_trip_through_create_and_default_the_rest(api, synced):
+    body = create(api, team_names={"1": "Sam", "4": "The Process"})
+
+    assert team(body, 1)["name"] == "Sam"
+    assert team(body, 4)["name"] == "The Process"
+    # A seat nobody named is still "Team {slot}" — the default is computed, not stored.
+    assert team(body, 2)["name"] == "Team 2"
+    # And it survives a re-read, which is the half that says it was persisted.
+    assert team(api.get("/draft").json(), 1)["name"] == "Sam"
+
+
+def test_a_name_for_a_seat_that_does_not_exist_is_a_422(api, synced):
+    refused = api.post("/draft", json={"team_names": {"11": "Nobody"}})
+
+    assert refused.status_code == 422
+    assert "1..10" in refused.json()["detail"]
+    # The 422 came before the row, like every other validation on create.
+    assert api.get("/draft").status_code == 404
+
+
+def test_the_seat_can_be_changed_while_the_draft_is_empty(api, synced):
+    create(api)
+
+    body = api.put("/draft/config", json={"my_slot": 7})
+
+    assert body.status_code == 200
+    state = body.json()
+    assert state["my_slot"] == 7
+    assert team(state, 7)["is_me"] is True and team(state, 2)["is_me"] is False
+    # The snake re-reads off the new seat, which is the point of changing it.
+    assert state["my_pick_numbers"][:3] == [7, 14, 27]
+    assert state["picks_made"] == 0
+
+
+def test_the_seat_is_frozen_once_a_pick_has_been_made(api, synced, field):
+    create(api)
+    pick(api, field[0])
+
+    refused = api.put("/draft/config", json={"my_slot": 7})
+
+    assert refused.status_code == 422
+    assert "reconfigure" in refused.json()["detail"]
+    # Nothing moved: the pick that was made is still somebody else's.
+    assert api.get("/draft").json()["my_slot"] == 2
+
+
+def test_the_seat_it_already_is_is_accepted_whatever_the_draft_has_done(api, synced, field):
+    """Re-submitting the current seat is a no-op, not a refusal — the form sends both fields."""
+    create(api)
+    pick(api, field[0])
+
+    body = api.put("/draft/config", json={"my_slot": 2, "team_names": {"3": "Kev"}})
+
+    assert body.status_code == 200
+    assert body.json()["my_slot"] == 2
+    assert team(body.json(), 3)["name"] == "Kev"
+
+
+def test_names_merge_at_any_point_in_the_draft_and_clear_with_a_blank(api, synced, field):
+    create(api, team_names={"1": "Sam", "3": "Kev"})
+    pick(api, field[0])
+
+    merged = api.put("/draft/config", json={"team_names": {"3": "Kevin", "5": "Zo"}}).json()
+
+    # Merged, not replaced: seat 1 was not in the body and kept its name.
+    assert team(merged, 1)["name"] == "Sam"
+    assert team(merged, 3)["name"] == "Kevin"
+    assert team(merged, 5)["name"] == "Zo"
+
+    cleared = api.put("/draft/config", json={"team_names": {"1": ""}}).json()
+    assert team(cleared, 1)["name"] == "Team 1"
+    assert team(cleared, 3)["name"] == "Kevin"
+    # A name is cosmetic all the way down: the pick that was made is untouched by any of it.
+    assert cleared["picks_made"] == 1
+
+
+def test_a_nonsense_name_key_is_a_422_on_the_config_too(api, synced):
+    create(api)
+
+    assert api.put("/draft/config", json={"team_names": {"nope": "x"}}).status_code == 422
+    assert api.put("/draft/config", json={"team_names": {"0": "x"}}).status_code == 422
+    assert api.put("/draft/config", json={"my_slot": 0}).status_code == 422
+    assert api.put("/draft/config", json={"my_slot": 11}).status_code == 422
+    assert api.get("/draft").json()["my_slot"] == 2
+
+
+# --- availability over the whole board ----------------------------------------------------------
+
+
+def availability(api, **params) -> dict:
+    query = "&".join(
+        f"{key}={value}" for key, value in {"iterations": ITERATIONS, **params}.items()
+    )
+    response = api.get(f"/draft/availability?{query}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_availability_covers_every_available_player_at_my_next_pick(api, synced, field):
+    create(api)
+    # Two picks, so the clock has moved PAST my seat: I am waiting again, which is the case
+    # where the target is simply my next pick.
+    pick(api, field[0])
+    pick(api, field[1])
+
+    body = availability(api)
+
+    state = api.get("/draft").json()
+    assert state["is_my_pick"] is False
+    assert body["is_complete"] is False
+    assert body["pick_number"] == state["my_remaining_pick_numbers"][0]
+    # The whole available field-ranked board, not a shortlist: every player in the universe
+    # minus the ones already taken.
+    drafted = {row["espn_player_id"] for row in state["log"]}
+    assert set(map(int, body["availability"])) == {
+        player_id for player_id in field if player_id not in drafted
+    }
+    assert all(0.0 <= value <= 1.0 for value in body["availability"].values())
+
+
+def test_the_top_of_the_field_is_less_available_than_a_deep_name(api, synced, field):
+    """The one direction the simulation guarantees, over a wait long enough to show it."""
+    create(api, my_slot=10)
+
+    body = availability(api)
+
+    numbers = {int(key): value for key, value in body["availability"].items()}
+    # Nine opponent picks before my seat comes up: the consensus #1 is very unlikely to last,
+    # and the bottom of the field's board is all but certain to.
+    assert numbers[field[0]] < numbers[field[-1]]
+    assert numbers[field[0]] < 0.5
+    assert numbers[field[-1]] > 0.9
+
+
+def test_availability_reaches_far_past_the_plan_s_size(api, aged, field):
+    """What this endpoint is FOR: a number for any name a deep column might draw."""
+    create(api)
+    settings = get_settings()
+
+    body = availability(api)
+
+    # The plan lists `size` names; this covers the board, which here is the whole fixture
+    # field and in the real one is a thousand.
+    assert len(body["availability"]) == len(field)
+    assert len(body["availability"]) > settings.draft_plan_size
+    # Names the plan's default list would never have reached still carry a number.
+    for player_id in field[settings.draft_plan_size :]:
+        assert str(player_id) in body["availability"]
+
+
+def test_the_same_seed_gives_the_same_availability_twice(api, synced):
+    create(api)
+
+    first = api.get(f"/draft/availability?iterations={ITERATIONS}&seed=7").text
+    second = api.get(f"/draft/availability?iterations={ITERATIONS}&seed=7").text
+    third = api.get(f"/draft/availability?iterations={ITERATIONS}&seed=8").text
+
+    assert first == second
+    assert first != third
+
+
+def test_a_player_already_taken_is_simply_not_in_the_map(api, synced, field):
+    create(api)
+    pick(api, field[0])
+
+    body = availability(api)
+
+    assert str(field[0]) not in body["availability"]
+    assert str(field[1]) in body["availability"]
+
+
+def test_on_the_clock_the_target_is_the_pick_after_this_one(api, synced, field):
+    """The number that is worth having on the clock is about the NEXT time round.
+
+    At the pick I am making, nothing intervenes and everybody is trivially 1.0 — a column of
+    100% answering no question. "Can I wait on him?" is about my following pick, so that is
+    the pick the percentages are computed at and `pick_number` says so.
+    """
+    create(api)
+    api.post("/draft/simulate", json={"seed": 4})
+
+    body = availability(api)
+
+    state = api.get("/draft").json()
+    assert state["is_my_pick"] is True
+    remaining = state["my_remaining_pick_numbers"]
+    # Pick 19, not the pick 2 I am on the clock for.
+    assert body["pick_number"] == remaining[1]
+    assert body["pick_number"] != state["next_pick_number"]
+    assert body["is_complete"] is False
+    # Seventeen opponent picks of waiting, so nobody near the top is a certainty any more.
+    numbers = {int(key): value for key, value in body["availability"].items()}
+    best = next(player_id for player_id in field if player_id in numbers)
+    assert numbers[best] < 1.0
+    assert set(numbers.values()) != {1.0}
+
+
+def test_on_the_clock_at_my_last_pick_there_is_nothing_to_wait_for(api, synced, small, field):
+    """The edge of the rule above: no following pick, so no wait, so nothing to report."""
+    create(api)
+    # 3 teams x 2 rounds puts my picks at 2 and 5; four picks in leaves me on the clock at 5.
+    for player_id in field[:4]:
+        pick(api, player_id)
+    state = api.get("/draft").json()
+    assert (state["is_my_pick"], state["next_pick_number"]) == (True, 5)
+    assert state["my_remaining_pick_numbers"] == [5]
+
+    body = availability(api)
+
+    # The same shape a finished draft answers with: no pick to be available for.
+    assert body["is_complete"] is True
+    assert body["pick_number"] is None
+    assert body["availability"] == {}
+
+
+def test_a_complete_draft_has_nothing_left_to_be_available_for(api, synced, small, field):
+    create(api)
+    for player_id in field[:6]:
+        pick(api, player_id)
+
+    body = availability(api)
+
+    assert body["is_complete"] is True
+    assert body["pick_number"] is None
+    assert body["availability"] == {}

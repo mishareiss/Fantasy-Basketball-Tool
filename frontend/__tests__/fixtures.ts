@@ -1,6 +1,7 @@
 import type {
   AliasResponse,
   DraftAdvanceResponse,
+  DraftAvailabilityResponse,
   DraftPickRow,
   DraftPlanResponse,
   DraftStateResponse,
@@ -927,12 +928,17 @@ export function draftState({
   mySlot = DRAFT_MY_SLOT,
   mode = "simulation",
   picks = [],
+  teamNames = {},
 }: {
   teamCount?: number;
   rounds?: number;
   mySlot?: number;
   mode?: string;
   picks?: DraftSeed[];
+  /** Seat number (as a string key, the way the API holds them) -> what it is called. A seat
+      left out is "Team {slot}", which is the backend's computed default and not a stored
+      string. */
+  teamNames?: Record<string, string>;
 } = {}): DraftStateResponse {
   const order = snakeOrder(teamCount, rounds);
   const total = teamCount * rounds;
@@ -980,6 +986,7 @@ export function draftState({
     log,
     teams: Array.from({ length: teamCount }, (_, index) => index + 1).map((slot) => ({
       team_slot: slot,
+      name: teamNames[String(slot)]?.trim() || `Team ${slot}`,
       is_me: slot === mySlot,
       player_ids: log.filter((pick) => pick.team_slot === slot).map((p) => p.espn_player_id),
       open_needs: DEDICATED.filter(
@@ -1002,6 +1009,41 @@ export function draftAdvance(
   seed = 4242,
 ): DraftAdvanceResponse {
   return { seed, picks: made, state };
+}
+
+/**
+ * `GET /draft/availability`: every available player's chance of lasting to my next WAITING pick.
+ *
+ * WHICH PICK THAT IS depends on the clock, and the fixture mirrors the endpoint's rule rather
+ * than restating it: my next pick while somebody else is picking, the pick AFTER this one while
+ * I am on the clock (everybody is trivially 100% at a pick I am already making), and nothing at
+ * all when I am on the clock at my last pick. A fixture that always answered
+ * `my_remaining_pick_numbers[0]` would be a backend that doesn't exist.
+ *
+ * Otherwise it is derived from the state the same way the plan is, over the same arithmetic —
+ * falling with the wait and falling faster for the better player — so a fixture's percentages
+ * can never describe a draft that isn't the one on screen.
+ *
+ * The map covers every MASTER_SEEDS player still on the board, which is what the endpoint
+ * does: the whole available field-ranked board, not a shortlist.
+ */
+export function draftAvailability(
+  state: DraftStateResponse = draftState(),
+): DraftAvailabilityResponse {
+  const gone = new Set(state.log.map((pick) => pick.espn_player_id));
+  const next = state.next_pick_number;
+  const remaining = state.my_remaining_pick_numbers;
+  const mine = (state.is_my_pick ? remaining[1] : remaining[0]) ?? null;
+  if (mine === null || next === null) {
+    return { pick_number: null, is_complete: true, availability: {} };
+  }
+  const away = mine - next;
+  const availability: Record<string, number> = {};
+  MASTER_SEEDS.forEach((seed, index) => {
+    if (gone.has(seed.espn_player_id)) return;
+    availability[String(seed.espn_player_id)] = availabilityOf(index, away);
+  });
+  return { pick_number: mine, is_complete: false, availability };
 }
 
 /* ---------------------------------------------------------------------------------------- *

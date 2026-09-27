@@ -27,6 +27,13 @@ Manual entry and a simulated opponent pick produce the same row, distinguished o
 one ordered scan. `mode` on the draft is a UI preference (does the room advance itself?), NOT a
 constraint: both entering a pick by hand and advancing the sim work in either mode.
 
+TEAM NAMES ARE COSMETIC, and they are on `draft` rather than in a table of seats because a
+seat is not a thing here — it is a number the snake already owns. `team_names` is a JSON
+slot->name map, read only by the response that renders the board's column headers; no pick,
+no need, no autopick weighting and no availability number changes because a seat is called
+something. That is why it can be edited mid-draft (`PUT /draft/config`) while the seat I sit
+in cannot.
+
 WHAT IS DELIBERATELY NOT STORED: availability. Those percentages are a Monte Carlo over the
 state, recomputed on request and cheap (`app.draft.availability`); persisting them would be
 persisting a derivation that goes stale the instant the next pick lands. Also not stored: a
@@ -95,6 +102,14 @@ class Draft(Base):
 
     # 'simulation' | 'manual'. A preference, not a constraint (see the module docstring).
     mode: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    # What the other seats are CALLED, `{'1': 'Sam', '4': 'The Process'}` — slot number as a
+    # string key, because JSON has no integer keys on either dialect. Cosmetic and nothing
+    # else: no pick, no need and no availability reads it, and a slot with no entry renders
+    # as "Team {slot}". JSON rather than a table for the same reason `roster_slots` is one —
+    # nothing queries it, it is handed out whole. NULL is "none of them are named", which a
+    # draft started from an empty body is.
+    team_names: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -17,9 +17,16 @@ import { FIELD, PRIMARY_BUTTON } from "./DraftStates";
  * room is assumed to draft off, the roster shape) lives behind "advanced", where it says so
  * and changes nothing.
  *
- * `teamCount` is passed in only to bound the seat input, and comes from `DRAFT_TEAM_COUNT`
- * by way of whatever draft last existed — before the first one there is nothing to ask, so
- * the field takes any positive seat and the backend 422s a nonsense one.
+ * `teamCount` is passed in only to bound the seat input and to know HOW MANY name fields to
+ * draw, and it comes from `DRAFT_TEAM_COUNT` by way of whatever draft last existed — before
+ * the first one there is nothing to ask, so the seat field takes any positive number and the
+ * backend 422s a nonsense one.
+ *
+ * THE NAMES ARE OPTIONAL AND THEY ARE ONLY DRAWN WHEN THE LEAGUE'S SIZE IS KNOWN. A name for
+ * a seat that doesn't exist is a 422 that would refuse the whole draft, and before the first
+ * one this page genuinely does not know whether the league has eight seats or twelve — so
+ * rather than guess ten, the very first draft starts unnamed and the seats are named from the
+ * room itself (`DraftSeats`, which can do it at any point because a name is cosmetic).
  */
 
 export const MODE_LABEL: Record<DraftMode, string> = {
@@ -35,17 +42,23 @@ const MODE_HINT: Record<DraftMode, string> = {
 export function DraftSetup({
   teamCount,
   defaultSlot,
+  defaultNames = {},
   isBusy,
   onStart,
 }: {
-  /** Only to bound the seat input; null before any draft has told us the league's size. */
+  /** Bounds the seat input and decides how many name fields there are; null before any
+      draft has told us the league's size. */
   teamCount: number | null;
   defaultSlot: number | null;
+  /** The names the draft being reconfigured already had, so a reconfigure doesn't silently
+      drop them. Keyed by seat number as a string, the way the API holds them. */
+  defaultNames?: Record<string, string>;
   isBusy: boolean;
   onStart: (body: DraftCreateBody) => void;
 }) {
   const [slot, setSlot] = useState<string>(defaultSlot === null ? "" : String(defaultSlot));
   const [mode, setMode] = useState<DraftMode>("simulation");
+  const [names, setNames] = useState<Record<string, string>>(defaultNames);
   const [advanced, setAdvanced] = useState(false);
 
   const seat = slot.trim() === "" ? null : Number(slot);
@@ -60,6 +73,11 @@ export function DraftSetup({
     // than a guess this form made on the backend's behalf.
     const body: DraftCreateBody = { mode };
     if (seat !== null) body.my_slot = seat;
+    // Blank names are genuinely absent rather than sent as "": an unnamed seat is "Team N",
+    // computed server-side, and storing the string the backend would have produced anyway is
+    // how a default stops being a default.
+    const named = nonBlank(names);
+    if (Object.keys(named).length > 0) body.team_names = named;
     onStart(body);
   }
 
@@ -121,6 +139,18 @@ export function DraftSetup({
         </div>
       </div>
 
+      {teamCount === null ? null : (
+        <TeamNameFields
+          teamCount={teamCount}
+          names={names}
+          onChange={(seatNumber, value) =>
+            setNames((current) => ({ ...current, [String(seatNumber)]: value }))
+          }
+          legend="Team names (optional)"
+          hint="Blank is “Team N”. Cosmetic — nothing about the draft reads a name."
+        />
+      )}
+
       <div className="flex flex-col gap-2">
         <button
           type="button"
@@ -157,3 +187,60 @@ export function DraftSetup({
   );
 }
 
+
+/** Every name that was actually typed, trimmed — the blanks are absent, not empty. */
+export function nonBlank(names: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(names)
+      .map(([seat, value]) => [seat, value.trim()] as const)
+      .filter(([, value]) => value !== ""),
+  );
+}
+
+/**
+ * One text box per seat — shared by the setup form and the in-room seats panel, so naming
+ * the room before it starts and renaming it at pick 40 are the same control.
+ *
+ * Labelled per seat rather than placeholder-only: "Team 4" as a placeholder disappears the
+ * moment you type, and then nothing on screen says which seat the box you are in belongs to.
+ */
+export function TeamNameFields({
+  teamCount,
+  names,
+  onChange,
+  legend,
+  hint,
+  isDisabled = false,
+}: {
+  teamCount: number;
+  names: Record<string, string>;
+  onChange: (seat: number, value: string) => void;
+  legend: string;
+  hint?: string;
+  isDisabled?: boolean;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
+        {legend}
+      </legend>
+      <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: teamCount }, (_, index) => index + 1).map((seat) => (
+          <label key={seat} className="flex items-center gap-2 text-xs text-zinc-500">
+            <span className="w-14 shrink-0 font-mono tabular-nums">Team {seat}</span>
+            <input
+              value={names[String(seat)] ?? ""}
+              placeholder={`Team ${seat}`}
+              disabled={isDisabled}
+              autoComplete="off"
+              data-team-name={seat}
+              onChange={(event) => onChange(seat, event.target.value)}
+              className={`${FIELD} w-full min-w-0`}
+            />
+          </label>
+        ))}
+      </div>
+      {hint ? <p className="text-xs text-zinc-500">{hint}</p> : null}
+    </fieldset>
+  );
+}

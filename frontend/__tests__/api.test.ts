@@ -359,6 +359,35 @@ describe("api.draftPlan", () => {
   });
 });
 
+describe("api.draftAvailability and api.updateDraftConfig", () => {
+  it("asks the availability endpoint for the whole board, with no parameters", async () => {
+    await api.draftAvailability();
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/draft/availability`);
+  });
+
+  it("leaves the availability 404 for the caller, the way the plan's is left", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: "There is no draft." }, 404));
+
+    const error = await api.draftAvailability().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
+  });
+
+  it("PUTs the config body as it was handed, so a merge stays a merge", async () => {
+    await api.updateDraftConfig({ my_slot: 7, team_names: { "1": "Sam", "3": "" } });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(`${API_BASE_URL}/draft/config`);
+    expect(init?.method).toBe("PUT");
+    // Keys left out are "leave alone" and an empty string is "clear this one" — both are
+    // the backend's reading, so the body is passed through rather than normalised here.
+    expect(JSON.parse(String(init?.body))).toEqual({
+      my_slot: 7,
+      team_names: { "1": "Sam", "3": "" },
+    });
+  });
+});
+
 describe("the import form", () => {
   const form = { ...EMPTY_FORM, source: "hashtag", text: "a,b\n1,2\n" };
 

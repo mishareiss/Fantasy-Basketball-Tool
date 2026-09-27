@@ -964,10 +964,65 @@ def test_a_from_scratch_apply_reaches_the_draft_tables(migrated):
     assert {"draft", "draft_pick"} <= _table_names(engine)
 
 
+# --- draft.team_names ----------------------------------------------------------------------------
+
+# The revision that named the seats, and the one it sits on.
+NAMES = "a71f4e0c9d53"
+
+
+def test_the_seats_can_be_named_and_an_existing_draft_keeps_working(migrated):
+    """A nullable add_column over a draft that already exists: no backfill, nothing broken."""
+    config, engine = migrated
+    command.upgrade(config, DRAFT)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    command.upgrade(config, NAMES)
+
+    nullable = {
+        column["name"]: column["nullable"] for column in inspect(engine).get_columns("draft")
+    }
+    # NULL is "nobody is named", which is what every draft that predates this revision is —
+    # and an unnamed seat renders as "Team {slot}", the way it did yesterday.
+    assert nullable["team_names"]
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT team_names FROM draft WHERE id = 1")) is None
+        connection.execute(
+            text("UPDATE draft SET team_names = :names WHERE id = 1"),
+            {"names": '{"1": "Sam"}'},
+        )
+        assert "Sam" in connection.scalar(text("SELECT team_names FROM draft WHERE id = 1"))
+    # The log the draft was carrying is untouched by a cosmetic column arriving beside it.
+    assert _picks(engine) == [(1, 1, 1, 1, 0)]
+
+
+def test_the_names_downgrade_costs_the_names_and_nothing_else(migrated):
+    config, engine = migrated
+    command.upgrade(config, NAMES)
+    _seed_draft(engine)
+    _seed_draft_pick(engine)
+
+    command.downgrade(config, DRAFT)
+
+    assert "team_names" not in {column["name"] for column in inspect(engine).get_columns("draft")}
+    # The draft and its log survive: the only migration here whose loss costs nothing a
+    # draft depends on.
+    assert _picks(engine) == [(1, 1, 1, 1, 0)]
+
+
+def test_a_from_scratch_apply_reaches_the_named_seats(migrated):
+    config, engine = migrated
+    command.downgrade(config, "base")
+
+    command.upgrade(config, "head")
+
+    assert "team_names" in {column["name"] for column in inspect(engine).get_columns("draft")}
+
+
 def test_there_is_exactly_one_head_after_this_revision(migrated):
     """Acceptance criterion 3: one head, so `alembic upgrade head` is unambiguous."""
     from alembic.script import ScriptDirectory
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [DRAFT]
+    assert ScriptDirectory.from_config(config).get_heads() == [NAMES]
