@@ -246,9 +246,15 @@ export function DraftRoomPage() {
       return {
         state: next,
         message:
-          body.my_slot === undefined
-            ? "Seats renamed."
-            : `You are in seat ${next.my_slot} now.`,
+          body.my_slot !== undefined
+            ? `You are in seat ${next.my_slot} now.`
+            : body.field_source_ids !== undefined || body.field_horizon !== undefined
+              ? `The room now drafts off ${
+                  next.field_source_ids
+                    ? `${next.field_source_ids.length} source${next.field_source_ids.length === 1 ? "" : "s"}`
+                    : "every source"
+                }.`
+              : "Seats renamed.",
       };
     });
   }
@@ -339,6 +345,13 @@ export function DraftRoomPage() {
           teamCount={state?.team_count ?? null}
           defaultSlot={state?.my_slot ?? null}
           defaultNames={storedNames(state)}
+          // A reconfigure starts from the room the old draft was modelling, not from the
+          // defaults: replacing a draft because the seat was wrong should not quietly change
+          // whose board the other nine seats are reading.
+          defaultHorizon={
+            state === null ? null : state.field_horizon === "current_year" ? "current_year" : "dynasty"
+          }
+          defaultSources={state?.field_source_ids ?? null}
           isBusy={saving}
           onStart={start}
         />

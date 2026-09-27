@@ -19,7 +19,9 @@ import {
   MASTER_CUTS,
   MASTER_SEEDS,
   deepMasterBoard,
+  emptyPlayerDetail,
   masterBoard,
+  playerDetail,
 } from "./fixtures";
 
 /**
@@ -47,6 +49,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: {
       ...actual.api,
       masterBoard: vi.fn(),
+      playerDetail: vi.fn(),
       putMasterOrder: vi.fn(),
       putMasterEntry: vi.fn(),
       putMasterTiers: vi.fn(),
@@ -57,6 +60,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 const board = vi.mocked(api.masterBoard);
+const detail = vi.mocked(api.playerDetail);
 const putOrder = vi.mocked(api.putMasterOrder);
 const putEntry = vi.mocked(api.putMasterEntry);
 const resetBoard = vi.mocked(api.resetMasterBoard);
@@ -115,6 +119,7 @@ async function openBoard() {
 
 beforeEach(() => {
   board.mockResolvedValue(masterBoard());
+  detail.mockResolvedValue(playerDetail());
   putOrder.mockImplementation(async (ids) => masterBoard({}, { order: ids }));
   putEntry.mockResolvedValue(masterBoard());
   resetBoard.mockResolvedValue(masterBoard());
@@ -1146,3 +1151,144 @@ describe("my board, read against the live draft", () => {
     expect(board).toHaveBeenCalledTimes(1);
   }, 15000);
 });
+
+
+/**
+ * The two production columns, and the box score behind them.
+ *
+ * Three claims, and they are the ones the feature is actually for:
+ *
+ * * a number we hold renders and a number we don't renders as an em dash — never as a zero,
+ *   because "he has never played a season" and "he played one and was worthless" are opposite
+ *   facts about a player;
+ * * clicking a NAME opens his evidence, and clicking anything else on the row does not, so
+ *   the eight controls that were on this row before still do their own jobs;
+ * * the dialog is dismissable by the two routes a keyboard and a mouse each expect.
+ */
+describe("last season and the market", () => {
+  /** The two production cells on a row, read off their data attributes' rendered text. */
+  function production(playerId: number): { lastYear: string; market: string } {
+    const cells = rowFor(playerId).querySelectorAll("td[data-last-year], td[data-market]");
+    return {
+      lastYear: cells[0]?.textContent ?? "",
+      market: cells[1]?.textContent ?? "",
+    };
+  }
+
+  it("prints both numbers where we hold them", async () => {
+    await openBoard();
+
+    // Wembanyama has a season played and a book that prices him.
+    expect(production(WEMBY.espn_player_id)).toEqual({ lastYear: "51.2", market: "48.7" });
+  });
+
+  it("prints an em dash for a number we do not hold, never a zero", async () => {
+    await openBoard();
+
+    // Giannis: a season played, no props on him.
+    expect(production(GIANNIS.espn_player_id)).toEqual({ lastYear: "46.9", market: "—" });
+    // Boozer the rookie: neither. Both em dashes, and neither is a 0.
+    expect(production(BOOZER.espn_player_id)).toEqual({ lastYear: "—", market: "—" });
+  });
+
+  it("opens his stat line when his name is clicked", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: WEMBY.name }));
+
+    expect(detail).toHaveBeenCalledWith(WEMBY.espn_player_id);
+    const dialog = await screen.findByRole("dialog");
+    // The box score, with the stats we hold beside the ones we don't.
+    expect(statTile(dialog, "PTS")).toBe("24.3");
+    expect(statTile(dialog, "REB")).toBe("11.0");
+    expect(statTile(dialog, "GP")).toBe("64");
+    // Absent from the fixture's per-game map, so absent here: an em dash, not 0.0.
+    expect(statTile(dialog, "BLK")).toBe("—");
+    expect(statTile(dialog, "3PM")).toBe("—");
+    // FGM and FGA are both there, so the percentage derives; FTA is not, so FT% cannot.
+    expect(statTile(dialog, "FG%")).toBe("47.5%");
+    expect(statTile(dialog, "FT%")).toBe("—");
+  });
+
+  it("shows the market projection and the raw lines it came from", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: WEMBY.name }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText("51.2")).toBeTruthy(); // last season's FP/g
+    expect(within(dialog).getByText("48.7")).toBeTruthy(); // the market's
+    const points = dialog.querySelector('[data-market-line="PTS"]');
+    expect(points?.textContent).toContain("23.5");
+    expect(points?.textContent).toContain("-115");
+    // A side nobody priced is an em dash, like every other absent number here.
+    expect(dialog.querySelector('[data-market-line="REB"]')?.textContent).toContain("—");
+  });
+
+  it("says so plainly when there is nothing to show", async () => {
+    const user = userEvent.setup();
+    detail.mockResolvedValue(emptyPlayerDetail());
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: BOOZER.name }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(dialog.querySelector('[data-detail="no-last-season"]')).toBeTruthy();
+    expect(dialog.querySelector('[data-detail="market-empty"]')).toBeTruthy();
+    // No invented stat line anywhere in it.
+    expect(dialog.querySelector("[data-stat]")).toBeNull();
+  });
+
+  it("keeps a failed detail fetch inside the dialog", async () => {
+    const user = userEvent.setup();
+    detail.mockRejectedValue(new ApiError("/players/1/detail responded 500", 500, "boom"));
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: WEMBY.name }));
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(dialog.querySelector('[data-detail="error"]')?.textContent).toContain("boom"),
+    );
+    // The board behind it is untouched — this is a sentence, not the page's failure panel.
+    expect(onScreen()).toHaveLength(4);
+    expect(screen.queryByText(/Can’t reach the API/)).toBeNull();
+  });
+
+  it("does not open when a row control is used", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: `Tag ${WEMBY.name}` }));
+    await waitFor(() => expect(putEntry).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: `Set ${GIANNIS.name} aside` }));
+    await user.click(screen.getByRole("button", { name: `Move ${GIANNIS.name} up` }));
+
+    expect(detail).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  }, 15000);
+
+  it("closes on Escape and on the close button", async () => {
+    const user = userEvent.setup();
+    await openBoard();
+
+    await user.click(screen.getByRole("button", { name: WEMBY.name }));
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: WEMBY.name }));
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: `Close ${WEMBY.name}` }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }, 15000);
+});
+
+/** One tile's value out of the dialog's box score, by its label. */
+function statTile(dialog: HTMLElement, label: string): string | null {
+  const tile = dialog.querySelector(`[data-stat="${label}"]`);
+  return tile === null ? null : (tile.lastElementChild?.textContent ?? null);
+}

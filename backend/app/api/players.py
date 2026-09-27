@@ -2,8 +2,19 @@
 
 It answers the only question that matters two weeks before a dynasty startup: under *our*
 scoring, who is worth the most per game — and where does ESPN's redraft room have them?
+
+`GET /players/{id}/detail` is the other read here, and it is the one that answers "why".
+Everything else on this site is a number per player; that endpoint is one player's whole
+evidence — the season he actually played, what the market thinks he will do, and the raw
+props that opinion was derived from. It is a READ over rows other code wrote, and it
+fabricates nothing: a stat ESPN has no number for and a stat no book priced are both ABSENT
+from the maps it returns, because a zero there would be a claim.
+
+The two little lookups it shares with the master board (`actual_season_ppg`, `market_ppg`)
+also live here, so "last season" and "the market" mean one query each wherever they are read.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
@@ -17,7 +28,8 @@ from app.ages import NBA_SOURCE, compute_age
 from app.config import get_settings
 from app.db.models import AdpEntry, MarketLine, Player, PlayerAlias, Projection
 from app.db.session import get_db
-from app.espn.sync import ESPN_SOURCE, SEASON_PROJECTION_KIND
+from app.espn.sync import ACTUAL_SEASON_KIND, ESPN_SOURCE, SEASON_PROJECTION_KIND
+from app.ingest.market_line import MARKET_PROJECTION_KIND, MARKET_SOURCE
 from app.matching import MANUAL_SOURCE, record_alias
 from app.valuation import (
     HORIZON_CURRENT_YEAR,
@@ -625,4 +637,255 @@ def add_player_alias(
         age=compute_age(player.birthdate, get_settings().resolved_age_as_of())
         if player.birthdate
         else None,
+    )
+
+
+# --- last season and the market: two lookups, shared with the master board ------------------
+
+
+def _newest_by_player(
+    db: Session, player_ids: Iterable[int], *, source: str, kind: str
+) -> dict[int, Projection]:
+    """player id -> his newest `(source, kind)` projection row. One query, however many ids.
+
+    Newest wins because the table keeps history: ESPN publishing a season does not delete the
+    one before it, so "last season" has to mean the most recent stored season rather than
+    whichever row the database happens to hand back first. Ascending order plus last-write-wins
+    is the whole implementation.
+    """
+    wanted = list(player_ids)
+    if not wanted:
+        return {}
+    rows: dict[int, Projection] = {}
+    for row in db.scalars(
+        select(Projection)
+        .where(
+            Projection.source == source,
+            Projection.kind == kind,
+            Projection.player_id.in_(wanted),
+        )
+        .order_by(Projection.season)
+    ):
+        rows[row.player_id] = row
+    return rows
+
+
+def _newest_ppg(
+    db: Session, player_ids: Iterable[int], *, source: str, kind: str
+) -> dict[int, float]:
+    """The same lookup, narrowed to the one number a board column needs.
+
+    Two columns rather than whole ORM rows, because the master board asks this about a
+    thousand players at once and the JSON stat maps on those rows are exactly what it does
+    not want to carry.
+    """
+    wanted = list(player_ids)
+    if not wanted:
+        return {}
+    values: dict[int, float] = {}
+    for player_id, per_game in db.execute(
+        select(Projection.player_id, Projection.fantasy_points_per_game)
+        .where(
+            Projection.source == source,
+            Projection.kind == kind,
+            Projection.player_id.in_(wanted),
+        )
+        .order_by(Projection.season)
+    ).all():
+        values[player_id] = per_game
+    return values
+
+
+def actual_season_ppg(db: Session, player_ids: Iterable[int]) -> dict[int, float]:
+    """player id -> what LAST SEASON was worth per game under our scoring. Missing = no season.
+
+    The `actual_season` rows the league sync stores (`app.espn.sync.sync_actuals`). A player
+    with no entry here has never completed a season we hold — a rookie — which is why the
+    board prints an em dash for him rather than a 0.
+    """
+    return _newest_ppg(db, player_ids, source=ESPN_SOURCE, kind=ACTUAL_SEASON_KIND)
+
+
+def market_ppg(db: Session, player_ids: Iterable[int]) -> dict[int, float]:
+    """player id -> the market-derived projection's fantasy points per game. Missing = no lines.
+
+    PARTIAL by construction: the derived projection is built only from the stats that happen to
+    have props, so this number is systematically low for a player priced on two of them. It is
+    a reference column, never a ranking — see `_best_per_game` for the same argument.
+    """
+    return _newest_ppg(db, player_ids, source=MARKET_SOURCE, kind=MARKET_PROJECTION_KIND)
+
+
+# --- one player, in full -------------------------------------------------------------------
+
+
+class SeasonLine(BaseModel):
+    """A full season a player actually played, priced under OUR scoring."""
+
+    # The season this is FOR — the one before the season being drafted, normally. Stated
+    # because a stat line without its season is a number nobody can interpret.
+    season: int
+    # Games he PLAYED. Null when ESPN published the split without a games count, or with zero:
+    # neither is a usable per-game divisor (`app.espn.statsplits`).
+    games: float | None = None
+    fantasy_ppg: float
+    fantasy_total: float
+    # Per game, keyed by stat name ('PTS', 'REB', 'MIN', ...). Counting stats only, so every
+    # value is safe to multiply — and a stat ESPN gave no number for is ABSENT rather than 0.
+    per_game: dict[str, float] = {}
+
+
+class MarketLineProjection(BaseModel):
+    """What the market implies, derived from whatever props exist — market.py's own numbers."""
+
+    fantasy_ppg: float
+    fantasy_total: float
+    games: float | None = None
+    per_game: dict[str, float] = {}
+
+
+class DetailMarketLine(BaseModel):
+    """One raw prop behind that projection."""
+
+    stat: str
+    # Per game, always: season-long props are quoted that way.
+    line: float
+    # American odds; null for a side nobody priced.
+    over_odds: int | None = None
+    under_odds: int | None = None
+
+
+class PlayerDetailResponse(BaseModel):
+    """One player's whole evidence: who he is, what he did, and what the market says.
+
+    Three independent halves, and every one of them can be absent. A rookie has no
+    `last_season`; a player nobody has posted a prop on has no `market` and no `market_lines`.
+    Null is the answer in those cases rather than an empty stat line of zeroes, because "he
+    has not played" and "he played and scored nothing" are different facts about a player and
+    only one of them is ever true.
+    """
+
+    espn_player_id: int
+    name: str
+    nba_team: str | None = None
+    positions: list[str] = []
+    age: int | None = None
+
+    last_season: SeasonLine | None = None
+    market: MarketLineProjection | None = None
+    # The props the market projection was derived from, by stat id so the order is stable.
+    # Scoped to the newest season we hold lines for under the default book.
+    market_lines: list[DetailMarketLine] = []
+
+
+def _per_game(projection: Projection) -> dict[str, float]:
+    """A projection's per-game stat map, as stored. Empty when the source gave none.
+
+    Never derived from the season totals: a per-game number this endpoint printed that the
+    source did not publish would be our arithmetic wearing the source's name.
+    """
+    stored = projection.per_game_stats or {}
+    return {name: float(value) for name, value in stored.items() if isinstance(value, int | float)}
+
+
+@router.get("/{espn_player_id}/detail", response_model=PlayerDetailResponse)
+def player_detail(
+    espn_player_id: int = Path(..., description="Our canonical (ESPN) player id"),
+    db: Session = Depends(get_db),
+) -> PlayerDetailResponse:
+    """Everything we hold about one player: last season, the market, and the raw props.
+
+    What the board's two reference columns expand into. The board can only print a number per
+    player; the question that number raises — "twenty-two a game off what?" — is answered by a
+    box score, and this is it.
+
+    Last season is ESPN's completed full-season split, priced under the scoring THIS league
+    runs (`app.espn.sync.sync_actuals`), so it is directly comparable to the projection the
+    board ranks by. The market half is the derived projection and the lines it came from, and
+    it is partial by construction: a player with only a points prop is priced on points alone.
+
+    Absent is absent. A rookie's `last_season` is null, an unpriced player's `market` is null
+    and his `market_lines` empty, and a stat ESPN or a book has no number for is missing from
+    the per-game map rather than present as 0 — the UI renders an em dash for all of it.
+
+    404 for a player id we hold no identity for, which is the same answer
+    `POST /players/{id}/aliases` gives: this endpoint is keyed by OUR canonical id.
+    """
+    player = db.get(Player, espn_player_id)
+    if player is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"No player {espn_player_id}. This endpoint is keyed by OUR canonical (ESPN) "
+            "player id — the one every board row carries as `espn_player_id`.",
+        )
+
+    actual = _newest_by_player(
+        db, [espn_player_id], source=ESPN_SOURCE, kind=ACTUAL_SEASON_KIND
+    ).get(espn_player_id)
+    market = _newest_by_player(
+        db, [espn_player_id], source=MARKET_SOURCE, kind=MARKET_PROJECTION_KIND
+    ).get(espn_player_id)
+
+    # The lines for ONE season, so a set of props can't silently mix last year's numbers with
+    # this year's. The market projection's own season when there is one — it was derived from
+    # exactly those rows — otherwise the newest season he has lines for at all.
+    line_season = market.season if market is not None else _newest_line_season(db, espn_player_id)
+    lines = (
+        []
+        if line_season is None
+        else list(
+            db.scalars(
+                select(MarketLine)
+                .where(
+                    MarketLine.source == MARKET_SOURCE,
+                    MarketLine.season == line_season,
+                    MarketLine.player_id == espn_player_id,
+                )
+                .order_by(MarketLine.stat_id)
+            )
+        )
+    )
+
+    return PlayerDetailResponse(
+        espn_player_id=player.espn_player_id,
+        name=player.full_name,
+        nba_team=player.nba_team,
+        positions=list(player.positions or []),
+        age=player.age,
+        last_season=None
+        if actual is None
+        else SeasonLine(
+            season=actual.season,
+            games=actual.projected_games,
+            fantasy_ppg=actual.fantasy_points_per_game,
+            fantasy_total=actual.fantasy_points_total,
+            per_game=_per_game(actual),
+        ),
+        market=None
+        if market is None
+        else MarketLineProjection(
+            fantasy_ppg=market.fantasy_points_per_game,
+            fantasy_total=market.fantasy_points_total,
+            games=market.projected_games,
+            per_game=_per_game(market),
+        ),
+        market_lines=[
+            DetailMarketLine(
+                stat=row.stat_name,
+                line=row.line,
+                over_odds=row.over_odds,
+                under_odds=row.under_odds,
+            )
+            for row in lines
+        ],
+    )
+
+
+def _newest_line_season(db: Session, player_id: int) -> int | None:
+    """The newest season this player has stored props for, or None if he has none."""
+    return db.scalar(
+        select(MarketLine.season)
+        .where(MarketLine.source == MARKET_SOURCE, MarketLine.player_id == player_id)
+        .order_by(MarketLine.season.desc())
+        .limit(1)
     )

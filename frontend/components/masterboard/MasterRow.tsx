@@ -3,7 +3,7 @@
 import { memo, useState } from "react";
 
 import type { MasterPlayerRow } from "@/lib/api";
-import { MISSING, positions as positionList, whole } from "@/lib/format";
+import { MISSING, decimal, positions as positionList, whole } from "@/lib/format";
 import {
   EDGE_CLASS,
   EDGE_GLYPH,
@@ -23,6 +23,12 @@ import {
  * middle of the row in the muted weight every other read-only column on the site uses. The
  * gap between them is the one thing worth colouring, because it is the only column that says
  * anything you didn't already know.
+ *
+ * The two production columns sit with the consensus for the same reason: `Last yr` is what he
+ * was worth per game under our scoring in the season that actually happened, and `Mkt` is what
+ * the sportsbooks imply. Both are read-only, both print an em dash when we hold no such row,
+ * and CLICKING THE NAME is what expands them into the box score behind them — the name and
+ * nothing else, so every control on the row still does its own job.
  *
  * Every index this component reports is an index into the FULL order, never into the window
  * or the search results — see `moveTo` in lib/masterboard.ts.
@@ -45,6 +51,8 @@ export type RowHandlers = {
   onTag: (row: MasterPlayerRow) => void;
   onNote: (row: MasterPlayerRow, note: string) => void;
   onExclude: (row: MasterPlayerRow) => void;
+  /** Open his stat line. Hung off the NAME alone — see the note on the name button. */
+  onDetail: (row: MasterPlayerRow) => void;
   onDragStart: (index: number) => void;
   onDragOver: (index: number) => void;
   onDrop: (index: number) => void;
@@ -293,15 +301,26 @@ function MasterRowInner({
 
       <td className="py-1.5 pr-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span
-            className={`font-medium ${
+          {/* The name is the ONLY thing on this row that opens the stat line, and the row
+              itself has no click handler at all — so the tag, the note, the exclude, the
+              nudges and the move box keep working without ever opening a dialog over the
+              board. `stopPropagation` is belt and braces for the same promise: a control that
+              grows a wrapper later still cannot reach this. */}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handlers.onDetail(row);
+            }}
+            title={`${row.name}'s last season and what the market says`}
+            className={`rounded font-medium underline decoration-zinc-300 decoration-dotted underline-offset-2 hover:decoration-zinc-500 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500 dark:decoration-zinc-700 dark:hover:decoration-zinc-500 ${
               row.drafted
                 ? "text-zinc-400 line-through dark:text-zinc-600"
                 : "text-zinc-900 dark:text-zinc-100"
             }`}
           >
             {row.name}
-          </span>
+          </button>
           <span className="text-xs text-zinc-500">
             {positionList(row.positions)} · {whole(row.age)} · {row.nba_team ?? MISSING}
           </span>
@@ -349,6 +368,24 @@ function MasterRowInner({
 
       <td className="py-1.5 pr-3 text-right">
         <EdgeChip row={row} />
+      </td>
+
+      {/* Two production numbers, and they are reference the way `Field` is: nothing here is
+          sortable, nothing here moves him. Narrow, monospaced and right-aligned so the column
+          can be scanned, and folded away on a small screen for the same reason `Field` is —
+          the decision columns come first when there is not room for everything. */}
+      <td
+        className="hidden py-1.5 pr-3 text-right font-mono text-xs tabular-nums text-zinc-500 lg:table-cell"
+        data-last-year={row.last_year_fantasy_ppg ?? ""}
+      >
+        {decimal(row.last_year_fantasy_ppg, 1)}
+      </td>
+
+      <td
+        className="hidden py-1.5 pr-3 text-right font-mono text-xs tabular-nums text-zinc-500 lg:table-cell"
+        data-market={row.market_fantasy_ppg ?? ""}
+      >
+        {decimal(row.market_fantasy_ppg, 1)}
       </td>
 
       <td className="py-1.5 pr-3">

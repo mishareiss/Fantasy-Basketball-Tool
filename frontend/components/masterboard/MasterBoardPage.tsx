@@ -40,6 +40,7 @@ import {
   NoneAtPosition,
 } from "./MasterStates";
 import { MasterRow, type RowHandlers } from "./MasterRow";
+import { PlayerDetail } from "./PlayerDetail";
 import { SetAsideTray } from "./SetAsideTray";
 import { TierBreakSlot, TierDivider, type DividerHandlers } from "./TierDivider";
 
@@ -183,6 +184,12 @@ export function MasterBoardPage() {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [cutDrag, setCutDrag] = useState<number | null>(null);
   const [cutDrop, setCutDrop] = useState<number | null>(null);
+  /**
+   * The row whose stat line is open, or null. Held as `{ id, name }` rather than as the row
+   * object so a board that reloads underneath the dialog — a save, a horizon flip — cannot
+   * leave a stale row rendering in it: the dialog fetches by id and shows what it fetched.
+   */
+  const [detail, setDetail] = useState<{ id: number; name: string } | null>(null);
 
   const scope = activeScope(position);
   const key = `${horizon}:${scope}:${lens}`;
@@ -411,6 +418,10 @@ export function MasterBoardPage() {
           `${row.name} set aside — everyone below him moved up one.`,
         );
       },
+      // Opening a stat line writes nothing and asks the board for nothing: it is the one row
+      // handler here that is not a mutation, so it does not go through `commit` and cannot
+      // put the page in its saving state.
+      onDetail: (row) => setDetail({ id: row.espn_player_id, name: row.name }),
       onDragStart: (index) => {
         dragFrom.current = index;
         setDragIndex(index);
@@ -693,7 +704,8 @@ export function MasterBoardPage() {
                     Your ranking, {board.total_ranked} players, read against the{" "}
                     {board.horizon} consensus, in {bands.length} tiers. Drag a row&rsquo;s
                     handle, use the up and down buttons, or type a rank into the move box.
-                    Drag a tier divider to move where a band starts.
+                    Drag a tier divider to move where a band starts. Click a player&rsquo;s
+                    name for his last season and what the market says about him.
                   </caption>
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-zinc-50 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase dark:bg-zinc-900/95">
@@ -726,6 +738,20 @@ export function MasterBoardPage() {
                         title="How many spots ABOVE the field you have him. ▲ is a player you are out on a limb for; ▼ is one the room likes more than you do."
                       >
                         Edge
+                      </th>
+                      <th
+                        scope="col"
+                        className="hidden border-b border-zinc-200 px-3 py-2 text-right lg:table-cell dark:border-zinc-800"
+                        title="What last season was worth PER GAME under our scoring — production that happened, not a forecast. An em dash means he has never completed one. Click his name for the box score."
+                      >
+                        Last yr FP
+                      </th>
+                      <th
+                        scope="col"
+                        className="hidden border-b border-zinc-200 px-3 py-2 text-right lg:table-cell dark:border-zinc-800"
+                        title="What the sportsbooks imply, per game. Partial by construction — a player with one prop is priced on that prop alone — so read it as a reference, never as a ranking."
+                      >
+                        Mkt proj
                       </th>
                       <th
                         scope="col"
@@ -840,6 +866,14 @@ export function MasterBoardPage() {
           <SetAsideTray players={board.set_aside} onRestore={restore} busy={busy} />
         </section>
       ) : null}
+
+      {detail === null ? null : (
+        <PlayerDetail
+          playerId={detail.id}
+          name={detail.name}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }

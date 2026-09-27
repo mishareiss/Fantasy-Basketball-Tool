@@ -25,7 +25,7 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = 0584aea. Tasks 1-21b + the CI fix are all merged. CI green.
+- main = c43438c. Tasks 1-22 (incl T22a) + the CI fix are all merged. CI green.
 - T20 (draft plan + live drafted-state backend) MERGED at a738569 (parent b930441). 878 tests,
   autogenerate-clean migration f3a9c41d7b62, frozen /master/board guarded. Draft backend COMPLETE.
 - T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
@@ -198,6 +198,26 @@ Remaining backlog (no prompts written):
 - Design: FUNCTION-FIRST, consistent with existing pages (Tailwind zinc, Segmented/Segment). Whole-app
   design polish still deferred. Off-board-player limitation: NON-ISSUE per Misha (only ~200 of a larger
   pool ever drafted) — dropped.
+
+## T23 BUILT + REVIEWED (this session) — staged on task-23-board-stats, NOT committed, awaiting Misha's
+commit. Backend 939 pass, ruff clean, NO migration (actuals reuse Projection kind='actual_season');
+verified: select_actual_split picks season-1 (fallback newest); sync_actuals wraps sync_projections
+with a scratch summary (separate actuals_* counters); board/consensus UNCHANGED by actuals (kind
+filter, guard tests); GET /players/{id}/detail dry-run good. Frontend 246 pass + build + lint. Missing
+values render as '—' (existing MISSING constant), not a literal hyphen. Suggested commit (no trailers):
+"Add last-season actuals + market columns and player stats popup to My Board; draft-setup field-source
+selection". >>> AFTER MERGE: RUN `make sync` so actual_season rows populate — Last-yr-FP + popup last-
+season stats read '—' until then. <<<
+  (prompt: docs/prompts/23-board-stats-and-field-sources.md, off main c43438c.) ONE task,
+backend + frontend. (A) Ingest last-season ACTUALS from the SAME kona_player_info payload (statSourceId=0
+split) as Projection rows kind='actual_season' — NO migration, reuses sync_projections(kind=) +
+score_projection; scored under CURRENT league scoring; never leaks to board/consensus (they filter
+projected_season). (A2) MasterPlayerRow += last_year_fantasy_ppg + market_fantasy_ppg (null→'-'). (A3)
+GET /players/{id}/detail = last-season box line + market projection + market lines for the popup. (A4)
+PUT /draft/config also takes field_horizon/field_source_ids when picks_made==0. (B) My Board: two columns
++ name-click stats popup; DraftSetup: field-source multi-select (from GET /sources) + horizon, default all.
+>>> AFTER T23 MERGES, Misha must RE-SYNC (`make sync`) so the actual_season rows populate — the columns/
+popup read empty ('-') until then. <<<
 
 ## Reuse surfaces
 Consensus/pool: app/ranking/sources.py (load_catalog, available_specs, SourceCatalog, percentile_for),

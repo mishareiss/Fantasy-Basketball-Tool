@@ -235,6 +235,20 @@ class DraftConfigWrite(BaseModel):
         "replacing it, so naming one seat leaves the others alone; an empty string clears a "
         "name back to 'Team {slot}'. Accepted at any point in the draft — a name is cosmetic.",
     )
+    field_horizon: str | None = Field(
+        None,
+        description="Which consensus the room is assumed to draft off — "
+        + HORIZON_DESCRIPTION
+        + " Accepted only while the draft is EMPTY, for the same reason the seat is: the "
+        "field is what every pick already made was made against, so changing it would "
+        "re-describe them. An unknown horizon is a 400.",
+    )
+    field_source_ids: list[str] | None = Field(
+        None,
+        description=FIELD_SOURCES_DESCRIPTION + " Here, as with `field_horizon`, only while "
+        "the draft is EMPTY. An empty list means the same thing as omitting it on create: "
+        "every source the horizon offers.",
+    )
 
 
 class DraftPickWrite(BaseModel):
@@ -687,9 +701,9 @@ def put_draft_config(
     payload: DraftConfigWrite = Body(...),
     db: Session = Depends(get_db),
 ) -> DraftStateResponse:
-    """Change the seat (before a pick is made) or what the seats are called (at any point).
+    """Change the seat or the field (before a pick is made), or the names (at any point).
 
-    TWO FIELDS WITH DIFFERENT RULES, and the difference is the whole endpoint. A NAME is
+    TWO KINDS OF FIELD WITH DIFFERENT RULES, and the difference is the whole endpoint. A NAME is
     cosmetic: nothing in the engine reads it, so it can be edited at pick 1 or pick 141 and
     nothing that has happened means anything different afterwards. THE SEAT is not: a pick
     number only means something under one shape (`app.db.models.draft`), and moving my seat
@@ -697,6 +711,15 @@ def put_draft_config(
     seat moves only while the draft is EMPTY — which is the case that actually happens, the
     "I set it to 2 and I'm actually at 7" noticed before the room starts — and a started
     draft answers 422 pointing at the reconfigure that can do it, by throwing the picks away.
+
+    THE FIELD IS THE SEAT'S RULE AGAIN. `field_horizon` and `field_source_ids` are how this
+    draft is being MODELLED — whose board the other nine seats are assumed to be reading — so
+    every pick already in the log was made against them, and moving them afterwards would
+    re-describe picks that have happened. Editable while the draft is empty (which is when the
+    question "what does this room actually draft off?" gets answered), a 422 after that. An
+    unknown horizon or source id is a 400, validated through the same `field_ranks` call
+    `POST /draft` runs. Sending the field this draft already has is a no-op at any point, so a
+    panel that always submits its current selection never trips the 422.
 
     Sitting between `POST /draft?reset=true` (replace everything) and nothing at all: an
     empty draft has no picks to protect, so making the seat correctable without a reset is a
@@ -724,6 +747,39 @@ def put_draft_config(
                 "changed here.",
             )
         draft.my_slot = payload.my_slot
+
+    # The FIELD, under exactly the seat's rule and for exactly the seat's reason: every pick
+    # already made was made against this board, so changing it under a started draft would
+    # silently re-describe them. Resolved through `field_ranks` before anything is written, so
+    # an unknown horizon or source id is a 400 against an untouched draft — the same
+    # validation `POST /draft` runs, because it is the same call.
+    if payload.field_horizon is not None or payload.field_source_ids is not None:
+        horizon = payload.field_horizon or draft.field_horizon
+        stored_ids = list(draft.field_source_ids) if draft.field_source_ids else None
+        # An empty list is "all of them", the way create reads it — so ticking every box and
+        # ticking none of them cannot mean two different rooms.
+        wanted_ids = (
+            stored_ids if payload.field_source_ids is None else (payload.field_source_ids or None)
+        )
+
+        changed = horizon != draft.field_horizon or sorted(wanted_ids or ()) != sorted(
+            stored_ids or ()
+        )
+        if changed and len(state.selections) > 0:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"this draft is {len(state.selections)} pick"
+                f"{'' if len(state.selections) == 1 else 's'} in, so the field is what those "
+                "picks were made against — reconfigure to change a started draft's field "
+                "(POST /draft?reset=true), which throws them away.",
+            )
+        if changed:
+            try:
+                field_ranks(db, horizon, wanted_ids)
+            except (UnknownHorizon, UnknownSources) as error:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+            draft.field_horizon = horizon
+            draft.field_source_ids = list(wanted_ids) if wanted_ids else None
 
     if payload.team_names is not None:
         merged = dict(draft.team_names or {})

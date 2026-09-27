@@ -565,6 +565,22 @@ export type MasterPlayerRow = {
       otherwise the first position he is listed at. Typed as the backend types it (`str`). */
   position_scope: string | null;
 
+  /* --- two production numbers beside the reference rank ---------------------------------- */
+  /**
+   * What LAST SEASON was worth per game under THIS league's scoring — production that
+   * happened, not a forecast. Null for a player who has never completed a season we hold, and
+   * that is a different claim from zero: the board prints an em dash for him rather than
+   * putting him last. `api.playerDetail` expands it into the box score.
+   */
+  last_year_fantasy_ppg: number | null;
+  /**
+   * The sportsbook-derived projection's fantasy points per game (`projection:market`). Null
+   * when nobody has posted a prop on him, and PARTIAL when they have posted only some — it is
+   * built from the stats that happen to be priced, so it reads low for a player with one
+   * line. A reference column, never a ranking.
+   */
+  market_fantasy_ppg: number | null;
+
   /* --- the live draft, and ONLY when the request asked about it (`draft_mode`) ----------
      All three are annotation, not stored state: they are false/null on a plain board read,
      false/null when no draft exists, and false/null on every WRITE response — the flags ride
@@ -660,6 +676,62 @@ export type MasterEntryWriteBody = {
   tag?: string | null;
   note?: string | null;
   excluded?: boolean;
+};
+
+/* -------------------------------------------------------------------------------------- *
+ * One player, in full — app/api/players.py: GET /players/{id}/detail
+ *
+ * What the board's two production columns expand into. Everything below is PRESENT-OR-ABSENT:
+ * a rookie has no `last_season`, an unpriced player has no `market` and no `market_lines`, and
+ * a stat nobody published a number for is simply not a key in the per-game map. There is no
+ * place here where 0 stands in for "we don't know" — which is the whole reason a stat line is
+ * worth showing somebody.
+ * -------------------------------------------------------------------------------------- */
+
+/** A season a player ACTUALLY played, priced under our scoring — players.py: SeasonLine. */
+export type SeasonLine = {
+  /** The season this is for — the one before the season being drafted, normally. */
+  season: number;
+  /** Games he PLAYED. Null when ESPN published no games count, or zero: neither divides. */
+  games: number | null;
+  fantasy_ppg: number;
+  fantasy_total: number;
+  /** Per game, keyed by stat NAME ('PTS', 'REB', 'MIN'). Counting stats only, and a stat with
+      no number is ABSENT rather than 0. */
+  per_game: Record<string, number>;
+};
+
+/** What the props imply — players.py: MarketLineProjection. Partial by construction. */
+export type MarketProjectionLine = {
+  fantasy_ppg: number;
+  fantasy_total: number;
+  games: number | null;
+  per_game: Record<string, number>;
+};
+
+/** One raw prop behind that projection — players.py: DetailMarketLine. */
+export type DetailMarketLine = {
+  stat: string;
+  /** Per game, always. */
+  line: number;
+  /** American odds; null for a side nobody priced. */
+  over_odds: number | null;
+  under_odds: number | null;
+};
+
+/** One player's whole evidence — players.py: PlayerDetailResponse. */
+export type PlayerDetailResponse = {
+  espn_player_id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  age: number | null;
+  /** Null for a player who has never completed a season we hold. */
+  last_season: SeasonLine | null;
+  /** Null when nobody has posted a prop on him. */
+  market: MarketProjectionLine | null;
+  /** The props the market projection came from, by stat id. Empty when there are none. */
+  market_lines: DetailMarketLine[];
 };
 
 /* -------------------------------------------------------------------------------------- *
@@ -775,6 +847,12 @@ export type DraftConfigBody = {
   /** MERGED into the stored names, not a replacement: naming one seat leaves the rest alone.
       An empty string clears one back to "Team {slot}". */
   team_names?: Record<string, string>;
+  /** Which consensus the room is assumed to draft off. THE SEAT'S RULE: every pick already
+      made was made against this field, so it moves only while the draft is empty. */
+  field_horizon?: string;
+  /** The source ids the room drafts off, from `api.sources`. An empty array means the same as
+      omitting it on create — every source the horizon offers. The seat's rule again. */
+  field_source_ids?: string[];
 };
 
 /** The body of POST /draft/picks — draft.py: DraftPickWrite. */
@@ -1082,6 +1160,16 @@ export const api = {
         player_id: params.player_id,
       })}`,
     ),
+
+  /**
+   * Everything we hold about one player: last season, the market, and the raw props.
+   *
+   * What a board row's two production columns expand into — the answer to "twenty-two a game
+   * off what?". A 404 means we hold no identity for that id, which no board row can produce;
+   * a player we know nothing else about is a clean 200 with both halves null.
+   */
+  playerDetail: (espnPlayerId: number) =>
+    request<PlayerDetailResponse>(`/players/${espnPlayerId}/detail`),
 
   /* --- the master ranking ------------------------------------------------------------- */
 

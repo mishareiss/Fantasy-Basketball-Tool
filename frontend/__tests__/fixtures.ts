@@ -26,6 +26,7 @@ import type {
   MasterPlayerRow,
   PlanPickRow,
   PlanPlayerRow,
+  PlayerDetailResponse,
   Position,
   TierScope,
   TierScopeRow,
@@ -601,6 +602,11 @@ type MasterSeed = {
   age: number;
   /** His place on each horizon's consensus. Null = no source ranks him (a stale entry). */
   consensus: Record<Horizon, number | null>;
+  /** What last season was worth per game under our scoring. Omitted = he has never played
+      one, which the board prints as an em dash rather than as a zero. */
+  lastYear?: number;
+  /** The sportsbook-derived projection's per-game value. Omitted = nobody priced him. */
+  market?: number;
   tag?: string | null;
   note?: string | null;
   is_new?: boolean;
@@ -614,6 +620,9 @@ export const MASTER_SEEDS: MasterSeed[] = [
     positions: ["C"],
     age: 23,
     consensus: { dynasty: 1, current_year: 2 },
+    // Both columns populated: a season he played and a book that prices him.
+    lastYear: 51.2,
+    market: 48.7,
   },
   {
     // The payoff row: a rookie the field has at 12 and we have at 2 — ten spots out on a limb,
@@ -624,6 +633,8 @@ export const MASTER_SEEDS: MasterSeed[] = [
     positions: ["PF"],
     age: 20,
     consensus: { dynasty: 12, current_year: 40 },
+    // The rookie, and therefore the em-dash case in BOTH columns: he has never completed a
+    // season and nobody has posted a prop on him.
     tag: "target",
     is_new: true,
   },
@@ -634,6 +645,8 @@ export const MASTER_SEEDS: MasterSeed[] = [
     positions: ["PF"],
     age: 32,
     consensus: { dynasty: 2, current_year: 1 },
+    // A season played, no props: the mixed row, where one column reads and the other doesn't.
+    lastYear: 46.9,
     tag: "fade",
     note: "Win-now price on a dynasty board",
   },
@@ -646,6 +659,7 @@ export const MASTER_SEEDS: MasterSeed[] = [
     positions: ["PG"],
     age: 41,
     consensus: { dynasty: null, current_year: null },
+    lastYear: 12.4,
   },
 ];
 
@@ -657,6 +671,7 @@ export const MASTER_ASIDE: MasterSeed = {
   positions: ["C"],
   age: 28,
   consensus: { dynasty: 60, current_year: 55 },
+  lastYear: 30.1,
   note: "Only at a discount",
 };
 
@@ -710,6 +725,11 @@ function masterRow(
     consensus_rank: consensusRank,
     // The backend's own arithmetic: rank - consensus_rank, null when either half is missing.
     delta: rank !== null && consensusRank !== null ? rank - consensusRank : null,
+    // Both reference columns, and both are `?? null` rather than `?? 0` for the reason the
+    // whole feature keeps repeating: a player with no season played and one who played and
+    // scored nothing are different facts, and only one of them is ever true.
+    last_year_fantasy_ppg: seed.lastYear ?? null,
+    market_fantasy_ppg: seed.market ?? null,
     // A set-aside player has no rank, so no band contains him and his tiers are null —
     // exactly what master.py does with `entry.rank`.
     overall_tier: rank === null ? null : tiers.overall,
@@ -854,6 +874,7 @@ export function deepMasterBoard(size = 400, cuts: number[] = [1, 13, 60, 200]): 
         positions: ["SF"],
         age: 25,
         consensus: { dynasty: index + 1, current_year: index + 1 },
+        lastYear: 40 - index * 0.1,
       },
       index + 1,
       "dynasty",
@@ -1142,4 +1163,82 @@ export function draftPlan({
     // Empty once the draft is over, which is the backend's own short-circuit.
     picks: state.is_complete ? [] : picks,
   };
+}
+
+
+/* ---------------------------------------------------------------------------------------- *
+ * One player, in full — `GET /players/{id}/detail`.
+ *
+ * Small on purpose, and deliberately INCOMPLETE: the per-game maps are missing stats the box
+ * score asks for, because the one thing this endpoint must never do is invent a number. A
+ * fixture that filled in every key would make the em-dash cases untestable, which are the only
+ * cases worth a test here.
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * A player with a season played AND props on him — both halves of the dialog.
+ *
+ * The gaps are the point. BLK and 3PM are absent, so those tiles must read as em dashes.
+ * FGM and FGA are BOTH present, so FG% derives; FTM is present and FTA is not, so FT% cannot
+ * be derived and must not be — a percentage built out of one half of a fraction is the exact
+ * kind of number this whole feature refuses to print.
+ */
+export function playerDetail(
+  overrides: Partial<PlayerDetailResponse> = {},
+): PlayerDetailResponse {
+  return {
+    espn_player_id: MASTER_SEEDS[0].espn_player_id,
+    name: MASTER_SEEDS[0].name,
+    nba_team: "SAS",
+    positions: ["C"],
+    age: 23,
+    last_season: {
+      season: 2026,
+      games: 64,
+      fantasy_ppg: 51.2,
+      fantasy_total: 3276.8,
+      per_game: {
+        MIN: 33.4,
+        PTS: 24.3,
+        REB: 11.0,
+        AST: 3.7,
+        STL: 1.1,
+        TO: 3.2,
+        FGM: 8.6,
+        FGA: 18.1,
+        FTM: 4.9,
+        GP: 64,
+        // BLK, 3PM and FTA are absent: ESPN published no number, so neither does the dialog,
+        // and FT% cannot be derived from a make with no attempt beside it.
+      },
+    },
+    market: {
+      fantasy_ppg: 48.7,
+      fantasy_total: 3604.3,
+      games: 74,
+      per_game: { PTS: 23.5, REB: 10.5 },
+    },
+    market_lines: [
+      { stat: "PTS", line: 23.5, over_odds: -115, under_odds: -105 },
+      { stat: "REB", line: 10.5, over_odds: null, under_odds: null },
+    ],
+    ...overrides,
+  };
+}
+
+/** The other end: a player we hold an identity for and no numbers at all. */
+export function emptyPlayerDetail(
+  overrides: Partial<PlayerDetailResponse> = {},
+): PlayerDetailResponse {
+  return playerDetail({
+    espn_player_id: MASTER_SEEDS[1].espn_player_id,
+    name: MASTER_SEEDS[1].name,
+    nba_team: "CHA",
+    positions: ["PF"],
+    age: 20,
+    last_season: null,
+    market: null,
+    market_lines: [],
+    ...overrides,
+  });
 }

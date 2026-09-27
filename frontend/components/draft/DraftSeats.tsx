@@ -2,22 +2,25 @@
 
 import { useState } from "react";
 
-import type { DraftConfigBody, DraftStateResponse } from "@/lib/api";
+import { HORIZONS, type DraftConfigBody, type DraftStateResponse, type Horizon } from "@/lib/api";
 import { TeamNameFields, nonBlank } from "./DraftSetup";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "./DraftStates";
+import { FieldSources } from "./FieldSources";
 
 /**
- * The seats: which one is mine, and what they are all called.
+ * The pre-draft panel: which seat is mine, whose board the room drafts off, and what the seats
+ * are called.
  *
- * TWO FIELDS WITH DIFFERENT RULES, and the split is the backend's rather than this panel's
- * (`PUT /draft/config`). A NAME is cosmetic — no pick, no need, no availability number reads
- * one — so it can be changed at pick 1 or pick 141. THE SEAT is not: a pick number only
- * means something under one shape, and moving my seat after pick 19 would re-label picks
- * that have already happened. So the seat input exists only while the draft is EMPTY, which
- * is the case that actually happens — "I set it to 2 and I'm really at 7", noticed before
- * the room starts — and costs nothing to fix, because there is nothing to lose. Once a pick
- * is in, the seat is only movable by Reconfigure, which says out loud that it throws the
- * picks away.
+ * TWO KINDS OF FIELD WITH DIFFERENT RULES, and the split is the backend's rather than this
+ * panel's (`PUT /draft/config`). A NAME is cosmetic — no pick, no need, no availability number
+ * reads one — so it can be changed at pick 1 or pick 141. THE SEAT AND THE FIELD are not: a
+ * pick number only means something under one shape, and every pick already made was made
+ * against one field, so moving either after pick 19 would re-describe picks that have already
+ * happened. Both therefore exist only while the draft is EMPTY, which is the case that
+ * actually happens — "I set it to 2 and I'm really at 7", or "this room drafts off ADP, not
+ * the consensus", noticed before the room starts — and costs nothing to fix, because there is
+ * nothing to lose. Once a pick is in, both are only movable by Reconfigure, which says out
+ * loud that it throws the picks away.
  *
  * Open by default on an empty draft (it is the thing you are doing at that moment) and
  * folded away once the room is running, where it is a rename and not a setup step.
@@ -35,6 +38,10 @@ export function DraftSeats({
   const empty = state.picks_made === 0;
   const [open, setOpen] = useState(empty);
   const [slot, setSlot] = useState(String(state.my_slot));
+  const [horizon, setHorizon] = useState<Horizon>(asHorizon(state.field_horizon));
+  // Null is "every source", which is exactly what the backend stores as NULL — so the draft's
+  // own `field_source_ids` maps onto this state with nothing in between.
+  const [sources, setSources] = useState<string[] | null>(state.field_source_ids);
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       state.teams
@@ -48,6 +55,12 @@ export function DraftSeats({
   const seat = Number(slot);
   const seatValid =
     !empty || (Number.isInteger(seat) && seat >= 1 && seat <= state.team_count);
+  // Sent only when it actually moved. The backend accepts the field a draft already has at any
+  // point, so this is not what avoids the 422 — it is this panel not asserting a decision it
+  // was not asked to make, the same rule the seat above it follows.
+  const fieldChanged =
+    horizon !== state.field_horizon ||
+    sortedIds(sources) !== sortedIds(state.field_source_ids);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -57,6 +70,13 @@ export function DraftSeats({
     // is accepted by the backend, but sending it would still be this page asserting
     // something it was not asked to.
     if (empty && seat !== state.my_slot) body.my_slot = seat;
+    if (empty && fieldChanged) {
+      body.field_horizon = horizon;
+      // An empty array is how "every source" is SENT once the draft already has a subset
+      // stored: omitting the key would leave that subset in place, and the backend reads `[]`
+      // as all of them, exactly as it reads an absent key on create.
+      body.field_source_ids = sources ?? [];
+    }
     onSave(body);
   }
 
@@ -109,6 +129,25 @@ export function DraftSeats({
           </p>
         )}
       </div>
+
+      {empty ? (
+        <FieldSources
+          horizon={horizon}
+          onHorizon={setHorizon}
+          selected={sources}
+          onSelected={setSources}
+          isDisabled={isBusy}
+        />
+      ) : (
+        <p className="text-xs text-zinc-500" data-field-frozen>
+          The room is drafting off the {state.field_horizon} consensus of{" "}
+          {state.field_source_ids
+            ? `${state.field_source_ids.length} chosen source${state.field_source_ids.length === 1 ? "" : "s"}`
+            : "every source"}
+          . That is what the picks already made were made against, so changing it is
+          Reconfigure too.
+        </p>
+      )}
 
       <TeamNameFields
         teamCount={state.team_count}
@@ -163,4 +202,22 @@ function blankedOut(
     if (value.trim() === "") body[seat] = "";
   }
   return body;
+}
+
+
+/**
+ * The draft's stored horizon, narrowed to the two this page has controls for.
+ *
+ * `DraftStateResponse.field_horizon` is typed as the backend types it (a bare string) so a
+ * horizon added server-side reads as itself rather than failing to compile. The toggle can only
+ * express the two we know, so anything else falls back to dynasty — and the 'frozen' sentence
+ * above still prints the real stored value, so nothing is hidden by the narrowing.
+ */
+function asHorizon(value: string): Horizon {
+  return (HORIZONS as readonly string[]).includes(value) ? (value as Horizon) : "dynasty";
+}
+
+/** A comparable spelling of a source selection: sorted and joined, with null as "all". */
+function sortedIds(ids: string[] | null): string {
+  return ids === null ? "*" : [...ids].sort().join(",");
 }

@@ -1,8 +1,16 @@
-"""Pulling the projected full-season split out of ESPN's player payload."""
+"""Pulling the two full-season splits out of ESPN's player payload.
+
+The projected one is what the board ranks; the actual one is what last season WAS. They are
+the same shape one `statSourceId` apart, so the interesting assertions are about which split
+each selector picks and which season it says it is for.
+"""
 
 from app.espn.statsplits import (
+    parse_actual_entry,
+    parse_actuals,
     parse_projection_entry,
     parse_projections,
+    select_actual_split,
     select_projected_split,
 )
 
@@ -129,3 +137,96 @@ def test_deduplicates_across_pages(player_pool_payload):
 def test_skips_entries_without_a_usable_player():
     assert parse_projection_entry({"id": 1}, 2027) is None
     assert parse_projection_entry({"player": {"fullName": "No Id"}}, 2027) is None
+
+
+# --- last season's ACTUALS: the same three steps, a different split ---------------------------
+
+
+def test_picks_the_actual_split_for_the_season_before_the_one_asked_for():
+    """Drafting 2027 means 2026 is the season that happened — that is the one to read."""
+    entry = _entry(
+        _split(ACTUAL_SEASON, 2025, {"0": 100.0, "42": 50.0}),
+        _split(ACTUAL_SEASON, 2026, {"0": 1800.0, "42": 72.0}),
+        _split(PROJECTED_SEASON, 2027, {"0": 1900.0, "42": 70.0}),
+    )
+
+    parsed = parse_actual_entry(entry, 2027)
+
+    assert parsed is not None
+    assert parsed.season == 2026
+    assert parsed.stats["PTS"] == 1800.0
+    # Games PLAYED, in the column the projected row uses for games projected. Same divisor.
+    assert parsed.projected_games == 72.0
+
+
+def test_actuals_fall_back_to_the_newest_completed_season_espn_carries():
+    """ESPN trims history; a 2024 line is a truer read than nothing, and it says it is 2024."""
+    entry = _entry(
+        _split(ACTUAL_SEASON, 2024, {"0": 900.0}),
+        _split(PROJECTED_SEASON, 2027, {"0": 1900.0}),
+    )
+
+    parsed = parse_actual_entry(entry, 2027)
+
+    assert parsed is not None
+    assert parsed.season == 2024
+
+
+def test_a_player_who_has_never_played_a_season_yields_no_actual():
+    """A rookie. A stat line of zeroes would say he was bad rather than that he was absent."""
+    entry = _entry(_split(PROJECTED_SEASON, 2027, {"0": 1200.0}))
+
+    assert select_actual_split(entry["player"], 2027) is None
+    assert parse_actual_entry(entry, 2027) is None
+
+
+def test_actuals_drop_the_derived_rate_stats_too():
+    entry = _entry(
+        _split(
+            ACTUAL_SEASON,
+            2026,
+            {"0": 1800.0, "6": 700.0, "19": 0.52, "29": 25.0, "35": 2.6, "44": 0.3},
+        )
+    )
+
+    parsed = parse_actual_entry(entry, 2027)
+
+    assert parsed is not None
+    assert set(parsed.stats) == {"PTS", "REB"}
+
+
+def test_actuals_read_the_per_game_averages_espn_publishes():
+    entry = _entry(
+        _split(
+            ACTUAL_SEASON,
+            2026,
+            {"0": 1800.0, "42": 72.0},
+            averageStats={"0": 25.0, "42": 1.0, "19": 0.52},
+        )
+    )
+
+    parsed = parse_actual_entry(entry, 2027)
+
+    assert parsed is not None
+    assert parsed.average_stats["PTS"] == 25.0
+    # Filtered exactly as the totals are — a percentage is never in a map we multiply.
+    assert "FG%" not in parsed.average_stats
+
+
+def test_parse_actuals_takes_the_actual_split_for_the_whole_pool():
+    entries = [
+        _entry(
+            _split(ACTUAL_SEASON, 2026, {"0": 1800.0, "42": 72.0}),
+            _split(PROJECTED_SEASON, 2027, {"0": 1900.0, "42": 70.0}),
+            player_id=11,
+        ),
+        # A rookie: projected, never played. He is simply not in the result.
+        _entry(_split(PROJECTED_SEASON, 2027, {"0": 1200.0, "42": 68.0}), player_id=22),
+    ]
+
+    actuals = parse_actuals(entries, 2027)
+    projections = parse_projections(entries, 2027)
+
+    assert {split.espn_player_id for split in actuals} == {11}
+    assert {split.espn_player_id for split in projections} == {11, 22}
+    assert actuals[0].stats["PTS"] == 1800.0

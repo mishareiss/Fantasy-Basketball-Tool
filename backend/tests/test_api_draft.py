@@ -1004,6 +1004,94 @@ def test_names_merge_at_any_point_in_the_draft_and_clear_with_a_blank(api, synce
     assert cleared["picks_made"] == 1
 
 
+# --- the field: whose board the room is assumed to draft off -------------------------------------
+
+
+def test_the_field_can_be_changed_while_the_draft_is_empty(api, db, synced):
+    """The question this control answers: does this room actually draft off ADP or off a list?"""
+    created = create(api)
+    assert created["field_source_ids"] is None  # every source, the default
+
+    body = api.put("/draft/config", json={"field_source_ids": ["adp:espn"]})
+
+    assert body.status_code == 200
+    state = body.json()
+    assert state["field_source_ids"] == ["adp:espn"]
+    # The universe is rebuilt off the new selection, which is the whole effect of the change.
+    assert state["universe_size"] == len(field_ranks_for(db, ["adp:espn"]))
+    assert state["picks_made"] == 0
+    # Persisted, not just echoed.
+    assert api.get("/draft").json()["field_source_ids"] == ["adp:espn"]
+
+
+def test_the_field_horizon_can_be_changed_while_the_draft_is_empty(api, synced):
+    create(api)
+
+    body = api.put("/draft/config", json={"field_horizon": "current_year"})
+
+    assert body.status_code == 200
+    assert body.json()["field_horizon"] == "current_year"
+    assert api.get("/draft").json()["field_horizon"] == "current_year"
+
+
+def test_an_empty_source_list_means_every_source_the_way_create_reads_it(api, db, synced):
+    """Ticking every box and ticking none must not be able to mean two different rooms."""
+    create(api, field_source_ids=["adp:espn"])
+
+    body = api.put("/draft/config", json={"field_source_ids": []}).json()
+
+    assert body["field_source_ids"] is None
+    assert body["universe_size"] == len(field_ranks_for(db))
+
+
+def test_the_field_is_frozen_once_a_pick_has_been_made(api, synced, field):
+    create(api)
+    pick(api, field[0])
+
+    refused = api.put("/draft/config", json={"field_source_ids": ["adp:espn"]})
+
+    assert refused.status_code == 422
+    assert "reconfigure" in refused.json()["detail"]
+    # Nothing moved: the pick that was made is still a pick against the original field.
+    assert api.get("/draft").json()["field_source_ids"] is None
+
+
+def test_the_field_it_already_has_is_accepted_whatever_the_draft_has_done(api, db, synced):
+    """A panel that always submits its current selection must never trip the 422."""
+    create(api, field_source_ids=["adp:espn"])
+    adp = field_ranks_for(db, ["adp:espn"])
+    pick(api, min(adp, key=lambda player_id: adp[player_id]))
+
+    body = api.put(
+        "/draft/config",
+        json={"field_horizon": HORIZON_DYNASTY, "field_source_ids": ["adp:espn"]},
+    )
+
+    assert body.status_code == 200
+    assert body.json()["field_source_ids"] == ["adp:espn"]
+    assert body.json()["picks_made"] == 1
+
+
+def test_an_unknown_source_id_on_the_config_is_a_400_that_names_it(api, synced):
+    create(api)
+
+    refused = api.put("/draft/config", json={"field_source_ids": ["ranking:nope"]})
+
+    assert refused.status_code == 400
+    assert "ranking:nope" in refused.json()["detail"]
+    # Refused before anything was written, like the same validation on create.
+    assert api.get("/draft").json()["field_source_ids"] is None
+
+
+def test_an_unknown_field_horizon_on_the_config_is_a_400(api, synced):
+    create(api)
+
+    refused = api.put("/draft/config", json={"field_horizon": "next_decade"})
+
+    assert refused.status_code == 400
+    assert api.get("/draft").json()["field_horizon"] == HORIZON_DYNASTY
+
+
 def test_a_nonsense_name_key_is_a_422_on_the_config_too(api, synced):
     create(api)
 

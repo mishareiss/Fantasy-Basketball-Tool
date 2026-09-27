@@ -27,6 +27,15 @@ const CONTROL =
   "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-500 " +
   "dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
 
+/**
+ * How many columns the board's table has, so a divider spans the whole of it.
+ *
+ * Here rather than inline because it has to move whenever MasterBoardPage's header does, and a
+ * bare 8 in two places is the kind of number that silently stops being right — a divider that
+ * spans one column too few leaves a notch in the table at every tier break.
+ */
+const BOARD_COLUMNS = 10;
+
 export type DividerHandlers = {
   /** Nudge this divider one rank up or down within the active scope. */
   onNudge: (rank: number, step: -1 | 1) => void;
@@ -88,7 +97,7 @@ function TierDividerInner({
         dragging ? "opacity-40" : ""
       } ${dropTarget ? "outline-2 -outline-offset-2 outline-sky-500" : ""}`}
     >
-      <td colSpan={8} className="px-2 py-1">
+      <td colSpan={BOARD_COLUMNS} className="px-2 py-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {removable ? (
             <button
@@ -197,7 +206,7 @@ function TierBreakSlotInner({
 }) {
   return (
     <tr data-tier-slot={rank} className="group/slot h-1.5">
-      <td colSpan={8} className="p-0">
+      <td colSpan={BOARD_COLUMNS} className="p-0">
         <div className="flex h-1.5 items-center gap-2 opacity-0 transition-opacity group-hover/slot:opacity-100 focus-within:opacity-100">
           <button
             type="button"

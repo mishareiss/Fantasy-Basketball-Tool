@@ -42,6 +42,17 @@ class SyncLeagueResponse(BaseModel):
     projections_missing: int
     projection_season: int | None = None
 
+    # Last season's actual production, priced under OUR scoring and stored beside the
+    # projections under its own `kind`. Counted separately because it is a separate pass over
+    # the same payload — and because "we priced 431 completed seasons" is the line that tells
+    # you the stat popup and the board's last-year column have something to show.
+    actuals_seen: int = 0
+    actuals_created: int = 0
+    actuals_updated: int = 0
+    actuals_unchanged: int = 0
+    actuals_missing: int = 0
+    actual_season: int | None = None
+
     adp_seen: int
     adp_season: int | None = None
     adp_created: int

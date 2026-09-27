@@ -50,6 +50,15 @@ def main() -> int:
         f"={summary.projections_unchanged} unchanged, "
         f"{summary.projections_missing} players had none)"
     )
+    # The season the actuals are FOR is always a season that has been played, so it is
+    # printed unconditionally rather than only when it surprises us.
+    actual_note = f" for season {summary.actual_season}" if summary.actual_season else ""
+    print(
+        f"  last season: {summary.actuals_seen} priced{actual_note} "
+        f"(+{summary.actuals_created} new, ~{summary.actuals_updated} changed, "
+        f"={summary.actuals_unchanged} unchanged, "
+        f"{summary.actuals_missing} players had none)"
+    )
     print(
         f"  espn adp: {summary.adp_seen} seen "
         f"(+{summary.adp_created} new, ~{summary.adp_updated} changed, "

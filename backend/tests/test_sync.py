@@ -8,10 +8,13 @@ from sqlalchemy import func, select
 from app.db.models import AdpEntry, LeagueSettings, Player, Projection, ScoringRule
 from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
-from app.espn.statsplits import parse_projections
+from app.espn.statsplits import parse_actuals, parse_projections
 from app.espn.sync import (
+    ACTUAL_SEASON_KIND,
     SyncSummary,
+    sync_actuals,
     sync_adp,
+    sync_league,
     sync_players,
     sync_projections,
     sync_scoring_settings,
@@ -332,3 +335,108 @@ def test_a_resync_still_updates_the_fields_espn_does_own(
     refreshed = db.get(Player, 1966)
     assert refreshed.injury_status != "OUT", "ESPN owns injury status and should have reset it"
     assert refreshed.age == 41
+
+
+# --- last season's actuals: the same table, a different kind ----------------------------------
+
+
+def _engine(db) -> ScoringEngine:
+    return load_scoring_engine(db, LEAGUE_ID, SEASON)
+
+
+def test_actuals_land_under_their_own_kind_and_are_priced_by_our_scoring(
+    db, msettings_payload, player_pool_payload
+):
+    """The whole point: last year's production, valued under the scoring THIS league runs."""
+    summary = _sync(db, msettings_payload, player_pool_payload)
+    splits = parse_actuals(player_pool_payload, SEASON)
+
+    sync_actuals(db, splits, _engine(db), summary)
+    db.commit()
+
+    rows = list(db.scalars(select(Projection).where(Projection.kind == ACTUAL_SEASON_KIND)))
+    assert len(rows) == summary.actuals_created == len(splits)
+    assert {row.source for row in rows} == {"espn"}
+    # The season it is FOR is a season that was played, never the one being drafted.
+    assert {row.season for row in rows} == {summary.actual_season}
+    assert summary.actual_season < SEASON
+
+    # Priced, and priced sanely: a completed season is worth real fantasy points per game
+    # (this league pays 3 per point, so the numbers are large), and the per-game number is the
+    # total over the games he actually played.
+    best = max(rows, key=lambda row: row.fantasy_points_per_game)
+    assert best.fantasy_points_per_game > 50.0
+    assert best.projected_games and best.projected_games > 0
+    assert best.fantasy_points_per_game == pytest.approx(
+        best.fantasy_points_total / best.projected_games
+    )
+    assert best.per_game_basis == "projected_games"
+
+
+def test_an_actual_row_cannot_collide_with_the_projected_row_for_the_same_season(
+    db, msettings_payload, player_pool_payload
+):
+    """Both fixtures land at 2026; only `kind` keeps them apart, so assert that it does."""
+    summary = _sync(db, msettings_payload, player_pool_payload)
+    sync_actuals(db, parse_actuals(player_pool_payload, SEASON), _engine(db), summary)
+    db.commit()
+
+    both = [
+        row
+        for row in db.scalars(select(Projection).where(Projection.source == "espn"))
+        if row.player_id == 3112335  # Jokic, who has both a projection and a season played
+    ]
+    assert {row.kind for row in both} == {"projected_season", ACTUAL_SEASON_KIND}
+    assert len({row.season for row in both}) == 1
+    # Two different stat lines, not one written twice.
+    projected = next(row for row in both if row.kind == "projected_season")
+    actual = next(row for row in both if row.kind == ACTUAL_SEASON_KIND)
+    assert projected.raw_stats != actual.raw_stats
+
+
+def test_actuals_keep_their_own_counters_and_re_running_changes_nothing(
+    db, msettings_payload, player_pool_payload
+):
+    """Two passes over one table: a shared counter would report one of them as the other."""
+    summary = _sync(db, msettings_payload, player_pool_payload)
+    projections_created = summary.projections_created
+
+    sync_actuals(db, parse_actuals(player_pool_payload, SEASON), _engine(db), summary)
+    db.commit()
+
+    assert summary.projections_created == projections_created
+    assert summary.projections_seen == len(parse_projections(player_pool_payload, SEASON))
+    assert summary.actuals_created > 0
+    assert summary.actuals_seen == len(parse_actuals(player_pool_payload, SEASON))
+    assert summary.actuals_missing == summary.players_seen - summary.actuals_seen
+
+    again = SyncSummary(league_id=LEAGUE_ID, season=SEASON)
+    sync_actuals(db, parse_actuals(player_pool_payload, SEASON), _engine(db), again)
+    db.commit()
+
+    assert again.actuals_created == 0
+    assert again.actuals_updated == 0
+    assert again.actuals_unchanged == summary.actuals_created
+
+
+def test_the_full_sync_stores_both_splits_from_one_fetch(
+    db, msettings_payload, player_pool_payload
+):
+    """`sync_league` itself, against a stubbed client — the wiring, not the parsers."""
+
+    class FakeClient:
+        league_id = LEAGUE_ID
+        season = SEASON
+
+        def fetch_settings_view(self):
+            return msettings_payload
+
+        def fetch_player_pool_pages(self):
+            return player_pool_payload
+
+    summary = sync_league(db, FakeClient())
+
+    assert summary.projections_created == len(parse_projections(player_pool_payload, SEASON))
+    assert summary.actuals_created == len(parse_actuals(player_pool_payload, SEASON))
+    kinds = set(db.scalars(select(Projection.kind).distinct()))
+    assert kinds == {"projected_season", ACTUAL_SEASON_KIND}

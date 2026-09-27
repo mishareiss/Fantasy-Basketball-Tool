@@ -25,9 +25,10 @@ from app.db.models import (
 )
 from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
-from app.espn.statsplits import parse_projections
+from app.espn.statsplits import parse_actuals, parse_projections
 from app.espn.sync import (
     SyncSummary,
+    sync_actuals,
     sync_adp,
     sync_players,
     sync_projections,
@@ -36,7 +37,7 @@ from app.espn.sync import (
 from app.ingest.market_line import MARKET_SOURCE, upsert_market_line
 from app.ingest.parser import ParsedRow
 from app.ingest.registry import ResolvedRow, UpsertContext, UpsertCounts
-from app.scoring import ScoringEngine, parse_league_settings
+from app.scoring import ScoringEngine, load_scoring_engine, parse_league_settings
 
 # Ages are computed at a fixed date, never `today`, so the expected numbers below never rot.
 AGE_AS_OF = date(2026, 10, 1)
@@ -304,6 +305,27 @@ def synced(db, msettings_payload, player_pool_payload) -> SyncSummary:
         summary,
     )
     sync_adp(db, parse_ownership(player_pool_payload), summary, season=SEASON)
+    db.commit()
+    return summary
+
+
+@pytest.fixture
+def with_actuals(db, synced, player_pool_payload) -> SyncSummary:
+    """The synced board PLUS last season's actuals — what a full `sync_league` really leaves.
+
+    Separate from `synced` on purpose, and that separation is load-bearing: every board,
+    consensus and valuation test in this suite runs on `synced` and therefore describes a
+    database with no actuals in it, so the tests that assert those endpoints are UNMOVED by
+    the actuals are comparing two genuinely different databases rather than one twice.
+    """
+    summary = SyncSummary(league_id=LEAGUE_ID, season=SEASON)
+    summary.players_seen = synced.players_seen
+    sync_actuals(
+        db,
+        parse_actuals(player_pool_payload, SEASON),
+        load_scoring_engine(db, LEAGUE_ID, SEASON),
+        summary,
+    )
     db.commit()
     return summary
 

@@ -47,6 +47,14 @@ thing being read WHILE a draft happens and a second endpoint for that would be o
 tiered twice, reconciled twice, drifting. No active draft makes the flags a no-op: nobody is
 drafted.
 
+TWO PRODUCTION COLUMNS RIDE ALONG, and they are reference the same way `consensus_rank` is.
+`last_year_fantasy_ppg` is what the season he actually played was worth per game under THIS
+league's scoring (`app.espn.sync.sync_actuals`), and `market_fantasy_ppg` is what the
+sportsbook-derived projection says (`app.ingest.market_line`). Neither moves anybody's rank,
+neither is on the board's order, and both are null for a player we hold no such row for —
+a rookie has no last season, an unpriced player has no market. `GET /players/{id}/detail`
+is where a row expands into the box score behind those two numbers.
+
 THE HORIZON IS A LENS, NOT A BOARD. `?horizon=` picks the consensus the reference column is
 computed against — the same player against the dynasty field and against the win-now field are
 two genuinely different readings, and flipping between them is the point. It does NOT select a
@@ -72,7 +80,7 @@ from app.api.consensus import HORIZON_DESCRIPTION, SourceInfo, _load, _source_in
 # The live draft, borrowed the same way: `_current` is the one place "which draft is THE draft"
 # is answered, and a second copy of that query here could disagree with it.
 from app.api.draft import _current as _current_draft
-from app.api.players import TIERS_OFF, ranked_board
+from app.api.players import TIERS_OFF, actual_season_ppg, market_ppg, ranked_board
 from app.config import get_settings
 from app.db.models import Player
 from app.db.models.draft import DraftPick
@@ -171,6 +179,18 @@ class MasterPlayerRow(BaseModel):
     # their 25 is +15), which is the direction that reads correctly as "how far out on a limb
     # are we". Null when either half is missing.
     delta: int | None = None
+
+    # --- two reference numbers beside the reference rank -----------------------------------
+    # What LAST SEASON was worth per game under THIS league's scoring — the production that
+    # actually happened, not a forecast of the next one. Null for a player who has never
+    # completed a season we hold (a rookie), which is a different claim from zero, and is why
+    # the board prints an em dash rather than putting him last.
+    last_year_fantasy_ppg: float | None = None
+    # The sportsbook-derived projection's fantasy points per game (`projection:market`). Null
+    # when nobody has posted a prop on him, and PARTIAL when they have posted only some: it is
+    # built from the stats that happen to be priced, so it reads low for a player with one
+    # line. A reference, never a ranking — see `app.ingest.market_line`.
+    market_fantasy_ppg: float | None = None
 
     # --- tiers: which band of the board he is in, overall and among his position -----------
     # 1 is the top tier. Null only for a player in `set_aside` — he has no rank, and a tier
@@ -511,6 +531,8 @@ def _row(
     tiers: _Tiers,
     wanted: str | None,
     drafted: _Drafted = NOT_DRAFTED,
+    last_year: dict[int, float] | None = None,
+    market: dict[int, float] | None = None,
 ) -> MasterPlayerRow:
     entry = row.entry
     consensus_rank = positions.get(entry.player_id)
@@ -532,6 +554,10 @@ def _row(
         # Only when we have both: a player the field doesn't rank has no gap to the field, and
         # a 0 there would read as agreement.
         delta=(entry.rank - consensus_rank) if entry.rank and consensus_rank else None,
+        # Absent from either map means the row does not exist, which is null on the way out.
+        # `.get` and not `.get(..., 0.0)`, for the reason the whole feature keeps repeating.
+        last_year_fantasy_ppg=(last_year or {}).get(entry.player_id),
+        market_fantasy_ppg=(market or {}).get(entry.player_id),
         # A set-aside player has no rank, so no band contains him and his tiers are null.
         overall_tier=tiers.overall(entry.player_id) if entry.rank else None,
         position_tier=position_tier if entry.rank else None,
@@ -573,6 +599,12 @@ def _response(
 ) -> MasterBoardResponse:
     players = _identities(db, board)
     tiers = _tiers(db, board, players)
+    # One query each over the whole board — the set-aside tray included, because those rows
+    # render the same columns. Both are plain `{player_id: number}` maps, so a row that is in
+    # neither costs nothing and reads as null.
+    board_ids = [row.player_id for row in (*board.ranked, *board.set_aside)]
+    last_year = actual_season_ppg(db, board_ids)
+    market = market_ppg(db, board_ids)
 
     def shown(rows) -> list[MasterPlayerRow]:
         """The rows this response carries: every one we can name, narrowed by `?position=`.
@@ -585,7 +617,16 @@ def _response(
         took cannot change anybody's rank or anybody's tier.
         """
         return [
-            _row(row, players[row.player_id], reference.positions, tiers, position, drafted)
+            _row(
+                row,
+                players[row.player_id],
+                reference.positions,
+                tiers,
+                position,
+                drafted,
+                last_year,
+                market,
+            )
             for row in rows
             if row.player_id in players
             and (position is None or position in (players[row.player_id].positions or ()))

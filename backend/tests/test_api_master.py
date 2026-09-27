@@ -6,15 +6,20 @@ to be able to arrive without re-seeding; excluding a player has to be undoable. 
 section says the boards that were already here are untouched by all of it.
 """
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db.models import MasterRankEntry, Player, Projection
 from app.db.models.ranking import HORIZON_DYNASTY as TAG_DYNASTY
 from app.db.session import get_db
+from app.espn.statsplits import parse_actuals
+from app.espn.sync import ACTUAL_SEASON_KIND, SyncSummary, sync_actuals
 from app.main import app
-from tests.conftest import AGE_AS_OF
+from app.scoring import load_scoring_engine
+from tests.conftest import AGE_AS_OF, LEAGUE_ID, SEASON, load_fixture
 
 # Two of the fixture pool, by ESPN id.
 JOKIC = 3112335
@@ -590,3 +595,105 @@ def test_the_board_with_the_draft_params_off_is_exactly_what_it_was(api, synced)
     assert api.get("/master/board").text == before
     assert '"drafted":false' in before.replace(" ", "")
     assert '"drafted_by_slot":null' in before.replace(" ", "")
+
+
+# --- last season and the market: two reference columns, and what they cannot touch ------------
+
+
+def test_the_two_production_columns_are_null_until_the_rows_behind_them_exist(api, synced):
+    """A board with no actuals and no lines answers null, never 0 — see the guard below."""
+    body = api.get("/master/board").json()
+
+    assert all(row["last_year_fantasy_ppg"] is None for row in body["players"])
+    assert all(row["market_fantasy_ppg"] is None for row in body["players"])
+
+
+def test_last_year_populates_from_the_actual_season_rows(api, db, with_actuals):
+    body = api.get("/master/board").json()
+
+    jokic = row_for(body, JOKIC)
+    stored = db.scalar(
+        select(Projection).where(
+            Projection.player_id == JOKIC, Projection.kind == ACTUAL_SEASON_KIND
+        )
+    )
+    assert jokic["last_year_fantasy_ppg"] == pytest.approx(stored.fantasy_points_per_game)
+    # Not everyone has one, and the ones who don't say so rather than reading zero.
+    assert any(row["last_year_fantasy_ppg"] is None for row in body["players"])
+    assert all(
+        row["last_year_fantasy_ppg"] is None or row["last_year_fantasy_ppg"] > 0
+        for row in body["players"]
+    )
+
+
+def test_the_market_column_populates_from_the_derived_market_projection(
+    api, db, synced, make_market_lines
+):
+    make_market_lines({JOKIC: {"PTS": 27.5, "REB": 12.5, "AST": 9.5}})
+
+    body = api.get("/master/board").json()
+
+    stored = db.scalar(
+        select(Projection).where(Projection.player_id == JOKIC, Projection.source == "market")
+    )
+    assert row_for(body, JOKIC)["market_fantasy_ppg"] == pytest.approx(
+        stored.fantasy_points_per_game
+    )
+    # Nobody else has a line, and nobody else gets a number.
+    assert [
+        row["espn_player_id"] for row in body["players"] if row["market_fantasy_ppg"] is not None
+    ] == [JOKIC]
+
+
+def test_the_set_aside_tray_carries_the_same_two_columns(api, with_actuals):
+    board = ids_of(api.get("/master/board").json())
+    api.put(f"/master/entries/{board[0]}", json={"excluded": True})
+
+    parked = row_for(api.get("/master/board").json(), board[0], "set_aside")
+
+    # He is off the ORDER, not off the evidence: his rank is null and his production is not.
+    assert parked["rank"] is None
+    assert parked["last_year_fantasy_ppg"] is not None
+
+
+def test_the_actuals_cannot_reach_the_value_board_or_the_consensus(api, db, synced):
+    """Acceptance criterion 3, asserted as a before/after over the same database.
+
+    Every ranking query filters `kind == 'projected_season'`, so storing hundreds of
+    `actual_season` rows must move nothing. This is the test that makes that a promise rather
+    than an observation about today's queries.
+    """
+    board_before = api.get("/players/board?limit=1000").text
+    consensus_before = api.get("/board/consensus?limit=1000").text
+    master_before = api.get("/master/board").text  # seeds the board, so `before` is warm
+    master_before = api.get("/master/board").text
+
+    sync_actuals(
+        db,
+        parse_actuals(load_fixture("espn_player_pool.json"), SEASON),
+        load_scoring_engine(db, LEAGUE_ID, SEASON),
+        SyncSummary(league_id=LEAGUE_ID, season=SEASON),
+    )
+    db.commit()
+
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Projection)
+            .where(Projection.kind == ACTUAL_SEASON_KIND)
+        )
+        > 0
+    )
+    assert api.get("/players/board?limit=1000").text == board_before
+    assert api.get("/board/consensus?limit=1000").text == consensus_before
+    # The master board is the one that DOES change, and only in the new column — the order,
+    # the ranks and the reference are untouched.
+    after = api.get("/master/board").json()
+    before = json.loads(master_before)
+    assert ids_of(after) == ids_of(before)
+    assert ranks_of(after) == ranks_of(before)
+    assert [row["consensus_rank"] for row in after["players"]] == [
+        row["consensus_rank"] for row in before["players"]
+    ]
+    assert any(row["last_year_fantasy_ppg"] is not None for row in after["players"])
+    assert all(row["last_year_fantasy_ppg"] is None for row in before["players"])

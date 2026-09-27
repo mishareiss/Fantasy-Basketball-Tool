@@ -3,19 +3,26 @@
 import { useState } from "react";
 
 import { Segment, Segmented } from "@/components/board/BoardControls";
-import { DRAFT_MODES, type DraftCreateBody, type DraftMode } from "@/lib/api";
+import { DRAFT_MODES, type DraftCreateBody, type DraftMode, type Horizon } from "@/lib/api";
+import { FieldSources } from "./FieldSources";
 import { FIELD, PRIMARY_BUTTON } from "./DraftStates";
 
 /**
  * Starting the draft — the page's opening state, reached whenever `GET /draft` is a 404.
  *
- * Two decisions and no more: where I am sitting, and whether the room drafts itself. Both
- * have defaults, so the honest shape of this form is "press the button": `POST /draft` takes
- * an empty body and fills the rest in from `DRAFT_*` and the consensus — the league IS ten
- * teams and twenty rounds, and a mock of a differently-sized league is a setting rather than
- * a form field. Everything else the endpoint accepts (the field's horizon, which sources the
- * room is assumed to draft off, the roster shape) lives behind "advanced", where it says so
- * and changes nothing.
+ * Three decisions: where I am sitting, whether the room drafts itself, and — behind
+ * "advanced" — WHOSE BOARD the room is assumed to be drafting off. All three have defaults, so
+ * the honest shape of this form is still "press the button": `POST /draft` takes an empty body
+ * and fills the rest in from `DRAFT_*` and the consensus, because the league IS ten teams and
+ * twenty rounds and a mock of a differently-sized league is a setting rather than a form
+ * field.
+ *
+ * THE FIELD IS THE THIRD DECISION AND IT IS NOT COSMETIC. Every availability percentage this
+ * page ever prints is a statement about a simulated room, and the room is only as good as the
+ * guess about what it drafts off (`FieldSources`). It lives behind "advanced" because the
+ * default — every source, equally weighted — is right for a room of strangers; it is in the
+ * form at all because a league that visibly drafts one board is a materially different room,
+ * and that was previously unsayable here.
  *
  * `teamCount` is passed in only to bound the seat input and to know HOW MANY name fields to
  * draw, and it comes from `DRAFT_TEAM_COUNT` by way of whatever draft last existed — before
@@ -43,6 +50,8 @@ export function DraftSetup({
   teamCount,
   defaultSlot,
   defaultNames = {},
+  defaultHorizon = null,
+  defaultSources = null,
   isBusy,
   onStart,
 }: {
@@ -53,6 +62,12 @@ export function DraftSetup({
   /** The names the draft being reconfigured already had, so a reconfigure doesn't silently
       drop them. Keyed by seat number as a string, the way the API holds them. */
   defaultNames?: Record<string, string>;
+  /** The field the draft being reconfigured was using, so a reconfigure keeps the room it was
+      modelling rather than quietly resetting it. Null on a fresh form — exactly as
+      `defaultSlot` is — which means "whatever the backend's default is", and is why an
+      untouched form sends no `field_horizon` at all. */
+  defaultHorizon?: Horizon | null;
+  defaultSources?: string[] | null;
   isBusy: boolean;
   onStart: (body: DraftCreateBody) => void;
 }) {
@@ -60,6 +75,13 @@ export function DraftSetup({
   const [mode, setMode] = useState<DraftMode>("simulation");
   const [names, setNames] = useState<Record<string, string>>(defaultNames);
   const [advanced, setAdvanced] = useState(false);
+  // Null until somebody chooses, the way the seat input is empty until somebody types: a key
+  // left out of the body means "use the default", and a form that filled it in with its own
+  // guess at what that default is would be asserting something nobody asked it to.
+  const [horizon, setHorizon] = useState<Horizon | null>(defaultHorizon);
+  // Null is "every source the horizon offers", which is the backend's own default — see
+  // `FieldSources`. The reconfigure path starts from whatever the old draft was using.
+  const [sources, setSources] = useState<string[] | null>(defaultSources);
 
   const seat = slot.trim() === "" ? null : Number(slot);
   const seatValid =
@@ -78,6 +100,11 @@ export function DraftSetup({
     // how a default stops being a default.
     const named = nonBlank(names);
     if (Object.keys(named).length > 0) body.team_names = named;
+    if (horizon !== null) body.field_horizon = horizon;
+    // Omitted when every source is ticked. `FieldSources` normalises "all of them" to null for
+    // exactly this: "all" is the ABSENCE of a selection, not a snapshot of today's source ids,
+    // so a list imported next week is in a room that asked for everybody.
+    if (sources !== null && sources.length > 0) body.field_source_ids = sources;
     onStart(body);
   }
 
@@ -161,13 +188,22 @@ export function DraftSetup({
           {advanced ? "Hide" : "Show"} advanced
         </button>
         {advanced ? (
-          <div className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+          <div className="flex flex-col gap-4 rounded-md bg-zinc-50 px-3 py-3 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+            <FieldSources
+              // The toggle has to show something, and dynasty is what the backend's own
+              // default resolves to in this league. Touching it makes the choice real.
+              horizon={horizon ?? "dynasty"}
+              onHorizon={setHorizon}
+              selected={sources}
+              onSelected={setSources}
+              isDisabled={isBusy}
+            />
             <p>
-              Nothing to set. The league&rsquo;s shape (ten teams, twenty rounds) comes from
-              the environment, the roster is our startup one, and the room is assumed to draft
-              off the same dynasty consensus your own board is read against — every available
-              source, equally weighted. Those are snapshotted onto the draft when it starts,
-              so it replays identically however the sources move afterwards.
+              The league&rsquo;s shape (ten teams, twenty rounds) comes from the environment
+              and the roster is our startup one. Everything here is{" "}
+              <strong className="font-semibold">snapshotted</strong> onto the draft when it
+              starts, so it replays identically however the sources move afterwards — and it
+              can still be changed until the first pick goes in.
             </p>
           </div>
         ) : null}

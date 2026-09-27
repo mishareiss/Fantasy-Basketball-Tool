@@ -331,6 +331,22 @@ describe("the master ranking calls", () => {
   });
 });
 
+describe("api.playerDetail", () => {
+  it("asks for one player by our canonical id, with no parameters", async () => {
+    await api.playerDetail(WEMBY.espn_player_id);
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/players/${WEMBY.espn_player_id}/detail`);
+  });
+
+  it("carries the 404 up as an ApiError, like every other read", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: "No player 424242." }, 404));
+
+    const error = await api.playerDetail(424242).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
+    expect((error as ApiError).detail).toContain("424242");
+  });
+});
+
 describe("api.draftPlan", () => {
   it("asks for the whole plan when given nothing — the backend's defaults are the point", async () => {
     await api.draftPlan();
@@ -371,6 +387,18 @@ describe("api.draftAvailability and api.updateDraftConfig", () => {
     const error = await api.draftAvailability().catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(404);
+  });
+
+  it("carries the field through the config body untouched", async () => {
+    await api.updateDraftConfig({ field_horizon: "dynasty", field_source_ids: ["adp:espn"] });
+
+    const [, init] = fetchMock.mock.calls[0];
+    // An empty array would mean "every source" and a missing key would mean "leave it" — two
+    // different things, so neither is invented or dropped on the way out.
+    expect(JSON.parse(String(init?.body))).toEqual({
+      field_horizon: "dynasty",
+      field_source_ids: ["adp:espn"],
+    });
   });
 
   it("PUTs the config body as it was handed, so a merge stays a merge", async () => {

@@ -14,7 +14,7 @@ from app.db.models import AdpEntry, LeagueSettings, Player, Projection, ScoringR
 from app.espn.client import ESPNClient
 from app.espn.ownership import OwnershipRecord, parse_ownership
 from app.espn.players import PlayerRecord, parse_player_pool
-from app.espn.statsplits import ProjectionSplit, parse_projections
+from app.espn.statsplits import ProjectionSplit, parse_actuals, parse_projections
 from app.scoring.engine import ScoringEngine
 from app.scoring.projections import score_projection
 from app.scoring.settings import LeagueScoringSettings, parse_league_settings
@@ -23,6 +23,14 @@ from app.scoring.settings import LeagueScoringSettings, parse_league_settings
 # ESPN publishes. Named so imported sources slot in beside them without touching this module.
 ESPN_SOURCE = "espn"
 SEASON_PROJECTION_KIND = "projected_season"
+
+# Last season's ACTUAL production, priced under OUR scoring — the same table, the same writer,
+# a different `kind`. Named separately from the projection kind because that separation is the
+# whole safety argument: every board and consensus query filters `kind == SEASON_PROJECTION_KIND`
+# (`app.api.players.ranked_board`, `app.ranking.sources`), so an actual row cannot reach the
+# ranking however many of them get stored. What reads it is the two reference columns on the
+# master board and the player stat popup, which ask for it by name.
+ACTUAL_SEASON_KIND = "actual_season"
 
 # Player columns the sync owns. Anything else on the row is left alone so a re-sync never
 # clobbers work from other sources.
@@ -75,6 +83,19 @@ class SyncSummary:
     # The season the stored projections are FOR; see `select_projected_split` for why it can
     # trail the season we synced.
     projection_season: int | None = None
+
+    # Last season's actuals, counted separately from the projections above. They are written
+    # to the same table by the same function, so sharing one set of counters would report one
+    # pass as the other — see `sync_actuals`.
+    actuals_seen: int = 0
+    actuals_created: int = 0
+    actuals_updated: int = 0
+    actuals_unchanged: int = 0
+    # Players ESPN listed but has no completed season for — rookies, mostly.
+    actuals_missing: int = 0
+    # The season the stored actuals are FOR: the season before the one we synced, or the
+    # newest one ESPN carries. Never the season being drafted.
+    actual_season: int | None = None
 
     adp_seen: int = 0
     # The season the stored ADP is FOR — always the season we synced, unlike projections.
@@ -295,6 +316,43 @@ def sync_projections(
     db.flush()
 
 
+def sync_actuals(
+    db: Session,
+    splits: list[ProjectionSplit],
+    engine: ScoringEngine,
+    summary: SyncSummary,
+    *,
+    source: str = ESPN_SOURCE,
+) -> None:
+    """Store what each player ACTUALLY did last season, priced under OUR scoring.
+
+    The one interesting word is *our*: ESPN's own applied totals for a completed season were
+    computed under whatever scoring that league ran, and what a dynasty startup wants to know
+    is what last year's production would have been worth HERE. So the same engine that prices
+    the projections prices these, and the number on a row is directly comparable to the
+    projection beside it.
+
+    Mechanically this is `sync_projections` under `ACTUAL_SEASON_KIND` — one writer, because
+    an actual full-season split and a projected one are the same shape and the one thing we do
+    with either is score it (`app.scoring.projections.score_projection` is source-agnostic on
+    purpose). The scratch summary is how the two passes keep separate counters without teaching
+    `sync_projections` about a second set of fields it would have to choose between.
+    """
+    scratch = SyncSummary(league_id=summary.league_id, season=summary.season)
+    # Carried over so `projections_missing`'s arithmetic — players seen minus splits parsed —
+    # means the same thing here: how many of the pool have never completed a season.
+    scratch.players_seen = summary.players_seen
+
+    sync_projections(db, splits, engine, scratch, source=source, kind=ACTUAL_SEASON_KIND)
+
+    summary.actuals_seen = scratch.projections_seen
+    summary.actuals_created = scratch.projections_created
+    summary.actuals_updated = scratch.projections_updated
+    summary.actuals_unchanged = scratch.projections_unchanged
+    summary.actuals_missing = scratch.projections_missing
+    summary.actual_season = scratch.projection_season
+
+
 def sync_adp(
     db: Session,
     records: list[OwnershipRecord],
@@ -364,11 +422,11 @@ def sync_adp(
 
 
 def sync_league(db: Session, client: ESPNClient | None = None) -> SyncSummary:
-    """Full league sync: scoring settings, players, projections, ADP. Commits on success.
+    """Full league sync: scoring settings, players, projections, last season, ADP. Commits.
 
     Order matters. The scoring rules have to land before projections, because pricing a
-    projection needs them; players have to land before projections and ADP, because both hang
-    off `player`. One `kona_player_info` fetch feeds all three player passes.
+    projection needs them; players have to land before projections, actuals and ADP, because
+    all three hang off `player`. One `kona_player_info` fetch feeds all four player passes.
 
     Raises `ESPNCredentialsError` if cookies are missing or rejected — nothing is written in
     that case, so a stale-cookie sync leaves the last good data intact.
@@ -392,6 +450,10 @@ def sync_league(db: Session, client: ESPNClient | None = None) -> SyncSummary:
     # the same sync that picked it up.
     engine = ScoringEngine(settings_row.scoring_rules)
     sync_projections(db, parse_projections(entries, client.season), engine, summary)
+    # The same payload's OTHER full-season split: what actually happened last year, priced
+    # under the same engine. Stored under its own `kind`, so it sits beside the projection
+    # rather than anywhere near the board's ranking.
+    sync_actuals(db, parse_actuals(entries, client.season), engine, summary)
     sync_adp(db, parse_ownership(entries), summary, season=client.season)
 
     db.commit()

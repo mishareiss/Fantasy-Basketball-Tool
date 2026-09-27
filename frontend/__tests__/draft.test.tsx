@@ -2,7 +2,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api, type DraftStateResponse, type MasterPlayerRow } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type DraftConfigBody,
+  type DraftCreateBody,
+  type DraftStateResponse,
+  type MasterPlayerRow,
+} from "@/lib/api";
 import { DraftRoomPage } from "@/components/draft/DraftRoomPage";
 import {
   availabilityOf,
@@ -23,15 +30,19 @@ import {
   tierRuns,
 } from "@/lib/draft";
 import {
+  ADP_SOURCE,
   DRAFT_MY_SLOT,
   DRAFT_ROUNDS,
   DRAFT_TEAMS,
+  DYNASTY_RANKING_SOURCE,
   MASTER_SEEDS,
+  PROJECTION_SOURCE,
   draftAdvance,
   draftAvailability,
   draftState,
   masterBoard,
   snakeOrder,
+  sourcesResponse,
 } from "./fixtures";
 
 /**
@@ -79,6 +90,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
       draftAvailability: vi.fn(),
       updateDraftConfig: vi.fn(),
       masterBoard: vi.fn(),
+      // The pre-draft panel asks what the room could be drafting off, so this is mocked for
+      // the same reason every other read here is: a component test that reaches the network
+      // is a component test that fails on a plane.
+      sources: vi.fn(),
     },
   };
 });
@@ -93,6 +108,7 @@ const undoPick = vi.mocked(api.undoPick);
 const availability = vi.mocked(api.draftAvailability);
 const updateConfig = vi.mocked(api.updateDraftConfig);
 const board = vi.mocked(api.masterBoard);
+const sources = vi.mocked(api.sources);
 
 const [WEMBY, BOOZER, GIANNIS, PAUL] = MASTER_SEEDS;
 
@@ -159,6 +175,7 @@ beforeEach(() => {
   editPick.mockResolvedValue(draftState());
   undoPick.mockResolvedValue(draftState());
   updateConfig.mockResolvedValue(draftState());
+  sources.mockResolvedValue(sourcesResponse());
   simulate.mockResolvedValue(draftAdvance(draftState(), []));
   availability.mockResolvedValue(draftAvailability());
 });
@@ -285,6 +302,10 @@ function player(
     is_stale: false,
     consensus_rank: rank,
     delta: 0,
+    // The draft room prints neither production column, so both are absent here — which is
+    // also the honest default for a player nothing has been ingested about.
+    last_year_fantasy_ppg: null,
+    market_fantasy_ppg: null,
     overall_tier: null,
     position_tier: null,
     position_scope: null,
@@ -1172,5 +1193,139 @@ describe("the seats panel", () => {
     await waitFor(() => expect(updateConfig).toHaveBeenCalledTimes(1));
     // Names only — the seat is not in the body at all, because it cannot move.
     expect(updateConfig).toHaveBeenCalledWith({ team_names: { "4": "Zo" } });
+  }, 15000);
+});
+
+/**
+ * Whose board the OTHER nine seats are assumed to be reading.
+ *
+ * The claim worth a test is not that a checkbox toggles — it is what a tick list MEANS on the
+ * way out. All of them ticked has to send no selection at all (the backend's own default, and
+ * the only spelling that admits a list imported next week); a subset has to send exactly that
+ * subset; and the same control before the first pick has to reach `PUT /draft/config` rather
+ * than quietly doing nothing.
+ */
+describe("the field the room drafts off", () => {
+  /**
+   * The body the form actually sent. Both endpoints take their body optionally, so reading it
+   * off the mock needs a guard — and a guard that throws says "nothing was sent" far more
+   * usefully than an assertion against `undefined?.field_source_ids` ever could.
+   */
+  function createBody(): DraftCreateBody {
+    const body = createDraft.mock.calls[0]?.[0];
+    if (body === undefined) throw new Error("createDraft was not called with a body");
+    return body;
+  }
+
+  function configBody(): DraftConfigBody {
+    const body = updateConfig.mock.calls[0]?.[0];
+    if (body === undefined) throw new Error("updateDraftConfig was not called with a body");
+    return body;
+  }
+
+  /** Open the setup form with its advanced section expanded. */
+  async function openAdvancedSetup(user: ReturnType<typeof userEvent.setup>) {
+    getDraft.mockRejectedValue(new ApiError("/draft responded 404", 404, "There is no draft."));
+    render(<DraftRoomPage />);
+    const form = await screen.findByRole("form", { name: /start a draft/i });
+    await user.click(within(form).getByRole("button", { name: /show advanced/i }));
+    await within(form).findByLabelText(ADP_SOURCE.label);
+    return form;
+  }
+
+  it("lists every source the horizon offers, all ticked", async () => {
+    const user = userEvent.setup();
+    const form = await openAdvancedSetup(user);
+
+    expect(sources).toHaveBeenCalledWith("dynasty");
+    for (const source of [PROJECTION_SOURCE, ADP_SOURCE, DYNASTY_RANKING_SOURCE]) {
+      const box = within(form).getByLabelText(source.label) as HTMLInputElement;
+      expect(box.checked).toBe(true);
+    }
+    // Each chip says what it is and how much of the pool it covers.
+    const adp = form.querySelector(`[data-source="${ADP_SOURCE.id}"]`);
+    expect(adp?.textContent).toContain("ADP");
+    expect(adp?.textContent).toContain(String(ADP_SOURCE.player_count));
+    expect(form.querySelector("[data-field-summary]")?.textContent).toContain("all 3 sources");
+  }, 15000);
+
+  it("sends no field selection at all when every source is ticked", async () => {
+    const user = userEvent.setup();
+    const form = await openAdvancedSetup(user);
+
+    await user.click(within(form).getByRole("button", { name: /start draft/i }));
+
+    await waitFor(() => expect(createDraft).toHaveBeenCalledTimes(1));
+    // "All of them" is the ABSENCE of a selection, never a snapshot of today's ids — so a
+    // source imported tomorrow is in a room that asked for everybody.
+    expect(createBody().field_source_ids).toBeUndefined();
+  }, 15000);
+
+  it("sends exactly the subset that is ticked", async () => {
+    const user = userEvent.setup();
+    const form = await openAdvancedSetup(user);
+
+    // Untick the two that aren't ADP: the room that visibly drafts off one board.
+    await user.click(within(form).getByLabelText(PROJECTION_SOURCE.label));
+    await user.click(within(form).getByLabelText(DYNASTY_RANKING_SOURCE.label));
+    await user.click(within(form).getByRole("button", { name: /start draft/i }));
+
+    await waitFor(() => expect(createDraft).toHaveBeenCalledTimes(1));
+    expect(createBody().field_source_ids).toEqual([ADP_SOURCE.id]);
+  }, 15000);
+
+  it("re-reads the catalog when the horizon changes", async () => {
+    const user = userEvent.setup();
+    const form = await openAdvancedSetup(user);
+
+    await user.click(within(form).getByRole("button", { name: /win now/i }));
+
+    await waitFor(() => expect(sources).toHaveBeenCalledWith("current_year"));
+    // A rank-only list is eligible under one horizon only, so the catalog genuinely changes.
+    sources.mockResolvedValue(sourcesResponse("current_year"));
+    await user.click(within(form).getByRole("button", { name: /start draft/i }));
+
+    await waitFor(() => expect(createDraft).toHaveBeenCalledTimes(1));
+    expect(createBody().field_horizon).toBe("current_year");
+  }, 15000);
+
+  it("changes the field through the config endpoint before the first pick", async () => {
+    const user = userEvent.setup();
+    await openRoom();
+
+    const form = screen.getByRole("form", { name: /seats and names/i });
+    await within(form).findByLabelText(ADP_SOURCE.label);
+    await user.click(within(form).getByLabelText(PROJECTION_SOURCE.label));
+    await user.click(within(form).getByRole("button", { name: /save seats/i }));
+
+    await waitFor(() => expect(updateConfig).toHaveBeenCalledTimes(1));
+    expect(configBody().field_source_ids).toEqual([ADP_SOURCE.id, DYNASTY_RANKING_SOURCE.id]);
+    expect(configBody().field_horizon).toBe("dynasty");
+  }, 15000);
+
+  it("does not assert a field it was not asked to change", async () => {
+    const user = userEvent.setup();
+    await openRoom();
+
+    const form = screen.getByRole("form", { name: /seats and names/i });
+    await within(form).findByLabelText(ADP_SOURCE.label);
+    await user.type(within(form).getByLabelText("Team 1"), "Sam");
+    await user.click(within(form).getByRole("button", { name: /save seats/i }));
+
+    await waitFor(() => expect(updateConfig).toHaveBeenCalledTimes(1));
+    // Names only. The backend accepts the field a draft already has at any point, so this is
+    // not what avoids a 422 — it is this panel not restating a decision nobody made.
+    expect(updateConfig).toHaveBeenCalledWith({ team_names: { "1": "Sam" } });
+  }, 15000);
+
+  it("shows the field as frozen once a pick has been made", async () => {
+    const user = userEvent.setup();
+    await openRoomOn(draftState({ picks: [{ playerId: WEMBY.espn_player_id }] }));
+
+    await user.click(screen.getByRole("button", { name: /rename teams/i }));
+    const form = screen.getByRole("form", { name: /seats and names/i });
+
+    expect(form.querySelector("[data-field-sources]")).toBeNull();
+    expect(form.querySelector("[data-field-frozen]")?.textContent).toContain("every source");
   }, 15000);
 });

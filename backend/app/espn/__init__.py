@@ -12,14 +12,19 @@ from app.espn.ownership import OwnershipRecord, parse_ownership, parse_ownership
 from app.espn.players import PlayerRecord, parse_player_entry, parse_player_pool, player_object
 from app.espn.statsplits import (
     ProjectionSplit,
+    parse_actual_entry,
+    parse_actuals,
     parse_projection_entry,
     parse_projections,
+    select_actual_split,
     select_projected_split,
 )
 from app.espn.sync import (
+    ACTUAL_SEASON_KIND,
     ESPN_SOURCE,
     SEASON_PROJECTION_KIND,
     SyncSummary,
+    sync_actuals,
     sync_adp,
     sync_league,
     sync_players,
@@ -28,6 +33,7 @@ from app.espn.sync import (
 )
 
 __all__ = [
+    "ACTUAL_SEASON_KIND",
     "ESPN_SOURCE",
     "SEASON_PROJECTION_KIND",
     "ESPNClient",
@@ -39,6 +45,8 @@ __all__ = [
     "ProjectionSplit",
     "SyncSummary",
     "credentials_available",
+    "parse_actual_entry",
+    "parse_actuals",
     "parse_ownership",
     "parse_ownership_entry",
     "parse_player_entry",
@@ -47,7 +55,9 @@ __all__ = [
     "parse_projections",
     "player_object",
     "require_credentials",
+    "select_actual_split",
     "select_projected_split",
+    "sync_actuals",
     "sync_adp",
     "sync_league",
     "sync_players",
