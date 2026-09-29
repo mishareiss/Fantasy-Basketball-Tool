@@ -1,17 +1,21 @@
-# Render Blueprint: the backend, and the nightly job that refreshes it from ESPN.
+# Render Blueprint: the backend only, on the free tier.
 #
 # The frontend is NOT here — it is a Next.js app on Vercel, with Root Directory `frontend` and
-# NEXT_PUBLIC_API_BASE_URL pointed at the web service below. The walk-through for all of it,
-# in order, is docs/DEPLOY.md.
+# NEXT_PUBLIC_API_BASE_URL pointed at the web service below. The walk-through is docs/DEPLOY.md.
 #
-# NO VALUES, ONLY KEYS. Every secret below is `sync: false`, which tells Render "ask for this
-# in the dashboard and never read it from git". A blueprint is a committed file, and the ESPN
-# cookies are account credentials.
+# NO VALUES, ONLY KEYS. Every secret below is `sync: false`: Render asks for it in the dashboard
+# and never reads it from git.
 #
-# The database is NOT declared here either, on purpose: it is a Neon project (free tier, and it
-# survives the web service being redeployed or deleted), and `DATABASE_URL` is its POOLED
-# connection string pasted in below. Render's own `databases:` block would work just as well;
-# Neon is the choice because the free Postgres on Render expires after a month.
+# The database is a Neon project (its POOLED connection string is DATABASE_URL below), not a
+# Render database — Render's free Postgres expires after a month.
+#
+# FREE-TIER NOTES:
+#   * No `preDeployCommand` on free services, so the migration runs in the start command instead
+#     (`alembic upgrade head && uvicorn ...`). It is idempotent — a no-op when already at head —
+#     and the free plan runs a single instance, so there is no migration race to worry about.
+#   * Render cron jobs are not free, so the nightly ESPN sync is NOT declared here. Refresh the
+#     data by pointing your local `.env` DATABASE_URL at Neon and running `make sync`
+#     (`make sync-ages`), or POST /sync/league + /sync/ages with the Bearer token. See DEPLOY.md.
 
 services:
   - type: web
@@ -23,38 +27,25 @@ services:
     plan: free
     region: oregon
     branch: main
-    # Migrations run HERE — once per deploy, before any new container serves traffic — rather
-    # than in the image's CMD, where two instances booting together would race the same
-    # migration. A failing migration fails the deploy and leaves the old version serving.
-    preDeployCommand: alembic upgrade head
-    # Unauthenticated by design (app/auth.py: OPEN_PATHS), which is what lets this poll work
-    # with APP_ACCESS_TOKEN set. It is `/health`, not `/health/db`: this answer decides whether
-    # to keep the deploy, and a momentary database blip should not roll the app back.
+    # Migrate, then serve. `alembic` and `alembic.ini` are in the image (backend/Dockerfile),
+    # alembic is a runtime dependency, and `upgrade head` is idempotent.
+    dockerCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    # Unauthenticated by design (app/auth.py: OPEN_PATHS), so this poll works with the gate on.
     healthCheckPath: /health
     envVars:
-      # --- Database -------------------------------------------------------------------
       # Neon's POOLED connection string, with the driver prefix and sslmode psycopg needs:
       #   postgresql+psycopg://USER:PASSWORD@ep-xxx-pooler.REGION.aws.neon.tech/DB?sslmode=require
       - key: DATABASE_URL
         sync: false
-
-      # --- The shared password ---------------------------------------------------------
-      # Invent a long random ASCII string (`openssl rand -hex 24`). This is the ONLY thing
-      # between the open internet and an API where every endpoint can rewrite our board.
-      # Leave it unset and the gate is OFF — which is correct locally and wrong here.
+      # The shared password. Invent a long random ASCII string (`openssl rand -hex 24`). Leave it
+      # unset and the gate is OFF — correct locally, wrong here.
       - key: APP_ACCESS_TOKEN
         sync: false
-
-      # --- Who is allowed to call us ---------------------------------------------------
-      # The Vercel origin(s), comma-separated — `https://fbb.vercel.app,https://fbb-git-main-
-      # you.vercel.app`. Scheme and host only, no trailing slash. You will not know this value
-      # until Vercel has deployed once; come back and set it then (DEPLOY.md step 3).
+      # The Vercel origin(s), comma-separated. Scheme and host only, no trailing slash. You will
+      # not know this until Vercel has deployed once; set it then (DEPLOY.md step 3).
       - key: CORS_ORIGINS
         sync: false
-
-      # --- ESPN league access ----------------------------------------------------------
-      # The two cookies from a logged-in browser, plus which league and season. They expire
-      # roughly yearly; re-paste and redeploy when the sync starts failing.
+      # ESPN league access — the two cookies plus league and season. They expire ~yearly.
       - key: ESPN_S2
         sync: false
       - key: SWID
@@ -63,45 +54,8 @@ services:
         sync: false
       - key: ESPN_SEASON
         sync: false
-
-      # --- Optional data providers -----------------------------------------------------
-      # Nothing reads these yet (app/config.py carries them for the odds/stats work). Leave
-      # them blank in the dashboard until something does.
+      # Optional data providers — nothing reads these yet; leave blank.
       - key: BALLDONTLIE_API_KEY
         sync: false
       - key: THE_ODDS_API_KEY
-        sync: false
-
-  # The nightly refresh: ESPN's projections, ADP and player pool, then nba.com birthdates.
-  #
-  # It runs the same two entrypoints `make sync` / `make sync-ages` do, in the same image, and
-  # it talks to the DATABASE rather than to our own HTTP API — so it needs no APP_ACCESS_TOKEN
-  # and is unaffected by the gate. Both are idempotent: a re-run updates in place.
-  #
-  # `&&`, not `;`: if the league sync fails (expired cookies, ESPN down) the age sync is
-  # pointless, and a job that fails loudly is one Render will email about.
-  - type: cron
-    name: fbb-sync
-    runtime: docker
-    dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile
-    plan: free
-    region: oregon
-    branch: main
-    # 09:20 UTC — after the NBA night has finished everywhere, and off the hour, where every
-    # other cron job on the platform is.
-    schedule: "20 9 * * *"
-    dockerCommand: sh -c "python -m scripts.sync_league && python -m scripts.sync_ages"
-    envVars:
-      # The same values as the web service. Render has no "inherit", so these are pasted a
-      # second time — or, from the dashboard, linked to an environment group once both exist.
-      - key: DATABASE_URL
-        sync: false
-      - key: ESPN_S2
-        sync: false
-      - key: SWID
-        sync: false
-      - key: ESPN_LEAGUE_ID
-        sync: false
-      - key: ESPN_SEASON
         sync: false
