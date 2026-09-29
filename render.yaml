@@ -80,7 +80,7 @@ services:
   #
   # `&&`, not `;`: if the league sync fails (expired cookies, ESPN down) the age sync is
   # pointless, and a job that fails loudly is one Render will email about.
-  - type: cronjob
+  - type: cron
     name: fbb-sync
     runtime: docker
     dockerContext: ./backend
