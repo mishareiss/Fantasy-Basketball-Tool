@@ -244,6 +244,10 @@ next-env.d.ts
 # Local data, imports, and caches
 data/
 *.csv
+# Database dumps — `pg_dump` output on the way to Neon (docs/DEPLOY.md step 4) is a full copy
+# of the league, our board included. Never a commit.
+*.dump
+*.sql
 # ...but the synthetic import fixtures are test code, not data: the suite can't run without
 # them. They are hand-written, not a real export, so there's nothing here to leak.
 !backend/tests/fixtures/*.csv

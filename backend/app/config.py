@@ -1,10 +1,13 @@
 """Application settings, loaded from the environment / repo-root `.env`."""
 
+import json
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated, Any
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.valuation import HORIZON_DYNASTY, DynastyCurve, TierParams
 
@@ -27,6 +30,13 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+psycopg://fbb:fbb@localhost:5432/fbb"
+
+    # --- Access ------------------------------------------------------------------------------
+    # The shared password for the whole API, and the only auth this tool has: one token, two
+    # people, no user table (see app/auth.py). UNSET MEANS OFF — a local checkout and CI carry
+    # no token and every endpoint answers, exactly as it did before there was a gate. Set it on
+    # any deployment that has a public URL, because every endpoint here can write.
+    app_access_token: str | None = None
 
     # ESPN league access (cookies belong to our own account, for our own league)
     espn_s2: str | None = None
@@ -144,8 +154,32 @@ class Settings(BaseSettings):
     balldontlie_api_key: str | None = None
     the_odds_api_key: str | None = None
 
-    # CORS: origins allowed to call this API (the Next.js dev server by default)
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # CORS: origins allowed to call this API (the Next.js dev server by default).
+    #
+    # `NoDecode` turns off pydantic-settings' own JSON decoding of this field, so the validator
+    # below sees the raw env string instead of a SettingsError. Without it a list-typed setting
+    # accepts ONLY JSON from the environment, and a hosting dashboard where you paste one value
+    # per key is a place where `https://a,https://b` is the natural thing to type.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: Any) -> Any:
+        """Accept a comma-separated string, a JSON array, or an already-parsed list.
+
+        Comma-separated is the form a deploy dashboard wants (`CORS_ORIGINS=https://a,https://b`);
+        the JSON form stays because `.env.example` has documented it since the beginning. An
+        empty value is an empty list — no origin allowed — rather than a silent fallback to
+        localhost, which would look like the setting had worked.
+        """
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            return json.loads(text)
+        return [origin.strip() for origin in text.split(",") if origin.strip()]
 
     def resolved_age_as_of(self) -> date:
         """The date every stored age is computed at — explicit setting, or season start.

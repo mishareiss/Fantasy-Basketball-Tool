@@ -159,6 +159,7 @@ dependencies = [
     { name = "alembic" },
     { name = "espn-api" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "nba-api" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
@@ -169,7 +170,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -179,6 +179,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "espn-api", specifier = ">=0.46.0" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "nba-api", specifier = ">=1.11.4" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic-settings", specifier = ">=2.6" },
@@ -189,7 +190,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.8" },
 ]

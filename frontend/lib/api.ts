@@ -2,7 +2,8 @@
  * Typed client for the FastAPI backend.
  *
  * Every call goes through `request`, so auth headers, error shaping, and base-URL
- * handling stay in one place as the API grows.
+ * handling stay in one place as the API grows. The shared-password header is attached
+ * there and nowhere else — no call site below knows the gate exists.
  *
  * The response types below MIRROR the backend's pydantic models — `BoardResponse` /
  * `BoardRow` / `TierSummaryRow` from app/api/players.py, `CurveResponse` / `TiersResponse`
@@ -10,6 +11,8 @@
  * app/api/imports.py. Field names and nullability are copied, not invented: if the backend
  * renames a field, the compiler is supposed to notice.
  */
+
+import { getAccessToken, reportUnauthorized } from "@/lib/auth";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -1001,13 +1004,31 @@ function query(params: Record<string, string | number | undefined | null>): stri
   return encoded ? `?${encoded}` : "";
 }
 
+/**
+ * The headers every request goes out with: JSON, whatever the caller added, and the shared
+ * password when one is stored.
+ *
+ * Built through `Headers` rather than an object spread because a spread of a `Headers`
+ * instance yields `{}` — a caller passing one would silently lose its `Content-Type`.
+ * `Authorization` is set last, so it is the client's to attach and not a caller's to forge.
+ */
+function headersFor(init?: RequestInit): Headers {
+  const headers = new Headers({ Accept: "application/json" });
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
+  const token = getAccessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { Accept: "application/json" },
       cache: "no-store",
       ...init,
+      // After `...init`, deliberately: the merge above already folded the caller's headers in,
+      // and letting `init.headers` win here would drop the Accept and the token with it.
+      headers: headersFor(init),
     });
   } catch {
     // Network-level failure: backend not running, wrong port, or CORS rejection.
@@ -1026,6 +1047,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
     } catch {
       // Non-JSON error body: the status code is all we get.
+    }
+    if (response.status === 401) {
+      // The one status this client ACTS on rather than only reporting: the stored password is
+      // wrong or gone, so drop it and let the gate come back (components/AuthGate.tsx). The
+      // error is still thrown — a page mid-fetch has to stop, not hang.
+      reportUnauthorized();
     }
     throw new ApiError(`${path} responded ${response.status}`, response.status, detail);
   }
@@ -1060,6 +1087,16 @@ export const api = {
   info: () => request<ServiceInfo>("/"),
   health: () => request<HealthResponse>("/health"),
   dbHealth: () => request<DbHealthResponse>("/health/db"),
+
+  /**
+   * Does the stored password get past the gate? Resolves if it does, throws a 401 if not.
+   *
+   * Any gated endpoint would answer this; `/import/kinds` is the cheapest one in the API — a
+   * static list, no database, no parameters — so this is a 200-or-401 probe and nothing else.
+   * The three calls above are exempt from the gate on the backend (app/auth.py: OPEN_PATHS)
+   * and so can never answer it.
+   */
+  checkAccess: () => request<unknown>("/import/kinds").then(() => undefined),
 
   /** The ranked, tiered board. 404s when nothing has been synced yet. */
   board: (params: BoardParams = {}) =>

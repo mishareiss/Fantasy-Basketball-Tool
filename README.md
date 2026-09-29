@@ -6,7 +6,8 @@ A dynasty fantasy basketball toolkit for player valuation, trade analysis, roste
 
 Built for a private ESPN league with H2H points and a custom scoring formula. See
 [docs/PLAN.md](docs/PLAN.md) for the overall plan and [docs/FEATURE_SPEC.md](docs/FEATURE_SPEC.md)
-for the draft-tool spec.
+for the draft-tool spec. To host it so a co-manager can use it too — Neon + Render + Vercel,
+one shared password, all state in the one database — follow [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Getting started
 
@@ -521,6 +522,18 @@ connection strings live in code. The backend reads it via `app/config.py`
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `MASTER_SEED_HORIZON` | `dynasty` | Which consensus the Master Ranking is seeded from, and whose pool decides who belongs on it. Not the horizon of the board — there is one board, and `?horizon=` only chooses the reference column |
+| `APP_ACCESS_TOKEN` | unset | The shared password for the whole API. **Unset means the gate is off**, which is what local work and the test suite expect; set on any deployment. `/`, `/health` and `/health/db` stay open either way |
+| `CORS_ORIGINS` | `["http://localhost:3000"]` | Origins allowed to call the API. Accepts comma-separated (`https://a,https://b`) or a JSON array, so it can be set from one env var on a hosting dashboard |
+
+#### Auth, when there is any
+
+There is one shared password and no user accounts (`backend/app/auth.py`): with
+`APP_ACCESS_TOKEN` set, every endpoint but `/`, `/health` and `/health/db` needs
+`Authorization: Bearer <token>`. With it unset the dependency is a pass-through, so a cold
+checkout, `make backend` and the whole test suite behave as though it were never added. The
+frontend attaches the header in the single `request()` in `frontend/lib/api.ts` and shows a
+login screen the first time a call comes back 401 — which on an open backend is never. See
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 The local Postgres container publishes **port 5433** by default so it doesn't collide with a
 Postgres install already using 5432. Change `POSTGRES_PORT` and `DATABASE_URL` together if you
@@ -534,6 +547,7 @@ want a different port.
 │   ├── app/
 │   │   ├── main.py          # app factory: routers + CORS
 │   │   ├── config.py        # pydantic-settings, reads the root .env
+│   │   ├── auth.py          # the shared-password gate (off unless APP_ACCESS_TOKEN is set)
 │   │   ├── api/             # routers (health, sync, players/board, rankings, valuation/curve+tiers)
 │   │   ├── db/              # engine/session, declarative Base, models/
 │   │   ├── espn/            # ESPN v3 client, cookie auth, player/projection/ADP parsing, sync
@@ -547,14 +561,18 @@ want a different port.
 │   │   └── ingest/          # CSV/paste import: adp + projection + ranking kinds on one pipeline
 │   ├── alembic/             # migrations (URL injected from Settings)
 │   ├── scripts/             # sync_league / sync_ages + the two fixture recorders
-│   └── tests/               # offline suite + tests/fixtures/ recorded ESPN and nba.com JSON
+│   ├── tests/               # offline suite + tests/fixtures/ recorded ESPN and nba.com JSON
+│   └── Dockerfile           # the deploy image (python:3.12-slim + uv), built by render.yaml
 ├── frontend/                # Next.js App Router + TypeScript + Tailwind
 │   ├── app/                 # / is the draft board; /status is the reachability check
 │   ├── components/board/    # controls, table + tier dividers, states, curve/tier inspector
 │   ├── lib/api.ts           # typed backend client (types mirror the pydantic models)
+│   ├── lib/auth.ts          # where the shared password is kept, and the 401 event
+│   ├── components/AuthGate.tsx  # the login screen, shown only once a call is refused
 │   └── __tests__/           # Vitest + React Testing Library, api client mocked
-├── docs/                    # PLAN.md, FEATURE_SPEC.md, prompts/
+├── docs/                    # PLAN.md, FEATURE_SPEC.md, DEPLOY.md, prompts/
 ├── docker-compose.yml       # Postgres 16
+├── render.yaml              # Render Blueprint: backend web service + nightly ESPN sync cron
 ├── .env.example
 └── Makefile
 ```

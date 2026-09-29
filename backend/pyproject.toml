@@ -14,13 +14,17 @@ dependencies = [
     "espn-api>=0.46.0",
     "nba-api>=1.11.4",
     "rapidfuzz>=3.14.5",
+    # A RUNTIME dependency, not a test one: `app/espn/client.py` imports httpx at module
+    # scope, so the API cannot start without it. It sat in the dev group until the deploy
+    # image installed `--no-dev` and crashed on the import — `make test` never noticed,
+    # because a dev install has it either way.
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "ruff>=0.8",
-    "httpx>=0.28",
 ]
 
 [build-system]

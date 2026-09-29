@@ -84,12 +84,18 @@ DRAFT_PARAMS = {
     "draft_plan_size": 15,
 }
 
+# The suite runs with the shared-password gate OFF, pinned for the same reason as everything
+# above: an APP_ACCESS_TOKEN in somebody's local `.env` would otherwise 401 every endpoint test
+# in here, and a suite that fails on a password is not telling you anything about the board.
+# `test_auth` sets it deliberately, per test, and puts it back.
+AUTH_PARAMS: dict[str, object] = {"app_access_token": None}
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True, scope="session")
 def pinned_settings():
-    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID and the DYNASTY_* / TIER_* / DRAFT_* params.
+    """Pin AGE_AS_OF, ESPN_SEASON, ESPN_LEAGUE_ID, DYNASTY_* / TIER_* / DRAFT_*, and auth OFF.
 
     Nobody's local `.env` should be able to move the expected ages, and the import pipeline
     falls back to `ESPN_SEASON` when a caller omits the season — so a checkout with no league
@@ -98,10 +104,11 @@ def pinned_settings():
     coefficients for the configured league, and the fixtures are stored under `LEAGUE_ID`.
     And the dynasty curve, for the same reason again: it is what orders the dynasty board —
     as the tier parameters are what cuts it up, and as the DRAFT_* values are what decide
-    which pick numbers are mine and how the simulated room drafts.
+    which pick numbers are mine and how the simulated room drafts. And APP_ACCESS_TOKEN, which
+    is the bluntest of the lot: set locally, it would 401 every endpoint test here.
     """
     settings = get_settings()
-    pinned = DYNASTY_CURVE | TIER_PARAMS | DRAFT_PARAMS
+    pinned = DYNASTY_CURVE | TIER_PARAMS | DRAFT_PARAMS | AUTH_PARAMS
     original = (settings.age_as_of, settings.espn_season, settings.espn_league_id)
     original_pinned = {field: getattr(settings, field) for field in pinned}
     settings.age_as_of = AGE_AS_OF

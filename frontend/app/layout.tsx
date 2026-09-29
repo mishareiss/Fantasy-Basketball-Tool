@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 
+import { AuthGate } from "@/components/AuthGate";
 import { BackendStatusStrip } from "@/components/BackendStatus";
 import "./globals.css";
 
@@ -62,7 +63,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             Market
           </Link>
         </nav>
-        {children}
+        {/* The shared-password gate wraps the PAGES and nothing else, so the nav stays where it
+            is and the status strip below keeps answering on the login screen — "API ok /
+            Database connected" beside a password box is the difference between a forgotten
+            password and a stopped backend. It shows nothing at all until a call comes back 401,
+            which on a backend with no APP_ACCESS_TOKEN set is never. */}
+        <AuthGate>{children}</AuthGate>
         {/* The reachability probe, demoted to a strip: still the fastest way to tell an
             empty board from a stopped backend, without owning the page any more. */}
         <footer className="mt-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-zinc-200 px-4 py-3 sm:px-6 dark:border-zinc-800">

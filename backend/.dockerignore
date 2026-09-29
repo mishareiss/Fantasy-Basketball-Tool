@@ -1,0 +1,11 @@
+# Keep the build context to what the image actually installs. Everything here would either
+# bloat the layer or, in the case of `.env` and the venv, ship something that must not leave
+# this machine.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+.env
+.env.*

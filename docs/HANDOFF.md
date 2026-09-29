@@ -25,7 +25,7 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   remote-devices MCP drops/reconnects mid-session — reload via ToolSearch.
 
 ## Git / merge state
-- main = c43438c. Tasks 1-22 (incl T22a) + the CI fix are all merged. CI green.
+- main = 8716f1a. Tasks 1-23 + the CI fix are all merged. CI green.
 - T20 (draft plan + live drafted-state backend) MERGED at a738569 (parent b930441). 878 tests,
   autogenerate-clean migration f3a9c41d7b62, frozen /master/board guarded. Draft backend COMPLETE.
 - T19 (draft engine) MERGED at b930441 (parent bee3f2c). Pure engine in app/draft/, 49 tests
@@ -218,6 +218,26 @@ PUT /draft/config also takes field_horizon/field_source_ids when picks_made==0. 
 + name-click stats popup; DraftSetup: field-source multi-select (from GET /sources) + horizon, default all.
 >>> AFTER T23 MERGES, Misha must RE-SYNC (`make sync`) so the actual_season rows populate — the columns/
 popup read empty ('-') until then. <<<
+
+## T24 BUILT + REVIEWED (this session) — staged on task-24-deploy, NOT committed, awaiting Misha's commit.
+Backend 973 pass (auth off when APP_ACCESS_TOKEN unset → suite green proves it; OPEN_PATHS /,/health,
+/health/db exempt; constant-time Bearer compare), ruff clean, NO migration; frontend 265 pass + build +
+lint. CAUGHT A REAL BUG: httpx was dev-only but app/espn/client.py imports it at module scope → container
+crashed on startup; moved to runtime deps + relocked (same version). Verified in a real docker build:
+/health open, /import/kinds 401→200 w/ token, CORS allows Vercel origin & rejects others, alembic upgrade
+head + sync scripts run in-image. Files: backend/app/auth.py, backend/Dockerfile, render.yaml (web +
+preDeploy migrate + daily sync cron), docs/DEPLOY.md, frontend AuthGate + lib/auth.ts. Suggested commit
+(no trailers): "Add shared-password auth gate, env-driven CORS, and Vercel/Render/Neon deploy config
+(Dockerfile, render.yaml, DEPLOY.md); make httpx a runtime dependency". >>> AFTER MERGE: deploy is OPS
+per docs/DEPLOY.md — Neon (pooled DATABASE_URL) + Render (paste APP_ACCESS_TOKEN + CORS_ORIGINS) + Vercel
+(Root Dir=frontend, NEXT_PUBLIC_API_BASE_URL); pg_dump→Neon to carry the board; then `make sync`. <<<
+  (prompt: docs/prompts/24-deployment.md, off main 8716f1a.) Make the tool deployable
+for Misha + co-manager: shared-password auth (APP_ACCESS_TOKEN; ENFORCED ONLY WHEN SET so tests/local
+stay open; health endpoints exempt; frontend gate stores token in localStorage, api.ts request()
+attaches Bearer, 401→gate), CORS_ORIGINS validator (comma-separated env), backend/Dockerfile,
+render.yaml (web + preDeploy `alembic upgrade head` + daily sync cron), docs/DEPLOY.md. Target: Vercel
+(frontend, free) + Render (backend) + Neon (pooled Postgres). NO DB migration, no user table. State is
+already all in Postgres, so one shared Neon DB = persistence across all instances. Await CC results.
 
 ## Reuse surfaces
 Consensus/pool: app/ranking/sources.py (load_catalog, available_specs, SourceCatalog, percentile_for),
