@@ -37,13 +37,12 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY scripts ./scripts
+RUN chmod +x scripts/start.sh
 
 RUN uv sync --frozen --no-dev
 
-# Note what is NOT here: no `alembic upgrade head`, and no CMD that runs one. The schema is
-# migrated by Render's preDeployCommand (render.yaml), once per deploy, rather than by every
-# container that starts — two instances booting at once would otherwise race the same migration.
-
-# $PORT is Render's, and it is not optional: it tells the platform's router where to knock.
-# The shell form, because the variable has to be expanded at start time, not baked in.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# scripts/start.sh runs `alembic upgrade head` then execs uvicorn. The migration lives in the
+# start command (not a Render preDeployCommand) because the free tier has no preDeployCommand;
+# it is idempotent and the free plan is single-instance, so there is no migration race. Invoked
+# as `sh <script>` so no execute bit is required and $PORT is expanded at start time.
+CMD ["sh", "/srv/scripts/start.sh"]

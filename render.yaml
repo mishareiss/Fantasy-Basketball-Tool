@@ -10,9 +10,9 @@
 # Render database — Render's free Postgres expires after a month.
 #
 # FREE-TIER NOTES:
-#   * No `preDeployCommand` on free services, so the migration runs in the start command instead
-#     (`alembic upgrade head && uvicorn ...`). It is idempotent — a no-op when already at head —
-#     and the free plan runs a single instance, so there is no migration race to worry about.
+#   * No `preDeployCommand` on free services, so the migration runs in the image's start
+#     script (backend/scripts/start.sh): `alembic upgrade head` then uvicorn. It is idempotent —
+#     a no-op when already at head — and the free plan is single-instance, so no migration race.
 #   * Render cron jobs are not free, so the nightly ESPN sync is NOT declared here. Refresh the
 #     data by pointing your local `.env` DATABASE_URL at Neon and running `make sync`
 #     (`make sync-ages`), or POST /sync/league + /sync/ages with the Bearer token. See DEPLOY.md.
@@ -27,9 +27,9 @@ services:
     plan: free
     region: oregon
     branch: main
-    # Migrate, then serve. `alembic` and `alembic.ini` are in the image (backend/Dockerfile),
-    # alembic is a runtime dependency, and `upgrade head` is idempotent.
-    dockerCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    # No dockerCommand override: the image's own CMD (backend/Dockerfile) runs
+    # scripts/start.sh, which does `alembic upgrade head` then execs uvicorn. Render mangles an
+    # inline `sh -c "... && ..."` here, so the start logic lives in the image, not this file.
     # Unauthenticated by design (app/auth.py: OPEN_PATHS), so this poll works with the gate on.
     healthCheckPath: /health
     envVars:
