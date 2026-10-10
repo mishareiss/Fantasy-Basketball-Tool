@@ -714,7 +714,7 @@ export function MasterBoardPage() {
                       </th>
                       <th
                         scope="col"
-                        className="border-b border-zinc-200 px-2 py-2 text-right dark:border-zinc-800"
+                        className="border-b border-zinc-200 px-2 py-2 text-left dark:border-zinc-800"
                         title="Where YOU have him, and which tier that rank falls in. The only number on this page that is a decision."
                       >
                         You

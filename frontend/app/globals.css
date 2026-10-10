@@ -8,8 +8,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Both chains carry a real fallback stack, because the Geist vars are only set once
+     next/font has actually loaded the webfont. Without one, `font-mono` fell back to the
+     browser's default PROPORTIONAL font the moment Geist Mono failed to load — which is why
+     the deployed board's rank column drifted while the local one lined up: `tabular-nums`
+     cannot save a font that has no fixed advance to begin with. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {

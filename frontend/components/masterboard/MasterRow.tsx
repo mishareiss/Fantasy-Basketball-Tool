@@ -272,31 +272,49 @@ function MasterRowInner({
         </button>
       </td>
 
-      <td className="py-1.5 pr-2 text-right">
-        <span className="font-mono text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+      {/* THE RANK COLUMN IS A COLUMN, and keeping it one is the whole reason this cell has
+          three elements in it rather than one.
+
+          The number and the tier chips used to sit inline in a single `text-right` cell, so
+          the group was pinned at its RIGHT edge and the number's x-position was whatever the
+          chips left over — `C2` is narrower than `PG2`, so the number moved a few pixels on
+          every row and the column wobbled. Now the number gets its own fixed-width box
+          anchored at the cell's LEFT edge and right-aligned inside it, and the chips are a
+          sibling AFTER it: nothing they do can move the digits.
+
+          `w-8` (2rem) is sized for a THREE-digit rank, because this is a dynasty board and it
+          ranks well past 100 — three tabular digits at `text-base` are ~1.8rem in every mono
+          face in the fallback chain, so 250 sits in the box with room and does not clip. */}
+      <td className="py-1.5 pr-2 pl-2">
+        <span
+          data-rank-number
+          className="inline-block w-8 text-right font-mono text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+        >
           {row.rank ?? MISSING}
         </span>
         {/* Which band he is in, repeated on the row because the divider that says so scrolls
             off: a rank without its tier is the number you have to count back up to read. */}
-        {tier === null ? null : (
-          <span
-            data-tier={tier}
-            title={`He is in tier ${tier} of the list on screen. A tier is a band over the ranks — move him across the line and he is in the next one.`}
-            className="ml-1.5 inline-block rounded bg-zinc-100 px-1 font-mono text-[10px] text-zinc-500 tabular-nums dark:bg-zinc-800 dark:text-zinc-400"
-          >
-            T{tier}
-          </span>
-        )}
-        {positionTier === null ? null : (
-          <span
-            data-position-tier={positionTier.tier}
-            title={`Tier ${positionTier.tier} among ${positionTier.scope}s — his band in his own position's order, which is the one a roster slot is filled out of.`}
-            className="ml-1 inline-block rounded px-1 font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-600"
-          >
-            {positionTier.scope}
-            {positionTier.tier}
-          </span>
-        )}
+        <span data-rank-chips className="ml-1.5 inline-flex items-baseline gap-1 align-baseline">
+          {tier === null ? null : (
+            <span
+              data-tier={tier}
+              title={`He is in tier ${tier} of the list on screen. A tier is a band over the ranks — move him across the line and he is in the next one.`}
+              className="inline-block rounded bg-zinc-100 px-1 font-mono text-[10px] text-zinc-500 tabular-nums dark:bg-zinc-800 dark:text-zinc-400"
+            >
+              T{tier}
+            </span>
+          )}
+          {positionTier === null ? null : (
+            <span
+              data-position-tier={positionTier.tier}
+              title={`Tier ${positionTier.tier} among ${positionTier.scope}s — his band in his own position's order, which is the one a roster slot is filled out of.`}
+              className="inline-block rounded px-1 font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-600"
+            >
+              {positionTier.scope}
+              {positionTier.tier}
+            </span>
+          )}
+        </span>
       </td>
 
       <td className="py-1.5 pr-3">

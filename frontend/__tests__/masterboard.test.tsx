@@ -804,6 +804,79 @@ describe("tier dividers", () => {
   }, 15000);
 });
 
+/**
+ * The rank column, as a COLUMN.
+ *
+ * The number and the two tier chips used to sit inline in one right-aligned cell, which meant
+ * the group was pinned at its right edge and the number's position was whatever the chips left
+ * over: a `C2` chip is narrower than a `PG2` chip, so the digits sat at a different x on every
+ * row and the column wobbled. The fix is structural, so the guard is structural too — jsdom
+ * lays nothing out, so these assert the SHAPE that makes the wobble impossible rather than
+ * pixels: the number lives in its own fixed-width box, and the chips are a SIBLING of that box
+ * rather than sharing it.
+ */
+describe("the rank column", () => {
+  /** The box the digits live in, which is the element whose width must not depend on content. */
+  function rankBox(playerId: number): HTMLElement {
+    const box = rowFor(playerId).querySelector("[data-rank-number]");
+    if (!box) throw new Error(`no rank box for player ${playerId}`);
+    return box as HTMLElement;
+  }
+
+  it("prints the number in its own fixed-width right-aligned box", async () => {
+    await openBoard();
+
+    // Giannis is the 3rd man: a single digit, the case that used to drift furthest.
+    const box = rankBox(GIANNIS.espn_player_id);
+    expect(box.textContent).toBe("3");
+    // The three classes that ARE the fix: a fixed 2rem box, right-aligned, and a box at all.
+    expect(box.className).toContain("inline-block");
+    expect(box.className).toContain("w-8");
+    expect(box.className).toContain("text-right");
+    // And it is still the mono tabular figure it was, which is the other half of a column.
+    expect(box.className).toContain("font-mono");
+    expect(box.className).toContain("tabular-nums");
+  });
+
+  it("keeps both tier chips outside that box, as a sibling after it", async () => {
+    await openBoard();
+
+    const box = rankBox(GIANNIS.espn_player_id);
+    // THE regression guard. If either chip is ever nested back inside the number's box, its
+    // width moves the digits again and the column wobbles — so neither may be in there.
+    expect(box.querySelector("[data-tier]")).toBeNull();
+    expect(box.querySelector("[data-position-tier]")).toBeNull();
+
+    // They are in a sibling element that comes AFTER the box, so nothing they do can push it.
+    const chips = box.nextElementSibling as HTMLElement | null;
+    expect(chips?.hasAttribute("data-rank-chips")).toBe(true);
+    expect(chips?.querySelector("[data-tier]")?.textContent).toBe("T2");
+    expect(chips?.querySelector("[data-position-tier]")?.textContent).toBe("PF2");
+  });
+
+  it("holds a three-digit rank in the same box, chips and all", async () => {
+    const user = userEvent.setup();
+    // The landmine: a dynasty board ranks well past 100, so the box is sized for "250" rather
+    // than for "12". 400 deep, and the 120th man is reached by search rather than by scrolling.
+    board.mockResolvedValue(deepMasterBoard(400));
+    render(<MasterBoardPage />);
+    await screen.findByText("Player 1");
+
+    await user.type(screen.getByLabelText("Find a player"), "Player 120");
+    expect(onScreen()).toEqual([900119]);
+
+    const box = rankBox(900119);
+    // Three digits and NOTHING else in the box: the chips next to him (tier 3 overall, tier 3
+    // among SFs under the deep fixture's cuts) are outside it, so the digits are alone in a
+    // box whose width never changes.
+    expect(box.textContent).toBe("120");
+    expect(box.className).toContain("w-8");
+    const chips = box.nextElementSibling as HTMLElement | null;
+    expect(chips?.querySelector("[data-tier]")?.textContent).toBe("T3");
+    expect(chips?.querySelector("[data-position-tier]")?.textContent).toBe("SF3");
+  }, 15000);
+});
+
 describe("the position filter", () => {
   /** The PF view: Boozer and Giannis, at their board ranks, with the PF scope's tiers. */
   function powerForwards() {
