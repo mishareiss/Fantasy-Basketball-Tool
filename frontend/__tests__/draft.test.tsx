@@ -215,26 +215,31 @@ describe("lib/draft — the snake", () => {
     }
   });
 
-  it("round-trips every cell of a real 10x20 board", () => {
+  it("round-trips every cell of a real 9x20 board", () => {
     for (let round = 1; round <= 20; round += 1) {
-      for (let seat = 1; seat <= 10; seat += 1) {
-        const number = cellPickNumber(round, seat, 10);
-        expect(cellOf(number, 10)).toEqual({ round, teamSlot: seat });
-        expect(roundOf(number, 10)).toBe(round);
+      for (let seat = 1; seat <= 9; seat += 1) {
+        const number = cellPickNumber(round, seat, 9);
+        expect(cellOf(number, 9)).toEqual({ round, teamSlot: seat });
+        expect(roundOf(number, 9)).toBe(round);
       }
     }
-    // Every pick number is used exactly once, which is the thing a wrong formula breaks.
+    // Every pick number is used exactly once, which is the thing a wrong formula breaks: 180
+    // cells, 180 distinct numbers, and they are exactly 1..180.
     const all = Array.from({ length: 20 }, (_, r) =>
-      Array.from({ length: 10 }, (_, s) => cellPickNumber(r + 1, s + 1, 10)),
+      Array.from({ length: 9 }, (_, s) => cellPickNumber(r + 1, s + 1, 9)),
     ).flat();
-    expect(new Set(all).size).toBe(200);
+    expect(all).toHaveLength(180);
+    expect(new Set(all).size).toBe(180);
+    expect([...all].sort((a, b) => a - b)).toEqual(Array.from({ length: 180 }, (_, i) => i + 1));
   });
 
   it("gives my column the pick numbers the backend gives my seat", () => {
     expect(pickNumbersFor(DRAFT_MY_SLOT, DRAFT_TEAMS, DRAFT_ROUNDS)).toEqual([2, 7, 10]);
-    // The same alternating 17-then-3 wait backend/tests/test_api_draft.py asserts.
-    expect(pickNumbersFor(2, 10, 20).slice(0, 5)).toEqual([2, 19, 22, 39, 42]);
-    expect(pickNumbersFor(1, 10, 20).slice(0, 4)).toEqual([1, 20, 21, 40]);
+    // The same alternating 15-then-3 wait backend/tests/test_api_draft.py asserts.
+    expect(pickNumbersFor(2, 9, 20).slice(0, 5)).toEqual([2, 17, 20, 35, 38]);
+    // The end seats of an odd-sized league, back to back at the turn.
+    expect(pickNumbersFor(1, 9, 20).slice(0, 5)).toEqual([1, 18, 19, 36, 37]);
+    expect(pickNumbersFor(9, 9, 20).slice(0, 4)).toEqual([9, 10, 27, 28]);
   });
 
   it("throws on a cell outside the grid rather than quietly returning one inside it", () => {
@@ -590,6 +595,44 @@ describe("the draft room", () => {
     const cells = Array.from(row?.querySelectorAll("[data-cell]") ?? []);
     expect(cells.map((cell) => cell.getAttribute("data-cell"))).toEqual(["8", "7", "6", "5"]);
   });
+
+  it("says nothing about the league's size when the draft matches it", async () => {
+    await openRoomOn(draftState());
+
+    expect(document.querySelector("[data-league-resized]")).toBeNull();
+  });
+
+  it("says so when the draft was started at a size the league no longer is", async () => {
+    await openRoomOn(draftState({ teamCount: 10, settingsTeamCount: 9 }));
+
+    const notice = document.querySelector("[data-league-resized]");
+    expect(notice?.textContent).toContain("set up for 10 teams; the league is now 9");
+    expect(notice?.textContent).toContain("Start a new draft");
+  });
+
+  it("replaces a resized draft at the league's size, dropping the seat that went", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await openRoomOn(
+      draftState({
+        teamCount: 10,
+        settingsTeamCount: 9,
+        teamNames: { "1": "Sam", "10": "Gone" },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /start a new draft/i }));
+    const form = await screen.findByRole("form", { name: /start a draft/i });
+    // Nine name fields, not the old draft's ten — a name for seat 10 would 422 the new draft.
+    expect(form.querySelectorAll("[data-team-name]")).toHaveLength(9);
+    await user.click(within(form).getByRole("button", { name: /start draft/i }));
+
+    await waitFor(() => expect(createDraft).toHaveBeenCalledTimes(1));
+    expect(confirm).toHaveBeenCalled();
+    const [body, replacing] = createDraft.mock.calls[0] ?? [];
+    expect(replacing).toBe(true);
+    expect(body?.team_names).toEqual({ "1": "Sam" });
+  }, 15000);
 
   it("says whose pick it is, and says YOUR PICK when it is mine", async () => {
     await openRoomOn(draftState({ picks: [{ playerId: WEMBY.espn_player_id }] }));

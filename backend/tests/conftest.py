@@ -74,7 +74,7 @@ TIER_PARAMS = {
 # every simulated draft. Keep in step with the `Settings` defaults (and with the module
 # defaults in `app.draft.config`, which `test_draft_engine` asserts these agree with).
 DRAFT_PARAMS = {
-    "draft_team_count": 10,
+    "draft_team_count": 9,
     "draft_rounds": 20,
     "draft_my_slot": 2,
     "draft_autopick_topk": 12,

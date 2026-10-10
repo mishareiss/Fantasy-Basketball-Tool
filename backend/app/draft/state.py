@@ -8,8 +8,8 @@ TWO WAYS TO ADVANCE, which is the shape the draft room needs:
 
 * `apply_pick(player_id)` — commit a real selection for the team on the clock. This is manual
   mode entering every team's pick by hand, and it is also how a completed selection of mine is
-  recorded. Strictly in pick order: the draft has one clock, and a state that let pick 22 be
-  entered before pick 19 could not say who was available when.
+  recorded. Strictly in pick order: the draft has one clock, and a state that let pick 20 be
+  entered before pick 17 could not say who was available when.
 * `pass_pick()` — consume the pick number on the clock WITHOUT selecting anyone.
 
 `pass_pick` exists for exactly one reason, and it is the central modelling choice of this

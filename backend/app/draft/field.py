@@ -7,7 +7,7 @@ what `GET /board/consensus` and the master board's reference column do. If the c
 changes, the field changes with it, and there is nothing here to keep in step.
 
 WHOSE CONSENSUS the field drafts from is a parameter, on purpose. The default is every source
-available under the horizon, which is the best guess at what a room of nine strangers
+available under the horizon, which is the best guess at what a room of eight strangers
 collectively believes. But a league that visibly drafts off ADP is better simulated by passing
 `['adp:espn']`, and one where everyone reads the same dynasty list by passing that list's id.
 Task 20's route exposes it; here it is a list of source ids, validated, and a `ValueError`

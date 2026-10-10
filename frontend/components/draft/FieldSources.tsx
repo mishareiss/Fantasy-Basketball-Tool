@@ -7,14 +7,14 @@ import { ApiError, HORIZONS, api, type Horizon, type SourceInfo } from "@/lib/ap
 import { HORIZON_LABEL } from "@/lib/board";
 
 /**
- * Whose board the OTHER nine seats are assumed to be reading.
+ * Whose board the OTHER eight seats are assumed to be reading.
  *
  * The single most consequential setting in the draft room, and the one that used to be a
  * paragraph saying there was nothing to set. Every availability percentage on this page is a
  * statement about a simulated room, and the room is only as good as the guess about what it
  * drafts off: a league where everybody visibly reaches off ESPN's ADP is modelled by ticking
  * `adp:espn` alone, and one where the same dynasty list gets passed around is modelled by
- * ticking that. The default — every source, equally weighted — is the honest guess about nine
+ * ticking that. The default — every source, equally weighted — is the honest guess about eight
  * strangers, and it is what "all selected" means, so it is what the form starts at.
  *
  * ALL SELECTED IS NOT A SELECTION. Ticking every box sends no `field_source_ids` at all, and
@@ -55,7 +55,7 @@ export function fieldSummary(selected: string[], available: SourceInfo[]): strin
     return "Nothing ticked. Tick at least one, or tick them all for the default.";
   }
   if (selected.length === available.length) {
-    return `The room drafts off the consensus of all ${available.length} sources, equally weighted — the best guess at what nine strangers collectively believe.`;
+    return `The room drafts off the consensus of all ${available.length} sources, equally weighted — the best guess at what a room of strangers collectively believes.`;
   }
   const names = available
     .filter((source) => selected.includes(source.id))

@@ -342,12 +342,15 @@ export function DraftRoomPage() {
         <RoomHeader />
         {failure ? <DraftFailed error={failure} /> : null}
         <DraftSetup
-          teamCount={state?.team_count ?? null}
+          // The size the NEW draft will be. `POST /draft` always takes `DRAFT_TEAM_COUNT`, so a
+          // reconfigure of a draft from before the league changed size has to draw (and
+          // bound the seat by) the new count, not the old draft's snapshot.
+          teamCount={state?.settings_team_count ?? null}
           defaultSlot={state?.my_slot ?? null}
           defaultNames={storedNames(state)}
           // A reconfigure starts from the room the old draft was modelling, not from the
           // defaults: replacing a draft because the seat was wrong should not quietly change
-          // whose board the other nine seats are reading.
+          // whose board the other eight seats are reading.
           defaultHorizon={
             state === null ? null : state.field_horizon === "current_year" ? "current_year" : "dynasty"
           }
@@ -382,6 +385,10 @@ export function DraftRoomPage() {
   return (
     <div className="flex flex-col gap-4" aria-busy={saving}>
       <RoomHeader />
+
+      {live.team_count !== live.settings_team_count ? (
+        <LeagueResized state={live} onReplace={() => setReconfiguring(true)} />
+      ) : null}
 
       <OnTheClock state={live} />
 
@@ -516,7 +523,42 @@ function storedNames(state: DraftStateResponse | null): Record<string, string> {
   return Object.fromEntries(
     state.teams
       .filter((team) => team.name !== `Team ${team.team_slot}`)
+      // A seat the new draft won't have: a name for it is a 422 that refuses the whole draft.
+      .filter((team) => team.team_slot <= state.settings_team_count)
       .map((team) => [String(team.team_slot), team.name]),
+  );
+}
+
+/**
+ * This draft is a different size from the league.
+ *
+ * The draft SNAPSHOTS its team count (`app.db.models.draft`), so a draft started before
+ * `DRAFT_TEAM_COUNT` changed keeps replaying at the old size — and Start over keeps it too,
+ * because it keeps the config. The only fix is a new draft, which is the reconfigure path, so
+ * that is the button.
+ */
+function LeagueResized({
+  state,
+  onReplace,
+}: {
+  state: DraftStateResponse;
+  onReplace: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      data-league-resized
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
+    >
+      <p>
+        This draft was set up for {state.team_count} teams; the league is now{" "}
+        {state.settings_team_count}. Start a new draft to use the new size — Start over keeps
+        the old one.
+      </p>
+      <button type="button" onClick={onReplace} className="font-medium underline">
+        Start a new draft…
+      </button>
+    </div>
   );
 }
 

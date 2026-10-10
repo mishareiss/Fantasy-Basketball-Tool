@@ -7,8 +7,8 @@ numbers, which is what lets the snake be asserted on a 4-team toy instead of on 
 
 THE SNAKE is the whole reason this is a module and not a constant. Round 1 goes 1..N, round 2
 goes N..1, and so on, which means my pick numbers are not an arithmetic sequence: at slot 2 of
-10 they run 2, 19, 22, 39, 42, ... — a 17-pick wait, then a 3-pick wait, forever alternating.
-That alternation IS the draft plan problem (who survives seventeen picks?), so the order is
+9 they run 2, 17, 20, 35, 38, ... — a 15-pick wait, then a 3-pick wait, forever alternating.
+That alternation IS the draft plan problem (who survives fifteen picks?), so the order is
 derived once here and every other module reads it rather than re-deriving a half-version of it.
 
 ROSTER SLOTS arrive as ESPN's `lineupSlotCounts` shape — `{'PG': 1, ..., 'UT': 2, 'BE': 13}`
@@ -37,12 +37,12 @@ DEDICATED_POSITIONS: tuple[str, ...] = ("PG", "SG", "SF", "PF", "C")
 UTILITY_SLOT = "UT"
 BENCH_SLOT = "BE"
 
-# Our league, as agreed: 10 teams, 20 rounds, Misha at slot 2. These are ALSO the `DRAFT_*`
+# Our league, as agreed: 9 teams, 20 rounds, Misha at slot 2. These are ALSO the `DRAFT_*`
 # defaults in `app.config.Settings` — kept in step by `test_draft_engine`, which asserts
 # `DraftConfig.from_settings(get_settings()) == DraftConfig()` rather than trusting a comment.
 # `Settings` can't import them (it would close a cycle through `app.draft.field`'s database
 # imports), so the duplication is guarded by a test instead of by an import.
-DEFAULT_TEAM_COUNT = 10
+DEFAULT_TEAM_COUNT = 9
 DEFAULT_ROUNDS = 20
 DEFAULT_MY_SLOT = 2
 
@@ -103,7 +103,7 @@ class DraftConfig:
 
         These numbers reach us from the environment (`DRAFT_*`) or from a league settings row,
         so the failure mode without this is a draft that runs happily against nonsense — a
-        `my_slot` of 12 in a 10-team league would simply never come up, and the plan would be
+        `my_slot` of 12 in a 9-team league would simply never come up, and the plan would be
         silently computed for a seat that doesn't exist.
         """
         if not isinstance(self.team_count, int) or self.team_count < 2:
@@ -193,10 +193,10 @@ class DraftConfig:
 
     @property
     def my_pick_numbers(self) -> list[int]:
-        """My seat's pick numbers: [2, 19, 22, 39, 42, ...] at slot 2 of 10.
+        """My seat's pick numbers: [2, 17, 20, 35, 38, ...] at slot 2 of 9.
 
-        The alternating 17-then-3 wait is the reason availability is a Monte Carlo and not a
-        lookup: the answer at pick 19 is a different question from the answer at pick 22.
+        The alternating 15-then-3 wait is the reason availability is a Monte Carlo and not a
+        lookup: the answer at pick 17 is a different question from the answer at pick 20.
         """
         return self.pick_numbers_for(self.my_slot)
 

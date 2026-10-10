@@ -74,11 +74,11 @@ def test_a_stored_log_replays_to_the_same_state_as_applying_the_picks_directly(d
     assert replayed.selections == direct.selections
     assert replayed.available == direct.available
     assert replayed.on_the_clock == direct.on_the_clock == 8
-    assert [replayed.roster(slot) for slot in range(1, 11)] == [
-        direct.roster(slot) for slot in range(1, 11)
+    assert [replayed.roster(slot) for slot in range(1, 10)] == [
+        direct.roster(slot) for slot in range(1, 10)
     ]
-    assert [replayed.open_dedicated(slot) for slot in range(1, 11)] == [
-        direct.open_dedicated(slot) for slot in range(1, 11)
+    assert [replayed.open_dedicated(slot) for slot in range(1, 10)] == [
+        direct.open_dedicated(slot) for slot in range(1, 10)
     ]
     # The board comes back with the state because every caller needs both, and it is the same
     # field `field_ranks` builds — not a second ranking assembled here.
@@ -133,7 +133,7 @@ def test_the_config_comes_off_the_row_and_not_off_the_environment(db, synced):
     assert (config.team_count, config.rounds, config.my_slot) == (4, 3, 4)
     assert config.my_pick_numbers == [4, 5, 12]
     assert state.config.total_picks == 12
-    # Nothing here is `DraftConfig()`'s 10x20 default, which is what the environment would say.
+    # Nothing here is `DraftConfig()`'s 9x20 default, which is what the environment would say.
     assert config != DraftConfig()
 
 

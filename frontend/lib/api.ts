@@ -795,6 +795,10 @@ export type DraftStateResponse = {
   /** One of DRAFT_MODES. Typed as the backend types it, so a mode added server-side reads
       as itself rather than failing to compile. */
   mode: string;
+  /** The team count the league is configured for NOW (`DRAFT_TEAM_COUNT`). Differs from
+      `team_count` when the league changed size after this draft was started: the snapshot
+      still wins, and only a new draft (`createDraft(body, true)`) picks the new size up. */
+  settings_team_count: number;
   /** How many players the field ranks at all. A pick outside it is a 422. */
   universe_size: number;
   total_picks: number;
@@ -805,8 +809,8 @@ export type DraftStateResponse = {
   current_round: number | null;
   is_my_pick: boolean;
   is_complete: boolean;
-  /** Every pick number my seat owns, and the ones still to come. At slot 2 of 10 the first
-      is [2, 19, 22, 39, 42, ...] — the alternating wait the plan is about. */
+  /** Every pick number my seat owns, and the ones still to come. At slot 2 of 9 the first
+      is [2, 17, 20, 35, 38, ...] — the alternating wait the plan is about. */
   my_pick_numbers: number[];
   my_remaining_pick_numbers: number[];
   created_at: string;

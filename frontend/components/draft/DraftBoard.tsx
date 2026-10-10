@@ -15,7 +15,7 @@ import { cellPickNumber, picksByNumber } from "@/lib/draft";
  *
  * IT FITS. Every team column is on screen at once and the board never scrolls sideways,
  * which is the whole point of the grid template below: one fixed round-number column and
- * then `team_count` columns of `minmax(0, 1fr)`, so ten seats divide whatever width the page
+ * then `team_count` columns of `minmax(0, 1fr)`, so nine seats divide whatever width the page
  * has rather than claiming a fixed one each. `minmax(0, …)` and not `1fr` alone because a
  * grid track's default minimum is its content, and one long name would otherwise push the
  * row wider than the page — names TRUNCATE instead, which is the trade this view makes: the

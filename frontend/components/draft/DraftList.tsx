@@ -12,7 +12,7 @@ import { seatRows } from "./DraftBoard";
  * happened", which is a different read and the one you scroll back through when somebody
  * asks who went in the third. Snake order within the round is simply pick order — the log
  * is contiguous and already sorted, so round 2 running right to left shows up here as team
- * 10 picking first, which is what it was.
+ * 9 picking first, which is what it was.
  *
  * MADE PICKS ONLY. An unmade pick has no row here, because the thing this view is is a
  * record; the empty slots are on the board, where they are squares, and in the roster view,

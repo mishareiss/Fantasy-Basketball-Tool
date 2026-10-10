@@ -12,8 +12,8 @@ export const metadata = {
  * one live draft and the server holds all of it, so a URL could not say anything about this
  * page that opening it doesn't already say.
  *
- * As wide as My Board, and for a harder reason: the board is ten columns of names and it
- * scrolls sideways below that. Ten columns at a readable width is most of a laptop.
+ * As wide as My Board, and for a harder reason: the board is nine columns of names and it
+ * scrolls sideways below that. Nine columns at a readable width is most of a laptop.
  */
 export default function Draft() {
   return (

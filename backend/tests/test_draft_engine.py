@@ -11,7 +11,7 @@ from random import Random
 
 import pytest
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.draft import (
     DEFAULT_AUTOPICK_NEED_MULT,
     DEFAULT_AUTOPICK_TEMPERATURE,
@@ -29,6 +29,7 @@ from app.draft import (
     simulate_availability,
     simulate_opponents_until,
 )
+from app.draft.config import DEFAULT_TEAM_COUNT
 
 # A whole draft on ten players: ids 1..10, ranked 1..10 by the field. Small enough that the
 # board runs out mid-draft, which is a state the engine has to survive rather than avoid.
@@ -56,10 +57,11 @@ def draft_in_order(state: DraftState, player_ids) -> None:
 def test_my_pick_numbers_are_the_snake_our_league_actually_deals():
     config = DraftConfig()
 
-    # Slot 2 of 10: second overall, then a seventeen-pick wait, then a three-pick one, forever.
-    assert config.my_pick_numbers[:5] == [2, 19, 22, 39, 42]
+    assert (config.team_count, config.rounds, config.my_slot) == (9, 20, 2)
+    # Slot 2 of 9: second overall, then a fifteen-pick wait, then a three-pick one, forever.
+    assert config.my_pick_numbers[:5] == [2, 17, 20, 35, 38]
     assert len(config.my_pick_numbers) == 20
-    assert config.total_picks == 200
+    assert config.total_picks == 180
 
 
 def test_a_four_team_three_round_snake_is_the_one_you_can_count_on_your_fingers():
@@ -70,6 +72,15 @@ def test_a_four_team_three_round_snake_is_the_one_you_can_count_on_your_fingers(
     assert config.round_of(1) == 1 and config.round_of(5) == 2 and config.round_of(12) == 3
 
 
+def test_the_end_seats_of_our_nine_team_snake_pick_back_to_back_at_the_turn():
+    config = DraftConfig()
+
+    # Last seat: the end of one round and the start of the next are the same team's.
+    assert config.pick_numbers_for(9)[:4] == [9, 10, 27, 28]
+    # And the first seat is its mirror, back to back at the far turn.
+    assert config.pick_numbers_for(1)[:5] == [1, 18, 19, 36, 37]
+
+
 def test_pick_slot_round_trips_against_pick_numbers_for():
     config = DraftConfig()
 
@@ -77,16 +88,16 @@ def test_pick_slot_round_trips_against_pick_numbers_for():
         slot = config.pick_slot(pick_number)
         assert pick_number in config.pick_numbers_for(slot)
     # Every seat owns exactly one pick per round, snake or not.
-    assert all(len(config.pick_numbers_for(slot)) == 20 for slot in range(1, 11))
-    assert config.is_my_pick(19) and not config.is_my_pick(20)
+    assert all(len(config.pick_numbers_for(slot)) == 20 for slot in range(1, 10))
+    assert config.is_my_pick(17) and not config.is_my_pick(18)
 
 
 def test_a_pick_number_outside_the_draft_raises_rather_than_wrapping():
     config = DraftConfig()
 
-    with pytest.raises(ValueError, match="outside 1..200"):
-        config.pick_slot(201)
-    with pytest.raises(ValueError, match="outside 1..200"):
+    with pytest.raises(ValueError, match="outside 1..180"):
+        config.pick_slot(181)
+    with pytest.raises(ValueError, match="outside 1..180"):
         config.pick_slot(0)
 
 
@@ -135,6 +146,9 @@ def test_the_engine_defaults_are_the_draft_settings_defaults():
     settings = get_settings()
 
     assert DraftConfig.from_settings(settings) == DraftConfig()
+    # The suite pins DRAFT_* (conftest), so the line above compares the engine against the PIN.
+    # This is the class default itself, which is what a deploy with no DRAFT_* set gets.
+    assert Settings.model_fields["draft_team_count"].default == DEFAULT_TEAM_COUNT
     assert settings.draft_autopick_topk == DEFAULT_AUTOPICK_TOP_K
     assert settings.draft_autopick_temperature == DEFAULT_AUTOPICK_TEMPERATURE
     assert settings.draft_autopick_need_mult == DEFAULT_AUTOPICK_NEED_MULT
@@ -441,15 +455,15 @@ def test_the_consensus_number_one_thins_out_as_my_picks_get_later():
         state, ranks, config.my_pick_numbers[:3], iterations=300, seed=3, candidates=[1, 6, 50]
     )
 
-    # One opponent pick before my pick 2; seventeen more before 19; two more before 22.
+    # One opponent pick before my pick 2; fourteen more before 17; two more before 20.
     assert result[1][2] > 0.7
-    assert result[1][19] < 0.1
-    # Non-increasing for everyone: a player gone at 19 is gone at 22, in every iteration.
+    assert result[1][17] < 0.1
+    # Non-increasing for everyone: a player gone at 17 is gone at 20, in every iteration.
     for series in result.values():
         values = [series[number] for number in config.my_pick_numbers[:3]]
         assert values == sorted(values, reverse=True)
-    # Nobody the field ranks 50th is going in the first eighteen picks.
-    assert result[50][2] == 1.0 and result[50][19] == 1.0
+    # Nobody the field ranks 50th is going in the first sixteen picks.
+    assert result[50][2] == 1.0 and result[50][17] == 1.0
 
 
 def test_my_own_pick_slots_remove_nobody_from_the_board():

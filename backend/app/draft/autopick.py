@@ -1,4 +1,4 @@
-"""How the other nine teams draft: best available, softened, with a nudge towards need.
+"""How the other eight teams draft: best available, softened, with a nudge towards need.
 
 The field drafts off the equal-weight CONSENSUS of the selected sources, never off my master
 board. That is the point of the whole exercise — availability is a claim about what the room
@@ -134,7 +134,7 @@ def auto_pick(
     Returns None when there is nobody to take: the draft is complete, or every ranked player
     is gone. A no-op rather than a raise, because both are ordinary ends to a projection and
     the caller's loop should stop, not crash. (A simulation that runs out of ranked players
-    has reached the bottom of the consensus board, which in a 200-pick draft off a 1,000-name
+    has reached the bottom of the consensus board, which in a 180-pick draft off a 1,000-name
     board does not happen — but a hand-built test universe of a dozen players gets there in
     two rounds, and so would a very short imported list.)
 

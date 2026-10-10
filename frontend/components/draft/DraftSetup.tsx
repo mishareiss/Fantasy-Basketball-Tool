@@ -13,7 +13,7 @@ import { FIELD, PRIMARY_BUTTON } from "./DraftStates";
  * Three decisions: where I am sitting, whether the room drafts itself, and — behind
  * "advanced" — WHOSE BOARD the room is assumed to be drafting off. All three have defaults, so
  * the honest shape of this form is still "press the button": `POST /draft` takes an empty body
- * and fills the rest in from `DRAFT_*` and the consensus, because the league IS ten teams and
+ * and fills the rest in from `DRAFT_*` and the consensus, because the league IS nine teams and
  * twenty rounds and a mock of a differently-sized league is a setting rather than a form
  * field.
  *
@@ -25,14 +25,15 @@ import { FIELD, PRIMARY_BUTTON } from "./DraftStates";
  * and that was previously unsayable here.
  *
  * `teamCount` is passed in only to bound the seat input and to know HOW MANY name fields to
- * draw, and it comes from `DRAFT_TEAM_COUNT` by way of whatever draft last existed — before
- * the first one there is nothing to ask, so the seat field takes any positive number and the
+ * draw, and it is `DRAFT_TEAM_COUNT` as the last draft's response reported it
+ * (`settings_team_count`) — the size the NEW draft will be, not the old one's snapshot, which
+ * differ after the league changes size. Before the first draft there is nothing to ask, so the seat field takes any positive number and the
  * backend 422s a nonsense one.
  *
  * THE NAMES ARE OPTIONAL AND THEY ARE ONLY DRAWN WHEN THE LEAGUE'S SIZE IS KNOWN. A name for
  * a seat that doesn't exist is a 422 that would refuse the whole draft, and before the first
  * one this page genuinely does not know whether the league has eight seats or twelve — so
- * rather than guess ten, the very first draft starts unnamed and the seats are named from the
+ * rather than guess nine, the very first draft starts unnamed and the seats are named from the
  * room itself (`DraftSeats`, which can do it at any point because a name is cosmetic).
  */
 
@@ -199,7 +200,8 @@ export function DraftSetup({
               isDisabled={isBusy}
             />
             <p>
-              The league&rsquo;s shape (ten teams, twenty rounds) comes from the environment
+              The league&rsquo;s shape{teamCount === null ? "" : ` (${teamCount} teams)`} comes
+              from the environment
               and the roster is our startup one. Everything here is{" "}
               <strong className="font-semibold">snapshotted</strong> onto the draft when it
               starts, so it replays identically however the sources move afterwards — and it

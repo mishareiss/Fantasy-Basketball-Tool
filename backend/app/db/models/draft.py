@@ -84,7 +84,7 @@ class Draft(Base):
     # --- the config snapshot (see the module docstring) -------------------------------------
     team_count: Mapped[int] = mapped_column(Integer, nullable=False)
     rounds: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 1-based seat, counted the way round 1 runs. At 2 of 10 my picks are 2, 19, 22, 39, ...
+    # 1-based seat, counted the way round 1 runs. At 2 of 9 my picks are 2, 17, 20, 35, ...
     my_slot: Mapped[int] = mapped_column(Integer, nullable=False)
     # ESPN's `lineupSlotCounts` shape, `{'PG': 1, ..., 'UT': 2, 'BE': 13}`. JSON rather than a
     # table because nothing ever queries it — it is handed to `DraftConfig` whole, and only
@@ -138,8 +138,8 @@ class DraftPick(Base):
     __tablename__ = "draft_pick"
     __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
-        # The log is the draft, so a pick number can exist once in it. Two rows at pick 19
-        # would make "who was available at 19" a question with two answers, and replay would
+        # The log is the draft, so a pick number can exist once in it. Two rows at pick 17
+        # would make "who was available at 17" a question with two answers, and replay would
         # pick whichever the database returned first. Named so the model, the migration and
         # the message all agree on it. On both dialects this doubles as the index every read
         # of the log uses — the whole log of one draft, in pick order.

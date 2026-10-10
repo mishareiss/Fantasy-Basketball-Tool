@@ -92,9 +92,9 @@ MODE_DESCRIPTION = (
 )
 
 FIELD_SOURCES_DESCRIPTION = (
-    "The source ids the OTHER nine teams are assumed to draft off — the chips from "
+    "The source ids the OTHER teams are assumed to draft off — the chips from "
     "`GET /sources`. Omit for every source the horizon offers, which is the best guess at what "
-    "a room of nine strangers collectively believes; name a subset (`['adp:espn']`) for a room "
+    "a room of strangers collectively believes; name a subset (`['adp:espn']`) for a room "
     "that visibly drafts one board. Snapshotted onto the draft, because it is how this draft "
     "is being MODELLED rather than a per-request preference. An unknown id is a 400."
 )
@@ -165,6 +165,12 @@ class DraftStateResponse(BaseModel):
     field_horizon: str
     field_source_ids: list[str] | None = None
     mode: str
+    # The team count the league is configured for NOW (`DRAFT_TEAM_COUNT`), beside the one this
+    # draft snapshotted. They differ when the league changed size after the draft was started:
+    # the snapshot still wins (see `app.db.models.draft`), and the page says so, because the
+    # only fix is a new draft — `POST /draft?reset=true` — and `POST /draft/reset` keeps the
+    # old shape. Computed per request, never stored.
+    settings_team_count: int
 
     # --- the board the draft is over --------------------------------------------------------
     # How many players the field ranks at all. `POST /draft/picks` refuses anyone outside it:
@@ -181,8 +187,8 @@ class DraftStateResponse(BaseModel):
     current_round: int | None = None
     is_my_pick: bool = False
     is_complete: bool = False
-    # Every pick number my seat owns, and the ones still to come. At slot 2 of 10 the first is
-    # [2, 19, 22, 39, 42, ...] — the alternating 17-then-3 wait that makes availability a
+    # Every pick number my seat owns, and the ones still to come. At slot 2 of 9 the first is
+    # [2, 17, 20, 35, 38, ...] — the alternating 15-then-3 wait that makes availability a
     # question worth asking.
     my_pick_numbers: list[int] = []
     my_remaining_pick_numbers: list[int] = []
@@ -335,7 +341,7 @@ class PlanPlayerRow(BaseModel):
     note: str | None = None
     # His place on the FIELD's board — the room's opinion, which is what the availability
     # number is actually computed from. Read the two together: my 14 against their 40 is why
-    # he is still there at 22.
+    # he is still there at 20.
     field_rank: int | None = None
     # The chance he is still on the board when this pick comes up, in [0, 1]. Non-increasing
     # across my later picks, by construction (`app.draft.availability`).
@@ -443,7 +449,7 @@ def _team_name(names: dict | None, slot: int) -> str:
     """What a seat is called: its stored name, or "Team {slot}".
 
     The default is computed rather than stored, so a draft created without names is a NULL
-    column and not ten rows of the string the page would have printed anyway.
+    column and not nine rows of the string the page would have printed anyway.
     """
     stored = (names or {}).get(str(slot))
     if isinstance(stored, str) and stored.strip():
@@ -521,6 +527,7 @@ def _state_response(db: Session, draft: Draft, state: DraftState) -> DraftStateR
         field_horizon=draft.field_horizon,
         field_source_ids=list(draft.field_source_ids) if draft.field_source_ids else None,
         mode=draft.mode,
+        settings_team_count=get_settings().draft_team_count,
         universe_size=len(state.universe),
         total_picks=config.total_picks,
         picks_made=len(state.selections),
@@ -647,7 +654,7 @@ def post_draft(
         field_horizon=horizon,
         field_source_ids=list(source_ids) if source_ids else None,
         mode=mode,
-        # Empty stays NULL: "nobody is named" is the column's own default, not a map of ten
+        # Empty stays NULL: "nobody is named" is the column's own default, not a map of nine
         # blanks. Validated before anything is written, like the seat above it.
         team_names=_clean_names(payload.team_names, config.team_count) or None,
     )
@@ -707,13 +714,13 @@ def put_draft_config(
     cosmetic: nothing in the engine reads it, so it can be edited at pick 1 or pick 141 and
     nothing that has happened means anything different afterwards. THE SEAT is not: a pick
     number only means something under one shape (`app.db.models.draft`), and moving my seat
-    after pick 19 would silently re-label every pick already made as somebody else's. So the
+    after pick 17 would silently re-label every pick already made as somebody else's. So the
     seat moves only while the draft is EMPTY — which is the case that actually happens, the
     "I set it to 2 and I'm actually at 7" noticed before the room starts — and a started
     draft answers 422 pointing at the reconfigure that can do it, by throwing the picks away.
 
     THE FIELD IS THE SEAT'S RULE AGAIN. `field_horizon` and `field_source_ids` are how this
-    draft is being MODELLED — whose board the other nine seats are assumed to be reading — so
+    draft is being MODELLED — whose board the other eight seats are assumed to be reading — so
     every pick already in the log was made against them, and moving them afterwards would
     re-describe picks that have happened. Editable while the draft is empty (which is when the
     question "what does this room actually draft off?" gets answered), a 422 after that. An
@@ -725,7 +732,7 @@ def put_draft_config(
     empty draft has no picks to protect, so making the seat correctable without a reset is a
     button that loses nothing.
 
-    Names MERGE rather than replace, so naming one seat leaves the other nine alone; an empty
+    Names MERGE rather than replace, so naming one seat leaves the other eight alone; an empty
     string clears one back to "Team {slot}".
     """
     draft = _require(db)
@@ -811,8 +818,8 @@ def post_draft_pick(
 ) -> DraftStateResponse:
     """Enter a pick: mine, or a rival's read off the screen.
 
-    Strictly in pick order, because the draft has one clock — a state that let pick 22 be
-    entered before 19 could not say who was available when. Everything it can refuse, the
+    Strictly in pick order, because the draft has one clock — a state that let pick 20 be
+    entered before 17 could not say who was available when. Everything it can refuse, the
     engine refuses (`DraftState.apply_pick`), and all of it comes back as a 422 carrying the
     engine's own message: a player already drafted, a player the field doesn't rank (and so
     the simulation can never draw from), a `team_slot` that isn't the one on the clock, or a
@@ -1237,7 +1244,7 @@ def get_draft_availability(
       answers no question anybody has. "Can I wait on him?" is a question about the NEXT time
       round, so that is the pick the number is about.
 
-    Either way `pick_number` says which pick it is, because a percentage about pick 19 read as
+    Either way `pick_number` says which pick it is, because a percentage about pick 17 read as
     a percentage about pick 2 is worse than no percentage at all.
 
     ON THE CLOCK AT MY LAST PICK there is no next time round, so there is nothing to wait for:

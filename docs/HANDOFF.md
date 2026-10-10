@@ -71,7 +71,7 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
   apart by refs. Reuses Segmented/Segment (exported from components/board/BoardControls.tsx).
 
 ## >>> NEXT: the DRAFT-PLAN BUILDER (5 tasks; 17-18 DONE). Draft settings agreed with Misha:
-10-team league, SNAKE, 20 rounds. Roster 20 slots = 7 starters (PG,SG,SF,PF,C + 2 UT) + 13 bench.
+9-team league (was 10 until T26), SNAKE, 20 rounds. Roster 20 slots = 7 starters (PG,SG,SF,PF,C + 2 UT) + 13 bench.
 STARTUP draft (whole player pool available). MISHA DRAFTS AT PICK 2. Tiers auto-seed + hand-adjust
 (done). Auto-pick = POSITIONAL-NEED-AWARE weighted-random. Availability = Monte-Carlo sim → "% chance a
 player is still there at your pick." Per-pick target lists (drawn from the master board, auto-drop as
@@ -118,7 +118,7 @@ T19 = PURE in-memory draft engine in app/draft/ + unit tests. NO endpoints/model
    (K=DRAFT_AUTOPICK_TOPK=12), base weight ∝ exp(-rank/T) (T=DRAFT_AUTOPICK_TEMPERATURE=8.0),
    ×DRAFT_AUTOPICK_NEED_MULT=1.5 for a player eligible at an OPEN DEDICATED starter slot. UT is
    POSITIONLESS → no positional tilt once the 5 dedicated starters are filled (then best-available).
-2. FIELD RANKING (what the other 9 teams draft from): consensus over a CONFIGURABLE subset of
+2. FIELD RANKING (what the other 8 teams draft from): consensus over a CONFIGURABLE subset of
    source ids (default = all available sources), via consensus_positions() — NOT the master board.
    Pure engine takes field_ranks: Mapping[player_id,int]; a thin app/draft/field.py adapter builds
    it (load_catalog → catalog.select → consensus_positions), ValueError on unknown source id.
@@ -128,7 +128,7 @@ T19 = PURE in-memory draft engine in app/draft/ + unit tests. NO endpoints/model
    primitive (auto-advance opponents to my next pick) and manual apply_pick (every team by hand).
    The simulation-mode / manual-mode TOGGLE itself is T21 UI.
 4. SIM ITERATIONS: DRAFT_SIM_ITERATIONS=1000, parameterized, deterministic under a passed seed.
-Roster (from settings, agreed): 10 teams, snake, 20 rounds, my_slot=2 → my picks 2,19,22,39,42,…
+Roster (from settings, agreed): 9 teams, snake, 20 rounds, my_slot=2 → my picks 2,17,20,35,38,… (180 picks; 15-then-3 wait)
 Roster slots PG/SG/SF/PF/C=1, UT=2, BE=13. All DRAFT_* live in Settings + pinned in conftest.
 
 ## T21 = DRAFT ROOM UI (frontend), SPLIT into 21a + 21b (decisions settled 2026-09-25)

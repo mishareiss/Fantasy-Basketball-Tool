@@ -1,14 +1,14 @@
 """The draft engine: what the room will do, and therefore who is still there when I pick.
 
 The board tells me who is better. This package answers the question that actually decides a
-startup draft — *who will still be on it seventeen picks from now* — and it answers it by
-drafting the other nine teams, a thousand times, off the equal-weight consensus of whichever
+startup draft — *who will still be on it fifteen picks from now* — and it answers it by
+drafting the other eight teams, a thousand times, off the equal-weight consensus of whichever
 sources I say the room reads (FEATURE_SPEC: the round-by-round plan).
 
 Five pure modules and two adapters:
 
-* `config` — the shape: 10 teams, 20 rounds, my seat, the roster's slots, and the snake
-  flattened once so `my_pick_numbers` is [2, 19, 22, 39, 42, ...] and not a modulo puzzle.
+* `config` — the shape: 9 teams, 20 rounds, my seat, the roster's slots, and the snake
+  flattened once so `my_pick_numbers` is [2, 17, 20, 35, 38, ...] and not a modulo puzzle.
 * `needs` — the soft definition of need: a team's OPEN DEDICATED starter slots. UT and the
   bench are positionless, so a team with its starting five set needs nobody.
 * `state` — the picks made, the clock, the board, and the two ways to advance: commit a real

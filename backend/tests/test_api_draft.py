@@ -59,7 +59,7 @@ def small(monkeypatch):
 
     `team_count` and `rounds` come from `DRAFT_*` rather than from the request (a mock of a
     different-sized league is a setting), so this is how a test reaches a finished draft without
-    entering two hundred picks.
+    entering a hundred and eighty picks.
     """
     settings = get_settings()
     monkeypatch.setattr(settings, "draft_team_count", 3)
@@ -94,7 +94,7 @@ def ids_of(rows) -> list[int]:
 def test_a_draft_is_created_from_the_settings_and_the_consensus(api, synced, field):
     body = create(api)
 
-    assert (body["team_count"], body["rounds"], body["my_slot"]) == (10, 20, 2)
+    assert (body["team_count"], body["rounds"], body["my_slot"]) == (9, 20, 2)
     assert body["mode"] == "simulation"
     assert body["field_horizon"] == HORIZON_DYNASTY
     # Null, not [], because "every source the horizon offers" is a different instruction from
@@ -104,17 +104,17 @@ def test_a_draft_is_created_from_the_settings_and_the_consensus(api, synced, fie
     # The universe is the field's board, which is what makes availability a number about a
     # board the simulation actually draws from.
     assert body["universe_size"] == len(field)
-    assert body["total_picks"] == 200
+    assert body["total_picks"] == 180
     assert body["picks_made"] == 0
     assert body["on_the_clock"] == 1 and body["next_pick_number"] == 1
     assert body["current_round"] == 1
     assert body["is_my_pick"] is False and body["is_complete"] is False
-    # The snake, which is the whole reason availability is worth computing: a 17-pick wait, then
+    # The snake, which is the whole reason availability is worth computing: a 15-pick wait, then
     # a 3-pick wait, forever alternating.
-    assert body["my_pick_numbers"][:5] == [2, 19, 22, 39, 42]
+    assert body["my_pick_numbers"][:5] == [2, 17, 20, 35, 38]
     assert body["my_remaining_pick_numbers"] == body["my_pick_numbers"]
     assert body["log"] == []
-    assert [row["team_slot"] for row in body["teams"]] == list(range(1, 11))
+    assert [row["team_slot"] for row in body["teams"]] == list(range(1, 10))
     assert team(body, 2)["is_me"] is True and team(body, 1)["is_me"] is False
     # Nobody has drafted anyone, so every seat still starts nobody anywhere.
     assert team(body, 5)["open_needs"] == ["PG", "SG", "SF", "PF", "C"]
@@ -138,7 +138,7 @@ def test_the_body_overrides_the_seat_the_mode_the_field_and_the_roster(api, sync
     assert team(body, 7)["open_needs"] == ["PG", "C"]
     # A narrower field is a smaller universe: this is the ADP board, not every source's.
     assert body["universe_size"] == len(field_ranks_for(db, ["adp:espn"]))
-    assert body["my_pick_numbers"][:3] == [7, 14, 27]
+    assert body["my_pick_numbers"][:3] == [7, 12, 25]
 
 
 def field_ranks_for(db, source_ids: list[str] | None = None) -> dict[int, int]:
@@ -203,6 +203,37 @@ def test_reset_starts_the_same_draft_over_and_keeps_its_config(api, synced, fiel
     assert state["updated_at"] >= state["created_at"]
 
 
+def test_a_draft_started_before_the_league_changed_size_says_so(api, synced, field, monkeypatch):
+    """The snapshot outlives the setting, so the state reports both and the page can say so.
+
+    The league went from ten teams to nine. A draft row from before still replays as ten —
+    deliberately — and `POST /draft/reset` keeps that shape, so the drift survives a reset and
+    only a new draft (`reset=true`) clears it.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "draft_team_count", 10)
+    create(api)
+    monkeypatch.setattr(settings, "draft_team_count", 9)
+
+    state = api.get("/draft").json()
+    assert (state["team_count"], state["settings_team_count"]) == (10, 9)
+    assert len(state["teams"]) == 10
+
+    reset = api.post("/draft/reset").json()
+    assert (reset["team_count"], reset["settings_team_count"]) == (10, 9)
+
+    replaced = api.post("/draft?reset=true", json={}).json()
+    assert (replaced["team_count"], replaced["settings_team_count"]) == (9, 9)
+    assert len(replaced["teams"]) == 9
+
+
+def test_a_draft_started_at_the_configured_size_reports_no_drift(api, synced, field):
+    body = create(api)
+
+    assert body["team_count"] == body["settings_team_count"] == 9
+    assert api.get("/draft").json()["settings_team_count"] == 9
+
+
 def test_every_endpoint_is_a_404_with_a_way_forward_before_a_draft_exists(api, synced, field):
     for method, path, body in (
         ("get", "/draft", None),
@@ -247,7 +278,7 @@ def test_a_seat_that_does_not_exist_in_this_league_is_a_422(api, synced):
     response = api.post("/draft", json={"my_slot": 14})
 
     assert response.status_code == 422
-    assert "1..10" in response.json()["detail"]
+    assert "1..9" in response.json()["detail"]
 
 
 def test_a_roster_with_no_slots_in_it_is_a_422(api, synced):
@@ -512,7 +543,7 @@ def test_the_advance_never_creates_a_pick_for_my_seat(api, synced, field, db):
     """
     create(api)
     api.post("/draft/simulate", json={"seed": 3})
-    # I take somebody — the room will not do it for me, at pick 2 or at pick 19 — and then let
+    # I take somebody — the room will not do it for me, at pick 2 or at pick 17 — and then let
     # it run on to my next pick.
     still_there = next(
         player_id
@@ -565,7 +596,7 @@ def test_the_same_seed_advances_the_same_room_and_a_different_one_does_not(api, 
     other = ids_of(api.post("/draft/simulate", json={"seed": 43}).json()["picks"])
 
     assert again == taken
-    assert len(taken) == 16  # pick 3 through pick 18: my seat at 19 is where it stops
+    assert len(taken) == 14  # pick 3 through pick 16: my seat at 17 is where it stops
     assert other != taken
 
 
@@ -603,9 +634,9 @@ def test_a_second_advance_carries_the_room_to_my_following_pick(api, synced, fie
     advance = api.post("/draft/simulate", json={"seed": 9}).json()
 
     assert advance["state"]["on_the_clock"] == 2
-    assert advance["state"]["next_pick_number"] == 19
-    assert [row["pick_number"] for row in advance["picks"]] == list(range(3, 19))
-    assert advance["state"]["my_remaining_pick_numbers"][:2] == [19, 22]
+    assert advance["state"]["next_pick_number"] == 17
+    assert [row["pick_number"] for row in advance["picks"]] == list(range(3, 17))
+    assert advance["state"]["my_remaining_pick_numbers"][:2] == [17, 20]
 
 
 def test_undo_re_rolls_one_pick_of_an_advance(api, synced, field):
@@ -633,7 +664,7 @@ def test_a_count_of_one_makes_exactly_one_opponent_pick(api, synced, field):
 
 
 def test_a_count_is_a_cap_and_my_seat_still_stops_it(api, synced, field):
-    """Sixteen picks between my 2 and my 19, so a count of fifty still stops at nineteen."""
+    """Fourteen picks between my 2 and my 17, so a count of fifty still stops at seventeen."""
     create(api)
     pick(api, field[0])
     # Mine, taken from the bottom of the field so no advance can have wanted him.
@@ -641,8 +672,8 @@ def test_a_count_is_a_cap_and_my_seat_still_stops_it(api, synced, field):
 
     advance = api.post("/draft/simulate", json={"seed": 14, "count": 50}).json()
 
-    assert [row["pick_number"] for row in advance["picks"]] == list(range(3, 19))
-    assert advance["state"]["next_pick_number"] == 19
+    assert [row["pick_number"] for row in advance["picks"]] == list(range(3, 17))
+    assert advance["state"]["next_pick_number"] == 17
     assert advance["state"]["is_my_pick"] is True
 
 
@@ -695,7 +726,7 @@ def test_a_cap_stops_a_mock_early_rather_than_rolling_a_different_one(api, synce
 
     whole = ids_of(api.post("/draft/simulate", json={"seed": 17}).json()["picks"])
 
-    assert len(capped) == 3 and len(whole) == 16
+    assert len(capped) == 3 and len(whole) == 14
     assert whole[:3] == capped
 
 
@@ -747,9 +778,9 @@ def test_the_plan_is_my_board_at_each_of_my_upcoming_picks(api, aged, board):
     assert body["iterations"] == ITERATIONS and body["seed"] == 0 and body["size"] == 5
     assert body["field_horizon"] == HORIZON_DYNASTY
     assert body["is_complete"] is False
-    assert [row["pick_number"] for row in body["picks"]] == [2, 19, 22]
+    assert [row["pick_number"] for row in body["picks"]] == [2, 17, 20]
     assert [row["round"] for row in body["picks"]] == [1, 2, 3]
-    assert [row["picks_away"] for row in body["picks"]] == [1, 18, 21]
+    assert [row["picks_away"] for row in body["picks"]] == [1, 16, 19]
     for row in body["picks"]:
         # The top of MY board, in MY order — never the consensus.
         assert ids_of(row["best_available"]) == board[:5]
@@ -940,10 +971,10 @@ def test_team_names_round_trip_through_create_and_default_the_rest(api, synced):
 
 
 def test_a_name_for_a_seat_that_does_not_exist_is_a_422(api, synced):
-    refused = api.post("/draft", json={"team_names": {"11": "Nobody"}})
+    refused = api.post("/draft", json={"team_names": {"10": "Nobody"}})
 
     assert refused.status_code == 422
-    assert "1..10" in refused.json()["detail"]
+    assert "1..9" in refused.json()["detail"]
     # The 422 came before the row, like every other validation on create.
     assert api.get("/draft").status_code == 404
 
@@ -958,7 +989,7 @@ def test_the_seat_can_be_changed_while_the_draft_is_empty(api, synced):
     assert state["my_slot"] == 7
     assert team(state, 7)["is_me"] is True and team(state, 2)["is_me"] is False
     # The snake re-reads off the new seat, which is the point of changing it.
-    assert state["my_pick_numbers"][:3] == [7, 14, 27]
+    assert state["my_pick_numbers"][:3] == [7, 12, 25]
     assert state["picks_made"] == 0
 
 
@@ -1138,12 +1169,12 @@ def test_availability_covers_every_available_player_at_my_next_pick(api, synced,
 
 def test_the_top_of_the_field_is_less_available_than_a_deep_name(api, synced, field):
     """The one direction the simulation guarantees, over a wait long enough to show it."""
-    create(api, my_slot=10)
+    create(api, my_slot=9)
 
     body = availability(api)
 
     numbers = {int(key): value for key, value in body["availability"].items()}
-    # Nine opponent picks before my seat comes up: the consensus #1 is very unlikely to last,
+    # Eight opponent picks before my seat comes up: the consensus #1 is very unlikely to last,
     # and the bottom of the field's board is all but certain to.
     assert numbers[field[0]] < numbers[field[-1]]
     assert numbers[field[0]] < 0.5
@@ -1202,11 +1233,11 @@ def test_on_the_clock_the_target_is_the_pick_after_this_one(api, synced, field):
     state = api.get("/draft").json()
     assert state["is_my_pick"] is True
     remaining = state["my_remaining_pick_numbers"]
-    # Pick 19, not the pick 2 I am on the clock for.
+    # Pick 17, not the pick 2 I am on the clock for.
     assert body["pick_number"] == remaining[1]
     assert body["pick_number"] != state["next_pick_number"]
     assert body["is_complete"] is False
-    # Seventeen opponent picks of waiting, so nobody near the top is a certainty any more.
+    # Fourteen opponent picks of waiting, so nobody near the top is a certainty any more.
     numbers = {int(key): value for key, value in body["availability"].items()}
     best = next(player_id for player_id in field if player_id in numbers)
     assert numbers[best] < 1.0

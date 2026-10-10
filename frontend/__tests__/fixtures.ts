@@ -950,6 +950,7 @@ export function draftState({
   mode = "simulation",
   picks = [],
   teamNames = {},
+  settingsTeamCount = teamCount,
 }: {
   teamCount?: number;
   rounds?: number;
@@ -960,6 +961,9 @@ export function draftState({
       left out is "Team {slot}", which is the backend's computed default and not a stored
       string. */
   teamNames?: Record<string, string>;
+  /** What `DRAFT_TEAM_COUNT` says NOW. Defaults to the draft's own count — no drift — and is
+      set apart from it only to stand in for a draft started before the league changed size. */
+  settingsTeamCount?: number;
 } = {}): DraftStateResponse {
   const order = snakeOrder(teamCount, rounds);
   const total = teamCount * rounds;
@@ -992,6 +996,7 @@ export function draftState({
     field_horizon: "dynasty",
     field_source_ids: null,
     mode,
+    settings_team_count: settingsTeamCount,
     universe_size: DRAFT_POOL.size,
     total_picks: total,
     picks_made: log.length,

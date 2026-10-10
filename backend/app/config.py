@@ -116,17 +116,17 @@ class Settings(BaseSettings):
     master_seed_horizon: str = HORIZON_DYNASTY
 
     # --- Draft engine -----------------------------------------------------------------------
-    # The shape of our draft and how the OTHER nine teams are simulated drafting (app.draft).
+    # The shape of our draft and how the OTHER eight teams are simulated drafting (app.draft).
     # Settings rather than constants for the usual reason: the seat moves every startup, and
     # how draftily the room behaves is a judgement to calibrate against a real draft, not a
     # fact. They are also the values `app.draft.config` carries as its module defaults — the
     # engine is pure and cannot import this class, so `test_draft_engine` asserts the two
     # agree rather than a comment promising they do.
     #
-    # Our league: 10 teams, 20 rounds, Misha at slot 2 (picks 2, 19, 22, 39, 42, ...). The
+    # Our league: 9 teams, 20 rounds, Misha at slot 2 (picks 2, 17, 20, 35, 38, ...). The
     # ROSTER shape is not here on purpose — it is a fact about the league, and it lives in
     # `LeagueSettings.roster_slots` (ESPN's lineupSlotCounts).
-    draft_team_count: int = 10
+    draft_team_count: int = 9
     draft_rounds: int = 20
     draft_my_slot: int = 2
 
@@ -145,9 +145,9 @@ class Settings(BaseSettings):
     draft_sim_iterations: int = 1000
 
     # How many names the round-by-round plan lists per pick, in each of its two lists (the
-    # targets I tagged, and the best available off my board). Fifteen is about a round and a
-    # half of the board — long enough that the list still has somebody on it after the room
-    # takes ten, short enough to read while a clock is running. `?size=` overrides it.
+    # targets I tagged, and the best available off my board). Fifteen is my long wait (pick
+    # 2 to pick 17) in names — long enough that the list still has somebody on it after the room
+    # takes a round, short enough to read while a clock is running. `?size=` overrides it.
     draft_plan_size: int = 15
 
     # Future projection / odds sources

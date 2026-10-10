@@ -76,7 +76,7 @@ export function roundOf(pickNumber: number, teamCount: number): number {
 /**
  * Every pick number a seat owns, in order. My column, when it is asked about my seat.
  *
- * At slot 2 of 10 this is [2, 19, 22, 39, 42, ...] — the alternating 17-then-3 wait, which is
+ * At slot 2 of 9 this is [2, 17, 20, 35, 38, ...] — the alternating 15-then-3 wait, which is
  * what makes the highlighted column worth drawing at all.
  */
 export function pickNumbersFor(teamSlot: number, teamCount: number, rounds: number): number[] {

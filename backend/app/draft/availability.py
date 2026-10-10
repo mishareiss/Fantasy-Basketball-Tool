@@ -1,4 +1,4 @@
-""" "Will he still be there at 19?" — answered by drafting the rest of the room a thousand times.
+""" "Will he still be there at 17?" — answered by drafting the rest of the room a thousand times.
 
 This is the number the draft plan is built on. Given who has actually been taken, it runs the
 field forward (`app.draft.autopick`) to each of my upcoming picks, over and over with a
@@ -11,14 +11,14 @@ THREE THINGS IT DELIBERATELY DOES, each of which changes how the output should b
   untouched (`DraftState.pass_pick`). So the answer at my NEXT pick is exact given the
   committed state — nothing of mine intervenes — while the answer at a LATER pick is computed
   as if I take nobody in between. That is a real simplification, and it is the right-signed
-  one: it can only overstate who survives to pick 22, and by exactly the players I was going
-  to take at 19 anyway. The alternative — simulating a me who grabs the consensus best
+  one: it can only overstate who survives to pick 20, and by exactly the players I was going
+  to take at 17 anyway. The alternative — simulating a me who grabs the consensus best
   available — would delete players from my own availability numbers for the crime of my
   wanting them.
-* **It measures BEFORE the pick.** "Available at pick 19" means still on the board at the
-  moment pick 19 comes up, not after it.
-* **It stops at the last target.** Asking about picks 19 and 22 simulates 20 opponent picks,
-  not the remaining 180.
+* **It measures BEFORE the pick.** "Available at pick 17" means still on the board at the
+  moment pick 17 comes up, not after it.
+* **It stops at the last target.** Asking about picks 17 and 20 from the top simulates the
+  17 opponent picks before pick 20, not all 180.
 
 DETERMINISM is a product requirement, not a nicety: this is a percentage someone compares
 between two refreshes, and iteration `i` always rolls `Random(seed + i)` so the same committed
@@ -64,8 +64,8 @@ def simulate_availability(
     0.0 everywhere rather than omitted — "gone" is an answer.
 
     Probabilities are in [0, 1] and each player's series is non-increasing across later picks,
-    which is not enforced anywhere: it falls out of a player who is gone at pick 19 also being
-    gone at pick 22, in every single iteration.
+    which is not enforced anywhere: it falls out of a player who is gone at pick 17 also being
+    gone at pick 20, in every single iteration.
     """
     if iterations < 1:
         raise ValueError(f"DRAFT_SIM_ITERATIONS ({iterations}) must be >= 1")

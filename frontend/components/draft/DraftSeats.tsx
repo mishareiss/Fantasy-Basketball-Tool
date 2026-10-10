@@ -15,7 +15,7 @@ import { FieldSources } from "./FieldSources";
  * panel's (`PUT /draft/config`). A NAME is cosmetic — no pick, no need, no availability number
  * reads one — so it can be changed at pick 1 or pick 141. THE SEAT AND THE FIELD are not: a
  * pick number only means something under one shape, and every pick already made was made
- * against one field, so moving either after pick 19 would re-describe picks that have already
+ * against one field, so moving either after pick 17 would re-describe picks that have already
  * happened. Both therefore exist only while the draft is EMPTY, which is the case that
  * actually happens — "I set it to 2 and I'm really at 7", or "this room drafts off ADP, not
  * the consensus", noticed before the room starts — and costs nothing to fix, because there is
