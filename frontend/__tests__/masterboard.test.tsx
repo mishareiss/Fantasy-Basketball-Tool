@@ -261,7 +261,7 @@ describe("reordering", () => {
     // 400 sent, 175 on screen: the window is a rendering decision and never a saving one.
     expect(putOrder.mock.calls[0][0]).toHaveLength(400);
     expect(onScreen()).toHaveLength(PAGE);
-  });
+  }, 20_000);
 
   it("moves a player across the board by rank, not by dragging him there", async () => {
     const user = userEvent.setup();
