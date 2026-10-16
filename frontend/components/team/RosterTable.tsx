@@ -8,7 +8,7 @@ import { decimal } from "@/lib/format";
 import { buildMove, legalTargets, lineupSourceLabel } from "@/lib/team";
 import { AcquisitionMeter } from "./AcquisitionMeter";
 import { GameCell } from "./GameCell";
-import { PlannedTag } from "./PlanRosterExtras";
+import { LeavingTag, PlannedTag } from "./PlanRosterExtras";
 import { PlayerCell } from "./PlayerCell";
 import { Badge } from "./TeamStates";
 import { ViewToggle } from "./ViewToggle";
@@ -350,6 +350,7 @@ function SlotRowView({
             {planned && player.plan && planMove !== undefined ? (
               <PlannedTag flag={player.plan} move={planMove} />
             ) : null}
+            {player.plan?.leaving_move_id ? <LeavingTag /> : null}
           </td>
           <td
             className={`${TD} w-16 text-xs text-zinc-700 dark:text-zinc-300 ${noGame ? "opacity-45" : ""}`}

@@ -9,19 +9,36 @@ for Y. A later move may drop "whoever move N picked up" instead of a named playe
 drop follows move N wherever it resolves. Rules WARN, never block: nothing in here refuses
 anything, it only says what looks wrong.
 
+Day D is the day the move is MADE (the transaction day: it uses that day's acquisition, and a
+dropped player's waiver clock starts then). Its `timing` says when on D:
+
+* `after_tipoff`: once D's games have started. The dropped player's D game counts, so he stays
+  on the plan roster (and in his slot) through D, and the pickup joins from D+1.
+* `before_games`: before D's games. Both halves are effective on D.
+
+So a move LANDS (changes the plan roster) on D+1 or D. `made_period` and `landing_period` are
+those two days.
+
 How the plan plays out (`simulate`): start from the roster ESPN gave us, then apply every
-`planned` move in `(sp, sequence, id)` order. A `done` move is already in that roster, so it is
-never applied again; a `skipped` one is ignored. A move dated before today lands today: it is
-overdue, not gone. A drop that can't happen (he isn't on the plan roster) still lets the
-pickup through, with a warning, so a mistake is visible instead of silently swallowing a move.
+`planned` move on its landing day, in `(landing day, sp, sequence, id)` order. A `done` move
+is already in that roster, so it is never applied again; a `skipped` one is ignored. A move
+dated before today is made today: it is overdue, not gone. A drop that can't happen (he isn't
+on the plan roster) still lets the pickup through, with a warning, so a mistake is visible
+instead of silently swallowing a move.
 """
 
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
 from typing import Literal
 
-from app.team.calendar import PACIFIC, matchup_by_id, matchup_for_period, period_date
+from app.team.calendar import (
+    PACIFIC,
+    matchup_by_id,
+    matchup_for_period,
+    period_date,
+    periods_in_matchup,
+)
 from app.team.lineup import BENCH_SLOT, IR_SLOT, resolve_lineup
 from app.team.waiver_rule import waiver_clears_at
 
@@ -35,6 +52,12 @@ Severity = Literal["warning", "info"]
 ChainProblem = Literal["missing", "later", "skipped", "cycle"]
 PlanStatus = Literal["actual", "planned"]
 
+# Mirrors `app.db.models.plan.TIMING_*`.
+AFTER_TIPOFF = "after_tipoff"
+BEFORE_GAMES = "before_games"
+# When an `after_tipoff` move is assumed made on a day with no games (Pacific wall clock).
+NO_GAMES_MOVE_TIME = time(16, 0)
+
 # Stable warning codes. The UI keys on these; the messages are for people.
 ACQ_LIMIT = "acq_limit"
 ON_WAIVERS = "on_waivers"
@@ -44,7 +67,9 @@ DOUBLE_PICKUP = "double_pickup"
 BAD_CHAIN = "bad_chain"
 CHAIN_CYCLE = "chain_cycle"
 BACKUP_OVERLAP = "backup_overlap"
-NO_GAME = "no_game"
+STREAM_NO_GAMES = "stream_no_games"
+STREAM_INFO = "stream_info"
+DROP_GAME_LOST = "drop_game_lost"
 OVERDUE = "overdue"
 DIFFERENT_DROP = "different_drop"
 
@@ -67,6 +92,9 @@ class Move:
     # Auto-detect saw the ESPN move drop someone else (`detected_drop_player_id`, None = nobody).
     drop_mismatch: bool = False
     detected_drop_player_id: int | None = None
+    # When on day `sp` it is made. The engine's default is the old meaning (both halves on
+    # `sp`); new moves from the API default to `after_tipoff`.
+    timing: str = BEFORE_GAMES
 
     @property
     def order_key(self) -> tuple[int, int, int]:
@@ -130,9 +158,15 @@ def resolve_drop(move: Move, moves_by_id: Mapping[int, Move]) -> ResolvedDrop:
     return resolved
 
 
+def made_period(move: Move, today_sp: int) -> int:
+    """The day a move is made: its own day, or today for a planned move that is overdue."""
+    return max(move.sp, today_sp) if move.status == PLANNED else move.sp
+
+
 def landing_period(move: Move, today_sp: int) -> int:
-    """The day a planned move takes effect in the plan: its own day, or today if overdue."""
-    return max(move.sp, today_sp)
+    """The day a move changes the plan roster: the day it's made, or the next one when it's
+    made after tip-off (the dropped player's game that day still counts)."""
+    return made_period(move, today_sp) + (1 if move.timing == AFTER_TIPOFF else 0)
 
 
 # --- the simulation -------------------------------------------------------------------------
@@ -157,12 +191,19 @@ class PlannedDrop:
 
 @dataclass(frozen=True)
 class AppliedMove:
-    """What one planned move did. `added` / `dropped` are None when that half couldn't happen."""
+    """What one planned move did. `added` / `dropped` are None when that half couldn't happen.
+    `sp` is the day it landed; `made_sp` the day it was made (one earlier after tip-off)."""
 
     move_id: int
     sp: int
     added: int | None
     dropped: int | None
+    made_sp: int | None = None
+    timing: str = BEFORE_GAMES
+
+    @property
+    def made(self) -> int:
+        return self.sp if self.made_sp is None else self.made_sp
 
 
 @dataclass(frozen=True)
@@ -186,6 +227,10 @@ class PlanDay:
     planned_drops: tuple[PlannedDrop, ...] = ()
     # Every move that has landed on or before this day, in order.
     applied: tuple[AppliedMove, ...] = ()
+    # After-tip-off moves made tonight: who leaves (still on `roster` today, his game counts)
+    # and who joins (on the roster from tomorrow).
+    leaving: tuple[PlannedDrop, ...] = ()
+    joining: tuple[PlanEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -219,13 +264,18 @@ def simulate(
     by_id = {move.id: move for move in moves}
     base = {pid: PlanEntry(pid, "actual") for pid in actual_roster_ids}
     roster = dict(base)
-    planned = sorted((m for m in moves if m.status == PLANNED), key=lambda m: m.order_key)
+    planned = sorted(
+        (m for m in moves if m.status == PLANNED),
+        key=lambda m: (landing_period(m, today_sp), *m.order_key),
+    )
     last = max(through_sp, today_sp)
 
     applied: list[AppliedMove] = []
     conflicts: list[Conflict] = []
     dropped_by: dict[int, int] = {}  # player -> the move that last dropped him in the plan
     days: dict[int, PlanDay] = {}
+    # made day -> (leaving, joining) of the after-tip-off moves made that night
+    tonight: dict[int, tuple[list[PlannedDrop], list[PlanEntry]]] = {}
     index = 0
     for sp in range(today_sp, last + 1):
         drops: list[PlannedDrop] = []
@@ -267,7 +317,8 @@ def simulate(
                 dropped = drop.player_id
                 del roster[dropped]
                 dropped_by[dropped] = move.id
-                drops.append(PlannedDrop(dropped, move.id, drop.alternatives))
+                if move.timing != AFTER_TIPOFF:
+                    drops.append(PlannedDrop(dropped, move.id, drop.alternatives))
 
             added: int | None = None
             pickup = effective_pickup(move)
@@ -288,9 +339,22 @@ def simulate(
             elif pickup is not None:
                 roster[pickup] = PlanEntry(pickup, "planned", move.id, pickup_alternatives(move))
                 added = pickup
-            applied.append(AppliedMove(move.id, sp, added, dropped))
+            applied.append(
+                AppliedMove(move.id, sp, added, dropped, made_period(move, today_sp), move.timing)
+            )
+            if move.timing == AFTER_TIPOFF:
+                # Shown on the night it's made, not as a drop on the day it lands.
+                leaving, joining = tonight.setdefault(sp - 1, ([], []))
+                if dropped is not None:
+                    leaving.append(PlannedDrop(dropped, move.id, drop.alternatives))
+                if added is not None:
+                    joining.append(roster[added])
 
         days[sp] = PlanDay(sp, dict(roster), tuple(drops), tuple(applied))
+
+    for sp, (leaving, joining) in tonight.items():
+        if sp in days:
+            days[sp] = replace(days[sp], leaving=tuple(leaving), joining=tuple(joining))
 
     return Simulation(
         today_sp=today_sp,
@@ -402,19 +466,32 @@ class PlanContext:
     on_waivers: Mapping[int, datetime | None] = field(default_factory=dict)
     waiver_hours: int | None = None
     waiver_tz: str = "America/Los_Angeles"
-    # The Pacific wall-clock time every move is assumed to happen at.
+    # The Pacific wall-clock time a `before_games` move is assumed to happen at.
     move_time: time = time(9, 0)
+    # sp -> the day's first tip-off (aware). An `after_tipoff` move happens then; on a day
+    # with no games, at NO_GAMES_MOVE_TIME.
+    first_tip: Mapping[int, datetime] = field(default_factory=dict)
     acquisition_limit: int | None = None
     # matchup id -> ESPN's adds-used count, and -> a hand-set override of it.
     espn_used: Mapping[int, int] = field(default_factory=dict)
     used_overrides: Mapping[int, int] = field(default_factory=dict)
-    # (sp, player) pairs with a game. None = schedule not known, so no `no_game` infos.
+    # (sp, player) pairs with a game, for every pickup's stream window and every move day.
+    # None = schedule not known, so no stream or lost-game infos.
     games: Set[tuple[int, int]] | None = None
 
 
 def move_moment(season: int, sp: int, local_time: time) -> datetime:
     """The instant a move on day `sp` is assumed to happen: that date at `local_time` Pacific."""
     return datetime.combine(period_date(season, sp), local_time, tzinfo=PACIFIC)
+
+
+def made_moment(ctx: "PlanContext", sp: int, timing: str) -> datetime:
+    """When a move made on day `sp` happens: `before_games` at the configured morning time,
+    `after_tipoff` at that day's first tip-off (NO_GAMES_MOVE_TIME on a day without games)."""
+    if timing == AFTER_TIPOFF:
+        tip = ctx.first_tip.get(sp)
+        return tip if tip is not None else move_moment(ctx.season, sp, NO_GAMES_MOVE_TIME)
+    return move_moment(ctx.season, sp, ctx.move_time)
 
 
 def day_label(d: date) -> str:
@@ -476,29 +553,98 @@ class AcquisitionTally:
 
 
 def plan_matchup_ids(moves: Iterable[Move], season: int, today_sp: int) -> list[int]:
-    """The current matchup through the last one any move touches (by its landing day)."""
+    """The current matchup through the last one any move touches (the day it's made or the
+    day it lands, so a Sunday-night move reaches the next matchup)."""
     current = matchup_for_period(season, today_sp)
     if current is None:
         return []
     last = current.id
     for move in moves:
-        matchup = matchup_for_period(season, max(move.sp, today_sp))
-        if matchup is not None:
-            last = max(last, matchup.id)
+        for sp in (max(move.sp, today_sp), landing_period(move, today_sp)):
+            matchup = matchup_for_period(season, max(sp, today_sp))
+            if matchup is not None:
+                last = max(last, matchup.id)
     return list(range(current.id, last + 1))
+
+
+def plan_horizon_end(moves: Iterable[Move], season: int, today_sp: int) -> int:
+    """The last day of the plan: the end of the last matchup any move touches."""
+    ids = plan_matchup_ids(moves, season, today_sp)
+    if not ids:
+        return today_sp
+    return periods_in_matchup(season, ids[-1])[-1]
+
+
+@dataclass(frozen=True)
+class StreamWindow:
+    """The days a move's pickup is mine in the plan: from the day he lands through the day
+    before the move that drops him lands (`ended_by`), else through the plan's last day
+    (`open_ended`). Empty (`last_sp < first_sp`) when he's dropped as soon as he arrives."""
+
+    move_id: int
+    player_id: int
+    first_sp: int
+    last_sp: int
+    open_ended: bool
+    ended_by: int | None = None
+
+    @property
+    def days(self) -> range:
+        return range(self.first_sp, self.last_sp + 1)
+
+
+def stream_windows(
+    moves: Sequence[Move], today_sp: int, horizon_end: int
+) -> dict[int, StreamWindow]:
+    """Every non-skipped move's pickup window, by move id. A later move ends it when it drops
+    "this move's pickup" (a chain), or when whoever it drops resolves to him: a named drop of
+    him, or a chain through another move that picks him up too (as the simulation would drop
+    him). The earliest to land wins."""
+    live = [m for m in moves if m.status != SKIPPED]
+    by_id = {m.id: m for m in moves}
+
+    def drops(other: Move, move: Move, pickup: int) -> bool:
+        if other.drop_from_move_id == move.id:
+            return True
+        drop = resolve_drop(other, by_id)
+        return drop.problem is None and drop.player_id == pickup
+
+    def key(move: Move) -> tuple[int, int, int, int]:
+        return (landing_period(move, today_sp), *move.order_key)
+
+    out: dict[int, StreamWindow] = {}
+    for move in live:
+        pickup = effective_pickup(move)
+        if pickup is None:
+            continue
+        first = landing_period(move, today_sp)
+        enders = [
+            other
+            for other in live
+            if other.id != move.id and key(other) > key(move) and drops(other, move, pickup)
+        ]
+        if enders:
+            ender = min(enders, key=key)
+            out[move.id] = StreamWindow(
+                move.id, pickup, first, landing_period(ender, today_sp) - 1, False, ender.id
+            )
+        else:
+            out[move.id] = StreamWindow(move.id, pickup, first, max(horizon_end, first - 1), True)
+    return out
 
 
 def acquisition_tallies(
     moves: Iterable[Move], ctx: PlanContext, matchup_ids: Iterable[int]
 ) -> list[AcquisitionTally]:
     """Adds used + planned, per matchup. `used` is the override if set, else ESPN's count.
-    `planned` counts `planned` moves by the day they land (an overdue one lands today, in
-    today's matchup); a `done` move is already in ESPN's count."""
+    `planned` counts `planned` moves by the day they are MADE (an overdue one is made today,
+    in today's matchup), not the day the pickup plays: a Sunday-night after-tip-off move
+    spends the ending matchup's budget. A `done` move is already in ESPN's count."""
     planned: dict[int, int] = {}
     for move in moves:
         if move.status != PLANNED:
             continue
-        matchup = matchup_for_period(ctx.season, landing_period(move, ctx.today_sp))
+        matchup = matchup_for_period(ctx.season, made_period(move, ctx.today_sp))
         if matchup is not None:
             planned[matchup.id] = planned.get(matchup.id, 0) + 1
 
@@ -642,7 +788,7 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
     plan_drops: dict[int, tuple[datetime | None, bool, int]] = {}
     for event in sim.applied:
         move = by_id[event.move_id]
-        moment = move_moment(ctx.season, event.sp, ctx.move_time)
+        moment = made_moment(ctx, event.made, event.timing)
         if event.dropped is not None:
             if ctx.waiver_hours is None:
                 plan_drops[event.dropped] = (None, False, move.id)
@@ -668,9 +814,9 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 ON_WAIVERS,
                 "warning",
-                f"{name(pid)} is on waivers on {day(event.sp)} and his clear time is unknown",
+                f"{name(pid)} is on waivers on {day(event.made)} and his clear time is unknown",
                 move,
-                event.sp,
+                event.made,
                 player_id=pid,
                 clears_at=None,
                 source=source,
@@ -681,9 +827,9 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 ON_WAIVERS,
                 "warning",
-                f"{name(pid)} is on waivers until {until}, but the move is {day(event.sp)}",
+                f"{name(pid)} is on waivers until {until}, but the move is {day(event.made)}",
                 move,
-                event.sp,
+                event.made,
                 player_id=pid,
                 clears_at=clears.isoformat(),
                 source=source,
@@ -730,30 +876,42 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
                     f"{name(backup)} is a backup in {label(move.id)} and {role} in "
                     f"{label(other.id)}",
                     move,
-                    landing_period(move, ctx.today_sp),
+                    made_period(move, ctx.today_sp),
                     player_id=backup,
                     other_move_id=other.id,
                 )
 
-    # 5. Infos: no game on the move day, overdue moves, and an ESPN move that dropped someone
-    # other than planned.
+    # 5. Infos: what each pickup's stream window holds, a game given up by moving before
+    # tip-off, overdue moves, and an ESPN move that dropped someone other than planned.
+    if ctx.games is not None:
+        windows = stream_windows(
+            moves, ctx.today_sp, plan_horizon_end(moves, ctx.season, ctx.today_sp)
+        )
+        dropped_in = {event.move_id: event.dropped for event in sim.applied}
+        for move in live:
+            made = made_period(move, ctx.today_sp)
+            window = windows.get(move.id)
+            if window is not None:
+                _stream_warning(add, move, made, window, ctx.games, name, day, label, label_cap)
+            lost = dropped_in.get(move.id)
+            if move.timing == BEFORE_GAMES and lost is not None and (made, lost) in ctx.games:
+                add(
+                    DROP_GAME_LOST,
+                    "info",
+                    f"{label_cap(move.id)} is made before tip-off, so you give up "
+                    f"{name(lost)}'s {day(made)} game",
+                    move,
+                    made,
+                    player_id=lost,
+                )
     for move in live:
-        sp = landing_period(move, ctx.today_sp)
-        pickup = effective_pickup(move)
-        if ctx.games is not None and pickup is not None and (sp, pickup) not in ctx.games:
-            add(
-                NO_GAME,
-                "info",
-                f"{label_cap(move.id)} picks up {name(pickup)}, who has no game on {day(sp)}",
-                move,
-                sp,
-                player_id=pickup,
-            )
+        sp = made_period(move, ctx.today_sp)
         if move.sp < ctx.today_sp:
             add(
                 OVERDUE,
                 "info",
-                f"{label_cap(move.id)} hasn't been made yet, so the plan has it land today",
+                f"{label_cap(move.id)} hasn't been made yet, so the plan has it "
+                + ("made tonight" if move.timing == AFTER_TIPOFF else "land today"),
                 move,
                 sp,
                 planned_sp=move.sp,
@@ -773,3 +931,52 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
                 dropped=dropped,
             )
     return out
+
+
+def _days_text(days: Sequence[str]) -> str:
+    """`Thu 10/22`, `Thu 10/22, Sat 10/24`; past four, the first three and a count."""
+    if len(days) <= 4:
+        return ", ".join(days)
+    return f"{', '.join(days[:3])} and {len(days) - 3} more"
+
+
+def _stream_warning(add, move, made, window, games, name, day, label, label_cap) -> None:
+    """`stream_no_games` (a pickup who never plays in his window) or `stream_info` (when he
+    plays, and until when). Both sit on the day the move is made."""
+    pickup = window.player_id
+    played = [sp for sp in window.days if (sp, pickup) in games]
+    if window.open_ended:
+        until = f"through {day(window.last_sp)}, the end of the plan"
+    else:
+        until = f"before {label(window.ended_by)} drops him"
+    detail = {
+        "player_id": pickup,
+        "first_sp": window.first_sp,
+        "last_sp": window.last_sp,
+        "games": len(played),
+        "ended_by": window.ended_by,
+    }
+    if not played:
+        if window.last_sp < window.first_sp:
+            why = f"is dropped by {label(window.ended_by)} before he plays a game"
+        else:
+            why = f"plays no games {until}"
+        add(
+            STREAM_NO_GAMES,
+            "warning",
+            f"{label_cap(move.id)} picks up {name(pickup)}, who {why}",
+            move,
+            made,
+            **detail,
+        )
+        return
+    count = f"{len(played)} game{'s' if len(played) != 1 else ''}"
+    add(
+        STREAM_INFO,
+        "info",
+        f"{label_cap(move.id)}: {name(pickup)} plays {_days_text([day(sp) for sp in played])} "
+        f"({count}) {until}",
+        move,
+        made,
+        **detail,
+    )

@@ -29,9 +29,19 @@ PLAN_DONE = "done"
 PLAN_SKIPPED = "skipped"
 PLAN_STATUSES = (PLAN_PLANNED, PLAN_DONE, PLAN_SKIPPED)
 
+# When on its day a move is made (`app.team.plan` has the model). After tip-off is what new
+# moves default to; rows from before the column existed are before-games, which is what they
+# meant when they were written.
+TIMING_AFTER_TIPOFF = "after_tipoff"
+TIMING_BEFORE_GAMES = "before_games"
+PLAN_TIMINGS = (TIMING_AFTER_TIPOFF, TIMING_BEFORE_GAMES)
+
 
 class PlanMove(Base):
     """On day `scoring_period_id`, drop one player and pick up the first available candidate.
+
+    `scoring_period_id` is the day the move is MADE. `timing` says whether that's after the
+    day's games tip off (the pickup plays from the next day) or before them.
 
     The drop is EITHER a named player (`drop_player_id`) OR "whoever move N picked up"
     (`drop_from_move_id`), never both and never neither; the check constraint says so.
@@ -47,6 +57,10 @@ class PlanMove(Base):
         CheckConstraint(
             "status IN ('planned', 'done', 'skipped')",
             name="ck_plan_move_status",
+        ),
+        CheckConstraint(
+            "timing IN ('after_tipoff', 'before_games')",
+            name="ck_plan_move_timing",
         ),
         Index("ix_plan_move_season_team_period", "season", "team_id", "scoring_period_id"),
     )
@@ -64,6 +78,11 @@ class PlanMove(Base):
     )
     # One of PLAN_STATUSES.
     status: Mapped[str] = mapped_column(String(8), nullable=False, default=PLAN_PLANNED)
+    # One of PLAN_TIMINGS. The server default keeps pre-existing rows' meaning; the API sends
+    # `after_tipoff` for a new move unless told otherwise.
+    timing: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=TIMING_BEFORE_GAMES
+    )
     # Which candidate was actually added (auto-detected from ESPN, or chosen by hand).
     resolved_player_id: Mapped[int | None] = mapped_column(ForeignKey("player.espn_player_id"))
     espn_transaction_id: Mapped[str | None] = mapped_column(String(36))

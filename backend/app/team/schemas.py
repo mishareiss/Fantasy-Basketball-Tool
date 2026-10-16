@@ -20,6 +20,8 @@ LineupSource = Literal[
 ]
 DayView = Literal["actual", "plan"]
 PlanMoveStatus = Literal["planned", "done", "skipped"]
+# When on its day a move is made: after the day's games tip off, or before them.
+PlanMoveTiming = Literal["after_tipoff", "before_games"]
 PoolStatus = Literal["FREEAGENT", "WAIVERS"]
 
 StatLine = SeasonLine
@@ -73,6 +75,8 @@ class PlanFlag(BaseModel):
     alternatives: list[PlanPlayerRef] = []
     # ESPN shows a pending waiver claim of ours for one of the move's candidates.
     claim_pending: bool = False
+    # Dropped tonight by an after-tip-off move: he still plays today, then leaves.
+    leaving_move_id: int | None = None
 
 
 class RosterPlayer(BaseModel):
@@ -114,11 +118,21 @@ class PlannedDropOut(BaseModel):
     alternatives: list[PlanPlayerRef] = []
 
 
+class JoiningOut(BaseModel):
+    """A pickup an after-tip-off move adds tonight: on the plan roster from tomorrow."""
+
+    player: PlanPlayerRef
+    move_id: int
+    # His backups still in play ("or B").
+    alternatives: list[PlanPlayerRef] = []
+
+
 class PlanWarningOut(BaseModel):
     """One rule the plan breaks. Rules warn; they never block anything."""
 
     # Stable: acq_limit, on_waivers, drop_not_rostered, pickup_already_rostered,
-    # double_pickup, bad_chain, chain_cycle, backup_overlap, no_game, overdue, different_drop.
+    # double_pickup, bad_chain, chain_cycle, backup_overlap, stream_no_games, stream_info,
+    # drop_game_lost, overdue, different_drop.
     code: str
     severity: Literal["warning", "info"]
     message: str
@@ -153,6 +167,10 @@ class TeamDayResponse(BaseModel):
     # and its matchup.
     planned_drops: list[PlannedDropOut] = []
     plan_warnings: list[PlanWarningOut] = []
+    # Plan view only: after-tip-off moves made tonight. Who leaves is still on the roster
+    # today (and flagged `plan.leaving_move_id`); who joins is on it from tomorrow.
+    leaving_tonight: list[PlannedDropOut] = []
+    joining_tonight: list[JoiningOut] = []
 
 
 class LineupAssignmentIn(BaseModel):
@@ -389,14 +407,44 @@ class PlanCandidateOut(BaseModel):
     player: PlanPlayerRef
 
 
+class StreamGameDay(BaseModel):
+    sp: int
+    date: date
+    # `@ LAL 7:00 PM`, Pacific.
+    display: str
+
+
+class StreamMatchupGames(BaseModel):
+    matchup_id: int
+    games: int
+
+
+class StreamOut(BaseModel):
+    """The days the move's pickup is mine in the plan, and his games in them: from the day he
+    lands through the day before the move that drops him lands, else through the plan's
+    last day (`open_ended`). `last_sp < first_sp` when he's dropped as soon as he arrives."""
+
+    first_sp: int
+    last_sp: int
+    open_ended: bool
+    # The move that ends the window (drops him); null when open-ended.
+    ended_by_move_id: int | None = None
+    game_days: list[StreamGameDay]
+    games: int
+    games_by_matchup: list[StreamMatchupGames]
+
+
 class PlanMoveOut(BaseModel):
     id: int
+    # The day the move is MADE (its acquisition and its drop's waiver clock are that day's).
     sp: int
     date: date
     matchup_id: int | None = None
     sequence: int
     status: PlanMoveStatus
-    # The day it takes effect in the plan (today for an overdue move). Null unless planned.
+    timing: PlanMoveTiming
+    # The day it changes the plan roster: `sp` (made before games) or the day after (made
+    # after tip-off), from today for an overdue move. Null unless planned.
     lands_sp: int | None = None
     overdue: bool = False
     drop: PlanDropOut
@@ -410,6 +458,8 @@ class PlanMoveOut(BaseModel):
     note: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Null for a skipped move, or one with no pickup.
+    stream: StreamOut | None = None
 
 
 class AcquisitionRow(BaseModel):
@@ -453,6 +503,8 @@ class PlanMoveCreate(BaseModel):
     note: str | None = Field(None, max_length=500)
     # Order among the day's moves. Default: last.
     sequence: int | None = None
+    # When on `sp` it's made. New moves default to after tip-off.
+    timing: PlanMoveTiming = "after_tipoff"
 
 
 class PlanMovePatch(BaseModel):
@@ -467,6 +519,7 @@ class PlanMovePatch(BaseModel):
     status: PlanMoveStatus | None = None
     resolved_player_id: int | None = None
     note: str | None = Field(None, max_length=500)
+    timing: PlanMoveTiming | None = None
 
 
 class AcquisitionOverrideIn(BaseModel):

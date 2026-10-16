@@ -7,9 +7,12 @@ are read.
 
 A match is an EXECUTED free-agent or waiver transaction of ours that ADDs one of the move's
 candidates, effective no earlier than a day before the move was created (a move planned just
-after making it still counts). One that also DROPs the planned drop wins; otherwise the
-earliest. The move becomes `done`, resolved to the candidate actually added, and every move
-chained to it follows automatically, because chains resolve through `resolve_drop`.
+after making it still counts). There is no upper bound and no date match against the move's
+day, so an after-tip-off move made in the evening of its day (already the next day in UTC and
+in ESPN's Eastern filing) matches like any other. One that also DROPs the planned drop wins;
+otherwise the earliest. The move becomes `done`, resolved to the candidate actually added,
+and every move chained to it follows automatically, because chains resolve through
+`resolve_drop`.
 """
 
 from collections.abc import Iterable

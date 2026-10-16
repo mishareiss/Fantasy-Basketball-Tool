@@ -9,7 +9,7 @@ days 1-3, GSW 1-2, CLE 2-3, ATL 2. "Today" is pinned pre-season, so it is period
 import json
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from app.db.models import (
     FantasyTeam,
@@ -48,6 +48,10 @@ UT = 11
 
 
 def _create(api, expected=201, **body):
+    """POST a move. These tests were written for moves whose two halves both happen on their
+    day, so that is what they send unless they say otherwise; the API's own default
+    (`after_tipoff`) has its own tests below."""
+    body.setdefault("timing", "before_games")
     response = api.post("/team/plan/moves", json=body)
     assert response.status_code == expected, response.text
     return response.json()
@@ -256,7 +260,7 @@ def test_unknown_moves_are_404s(pool):
 def test_league_rules_never_refuse_a_move(pool):
     """Dropping someone not on my roster and picking up someone already on it are warnings."""
     body = _create(pool, sp=2, drop_player_id=ALPHA, candidate_ids=[HALIBURTON])
-    assert {w["code"] for w in body["warnings"] if w["severity"] == "warning"} == {
+    assert {w["code"] for w in body["warnings"] if w["severity"] == "warning"} >= {
         "drop_not_rostered",
         "pickup_already_rostered",
     }
@@ -321,6 +325,7 @@ def test_the_plan_view_puts_the_pickup_in_the_dropped_players_slot(chain):
         "move_id": None,
         "alternatives": [],
         "claim_pending": False,
+        "leaving_move_id": None,
     }
     assert day["planned_drops"] == []
     assert day["acquisitions"]["planned"] == 2
@@ -342,8 +347,10 @@ def test_the_plan_view_on_move_days_lists_drops_and_warnings(chain):
     # Delta inherits Simons' PG through Alpha, but isn't PG-eligible, so he sits.
     assert _slot_of(day4, DELTA) == "BE"
     assert next(r for r in day4["slots"] if r["slot"] == "PG")["player"] is None
-    # Delta's team (ATL) doesn't play day 4: an info for that day only.
-    assert [(w["code"], w["move_id"]) for w in day4["plan_warnings"]] == [("no_game", second)]
+    # Delta's team (ATL) plays only day 2, so he never plays for me: on the move's day only.
+    assert [(w["code"], w["move_id"]) for w in day4["plan_warnings"]] == [
+        ("stream_no_games", second)
+    ]
     assert _plan_day(api, 3)["plan_warnings"] == []
 
 
@@ -357,7 +364,7 @@ def test_the_plan_view_before_any_move_is_the_actual_roster(chain):
 
 def test_a_waiver_pickup_warns_in_the_plan_view(pool):
     move = _create(pool, sp=2, drop_player_id=GOBERT, candidate_ids=[CHARLIE])["move_id"]
-    warnings = _plan_day(pool, 2)["plan_warnings"]
+    warnings = [w for w in _plan_day(pool, 2)["plan_warnings"] if w["code"] != "stream_info"]
     assert [(w["code"], w["move_id"], w["message"]) for w in warnings] == [
         (
             "on_waivers",
@@ -520,7 +527,16 @@ def test_free_agents_say_which_moves_they_are_in(chain):
 # --- the Actual view is unchanged -----------------------------------------------------------
 
 # What task 30 adds to the day view. Everything else must match main byte for byte.
-NEW_DAY_KEYS = {"carried_from_sp", "carried_from_date", "view", "planned_drops", "plan_warnings"}
+NEW_DAY_KEYS = {
+    "carried_from_sp",
+    "carried_from_date",
+    "view",
+    "planned_drops",
+    "plan_warnings",
+    # Task 33.
+    "leaving_tonight",
+    "joining_tonight",
+}
 NEW_ACQ_KEYS = {"used_source", "planned"}
 
 
@@ -557,6 +573,7 @@ def test_the_actual_view_matches_main(league, db):
     for day in got.values():
         assert day["view"] == "actual"
         assert (day["planned_drops"], day["plan_warnings"]) == ([], [])
+        assert (day["leaving_tonight"], day["joining_tonight"]) == ([], [])
         assert all(row["player"]["plan"] is None for row in day["slots"] if row["player"])
         assert day["acquisitions"]["used_source"] == "espn"
     assert (got["sp5"]["carried_from_sp"], got["sp5"]["carried_from_date"]) == (2, "2026-10-21")
@@ -570,3 +587,164 @@ def test_a_plan_never_changes_the_actual_roster(chain):
         day = api.get("/team/day", params={"sp": sp}).json()
         assert _player_row(day, SIMONS) is not None
         assert _player_row(day, ALPHA) is None
+
+
+# --- move timing (task 33) ------------------------------------------------------------------
+
+
+def _post(api, **body) -> dict:
+    """POST exactly what's given: no timing unless the test sends one."""
+    response = api.post("/team/plan/moves", json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_a_new_move_defaults_to_after_tipoff_and_lands_the_next_day(pool):
+    body = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA, BRAVO])
+    move = _by_id(body, body["move_id"])
+    assert (move["sp"], move["date"], move["timing"], move["lands_sp"]) == (
+        2,
+        "2026-10-21",
+        "after_tipoff",
+        3,
+    )
+    # The acquisition is Wednesday's, in Matchup 1.
+    assert move["matchup_id"] == 1 and body["acquisitions"][0]["planned"] == 1
+
+    before = _post(pool, sp=4, drop_player_id=GOBERT, candidate_ids=[DELTA], timing="before_games")
+    assert _by_id(before, before["move_id"])["lands_sp"] == 4
+
+
+def test_patching_timing(pool):
+    move = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA])["move_id"]
+    body = pool.patch(f"/team/plan/moves/{move}", json={"timing": "before_games"}).json()
+    assert (_by_id(body, move)["timing"], _by_id(body, move)["lands_sp"]) == ("before_games", 2)
+    body = pool.patch(f"/team/plan/moves/{move}", json={"note": "x"}).json()
+    assert _by_id(body, move)["timing"] == "before_games"  # untouched when not sent
+    body = pool.patch(f"/team/plan/moves/{move}", json={"timing": "after_tipoff"}).json()
+    assert _by_id(body, move)["lands_sp"] == 3
+
+    assert pool.patch(f"/team/plan/moves/{move}", json={"timing": None}).status_code == 422
+    assert pool.patch(f"/team/plan/moves/{move}", json={"timing": "noon"}).status_code == 422
+    bad = pool.post(
+        "/team/plan/moves",
+        json={"sp": 2, "drop_player_id": GOBERT, "candidate_ids": [DELTA], "timing": "noon"},
+    )
+    assert bad.status_code == 422
+
+
+def test_the_stream_block(pool):
+    """Alpha (LAL plays days 1-3) is added Wed night: he's mine from Thu, and plays Thu.
+    A Sat after-tip-off move drops him, so his window is Thu-Sat; Bravo's (GSW plays 1-2)
+    runs Sun to the end of the plan, with no games in it."""
+    first = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA])["move_id"]
+    body = _post(pool, sp=5, drop_from_move_id=first, candidate_ids=[BRAVO])
+    second = body["move_id"]
+
+    stream = _by_id(body, first)["stream"]
+    assert stream == {
+        "first_sp": 3,
+        "last_sp": 5,
+        "open_ended": False,
+        "ended_by_move_id": second,
+        "game_days": [{"sp": 3, "date": "2026-10-22", "display": "vs CLE TBD"}],
+        "games": 1,
+        "games_by_matchup": [{"matchup_id": 1, "games": 1}],
+    }
+    other = _by_id(body, second)["stream"]
+    assert (other["first_sp"], other["last_sp"], other["open_ended"]) == (6, 6, True)
+    assert (other["games"], other["game_days"]) == (0, [])
+
+    infos = {(w["code"], w["move_id"]): w for w in body["warnings"]}
+    assert infos[("stream_info", first)]["message"] == (
+        "The Wed 10/21 move (Anfernee Simons → Alpha Laker): Alpha Laker plays Thu 10/22 "
+        "(1 game) before the Sat 10/24 move (Alpha Laker → Bravo Warrior) drops him"
+    )
+    assert infos[("stream_no_games", second)]["severity"] == "warning"
+
+
+def test_a_skipped_move_has_no_stream(pool):
+    move = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA])["move_id"]
+    body = pool.patch(f"/team/plan/moves/{move}", json={"status": "skipped"}).json()
+    assert _by_id(body, move)["stream"] is None
+
+
+def test_the_plan_view_on_an_after_tipoff_day(pool):
+    """Wed: Simons still holds PG ("leaving tonight") and Alpha is joining tonight, or Bravo.
+    Thu: Alpha has the PG slot, planned."""
+    move = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA, BRAVO])["move_id"]
+
+    wed = _plan_day(pool, 2)
+    assert _slot_of(wed, SIMONS) == "PG"
+    assert _player_row(wed, SIMONS)["plan"]["leaving_move_id"] == move
+    assert _player_row(wed, ALPHA) is None
+    assert wed["planned_drops"] == []
+    (leaving,) = wed["leaving_tonight"]
+    assert (leaving["player"]["id"], leaving["move_id"]) == (SIMONS, move)
+    (joining,) = wed["joining_tonight"]
+    assert (joining["player"]["id"], joining["move_id"]) == (ALPHA, move)
+    assert [p["id"] for p in joining["alternatives"]] == [BRAVO]
+
+    thu = _plan_day(pool, 3)
+    assert _player_row(thu, SIMONS) is None
+    assert _slot_of(thu, ALPHA) == "PG"
+    assert _player_row(thu, ALPHA)["plan"] | {"alternatives": []} == {
+        "status": "planned",
+        "move_id": move,
+        "alternatives": [],
+        "claim_pending": False,
+        "leaving_move_id": None,
+    }
+    assert (thu["leaving_tonight"], thu["joining_tonight"]) == ([], [])
+    # The Actual view never sees any of it.
+    assert _player_row(pool.get("/team/day", params={"sp": 3}).json(), SIMONS) is not None
+
+
+LUKA = 3945274  # on my bench; DAL plays @ ATL Wed 10/21 in the recorded schedule
+
+
+def test_a_before_games_move_that_costs_the_dropped_players_game_says_so(pool):
+    body = _post(pool, sp=2, drop_player_id=LUKA, candidate_ids=[ALPHA], timing="before_games")
+    lost = [w for w in body["warnings"] if w["code"] == "drop_game_lost"]
+    assert [w["message"] for w in lost] == [
+        "The Wed 10/21 move (Luka Doncic → Alpha Laker) is made before tip-off, so you "
+        "give up Luka Doncic's Wed 10/21 game"
+    ]
+    after = pool.patch(f"/team/plan/moves/{body['move_id']}", json={"timing": "after_tipoff"})
+    assert "drop_game_lost" not in {w["code"] for w in after.json()["warnings"]}
+    # Simons has no game Wed: nothing to give up.
+    body = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[BRAVO], timing="before_games")
+    assert "drop_game_lost" not in {w["code"] for w in body["warnings"]}
+
+
+def _plan_statements(api, db) -> list[str]:
+    statements: list[str] = []
+
+    def count(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        assert api.get("/team/plan").status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    return statements
+
+
+def test_the_plan_reads_the_schedule_once(pool, db):
+    """GET /team/plan reads `nba_game` in ONE query, for every move day and every stream
+    window together, and adding moves (and stream days) adds no queries at all. No guard
+    pinned this endpoint before task 33; the handful is: team, settings, roster, moves,
+    candidates, players (twice), schedule, waiver data, overrides, pending claims."""
+    first = _post(pool, sp=2, drop_player_id=SIMONS, candidate_ids=[ALPHA, BRAVO])["move_id"]
+    _post(pool, sp=4, drop_from_move_id=first, candidate_ids=[DELTA])
+    _post(pool, sp=5, drop_player_id=GOBERT, candidate_ids=[CHARLIE], timing="before_games")
+    few = _plan_statements(pool, db)
+    assert len([s for s in few if "FROM nba_game" in s]) == 1, few
+
+    _post(pool, sp=9, drop_player_id=LUKA, candidate_ids=[BRAVO])
+    _post(pool, sp=12, drop_player_id=HALIBURTON, candidate_ids=[DELTA, ALPHA])
+    more = _plan_statements(pool, db)
+    assert len([s for s in more if "FROM nba_game" in s]) == 1, more
+    assert len(more) == len(few), (few, more)

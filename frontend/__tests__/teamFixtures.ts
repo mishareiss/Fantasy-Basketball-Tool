@@ -297,6 +297,8 @@ export function planMove(
     matchup_id: matchupIdFor(sp),
     sequence: 0,
     status: "planned",
+    // The old meaning, so a fixture move lands on its own day unless a test says otherwise.
+    timing: "before_games",
     lands_sp: sp,
     overdue: false,
     drop: { player: GOBERT, alternatives: [], from_move_id: null, problem: null, display: GOBERT.name },
@@ -309,6 +311,7 @@ export function planMove(
     note: null,
     created_at: "2026-10-16T00:00:00Z",
     updated_at: "2026-10-16T00:00:00Z",
+    stream: null,
     ...rest,
   };
 }

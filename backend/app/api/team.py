@@ -357,8 +357,10 @@ def create_plan_move(
     body: PlanMoveCreate = Body(...), db: Session = Depends(get_db)
 ) -> PlanMutationResponse:
     """Plan a move: on day `sp`, drop a player (`drop_player_id`) or whoever another move picks
-    up (`drop_from_move_id`), and pick up the first available of `candidate_ids`. Returns the
-    whole plan, with `move_id` set to the new move."""
+    up (`drop_from_move_id`), and pick up the first available of `candidate_ids`. `timing`
+    (default `after_tipoff`) says whether it's made after that day's games start, so the
+    dropped player's game counts and the pickup plays from the next day, or before them.
+    Returns the whole plan, with `move_id` set to the new move."""
     season = _season()
     with _domain_errors():
         return plan_views.create_move(
@@ -371,6 +373,7 @@ def create_plan_move(
             candidate_ids=body.candidate_ids,
             note=body.note,
             sequence=body.sequence,
+            timing=body.timing,
         )
 
 

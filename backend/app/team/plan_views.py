@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import (
     PLAN_PLANNED,
+    PLAN_SKIPPED,
+    TIMING_AFTER_TIPOFF,
     AcquisitionOverride,
     FantasyTeam,
     PlanCandidate,
@@ -32,9 +34,11 @@ from app.team.calendar import (
     effective_period,
     final_period,
     matchup_by_id,
+    matchup_for_period,
     matchups,
     period_date,
 )
+from app.team.display import GameInfo, format_game
 from app.team.grid import LineupCandidate, slot_counts_by_id, validate_lineup
 from app.team.plan import (
     AcquisitionTally,
@@ -42,14 +46,18 @@ from app.team.plan import (
     PlanContext,
     PlanWarning,
     Simulation,
+    StreamWindow,
     acquisition_tallies,
     effective_pickup,
     landing_period,
+    made_period,
     pickup_alternatives,
+    plan_horizon_end,
     plan_lineup,
     plan_matchup_ids,
     resolve_drop,
     simulate,
+    stream_windows,
     warnings,
 )
 from app.team.plan_detect import pending_claims
@@ -58,6 +66,7 @@ from app.team.schemas import (
     AcquisitionRow,
     Acquisitions,
     Basis,
+    JoiningOut,
     LineupEditResponse,
     PlanCandidateOut,
     PlanDeleteResponse,
@@ -69,6 +78,9 @@ from app.team.schemas import (
     PlanPlayerRef,
     PlanResponse,
     PlanWarningOut,
+    StreamGameDay,
+    StreamMatchupGames,
+    StreamOut,
     TeamDayResponse,
 )
 from app.team.store import league_settings_row
@@ -129,6 +141,9 @@ class PlanBundle:
     players: dict[int, Player]
     pending: set[int]
     slot_counts: dict[int, int]
+    # Each move's pickup window, and the games of every day any window or move day covers.
+    windows: dict[int, StreamWindow]
+    schedule: dict[tuple[int, int], GameInfo]
 
 
 def _referenced_ids(rows: Iterable[PlanMove]) -> set[int]:
@@ -144,8 +159,9 @@ def _referenced_ids(rows: Iterable[PlanMove]) -> set[int]:
 def load_plan(
     db: Session, season: int, team: FantasyTeam, now: datetime, through_sp: int | None = None
 ) -> PlanBundle:
-    """Load my plan and everything its rules need, simulate it through the last move's day
-    (or `through_sp`, if later), and collect its warnings. A fixed handful of queries."""
+    """Load my plan and everything its rules need, simulate it through the day the last move
+    lands (or `through_sp`, if later), and collect its warnings. A fixed handful of queries:
+    the schedule for every stream window and move day is one."""
     today = effective_period(season, now)
     settings_row = league_settings_row(db, season)
     rules = AcquisitionSettings.from_raw(
@@ -154,8 +170,9 @@ def load_plan(
     roster = _roster(db, season, team.team_id)
     rows = load_moves(db, season, team.team_id)
     moves = [engine_move(row) for row in rows]
-    through = max([today, through_sp or today, *(m.sp for m in moves)])
-    through = min(through, final_period(season))
+    through = max([today, through_sp or today, *(landing_period(m, today) for m in moves)])
+    # One past the final day, so an after-tip-off move made on it still has somewhere to land.
+    through = min(through, final_period(season) + 1)
     sim = simulate([entry.player_id for entry, _ in roster], moves, today, through)
 
     players = {player.espn_player_id: player for _, player in roster}
@@ -173,16 +190,20 @@ def load_plan(
         if status.on_waivers
     }
 
-    planned = [m for m in moves if m.status == PLAN_PLANNED]
-    landing = {landing_period(m, today) for m in planned}
-    schedule = games_index(db, season, landing)
+    windows = stream_windows(moves, today, plan_horizon_end(moves, season, today))
+    days = {sp for window in windows.values() for sp in window.days}
+    days |= {made_period(m, today) for m in moves if m.status != PLAN_SKIPPED}
+    schedule = games_index(db, season, days)
     games = {
         (sp, pid)
-        for m in planned
-        for sp in [landing_period(m, today)]
-        for pid in m.candidates
-        if pid in players and (sp, players[pid].pro_team_id) in schedule
+        for sp in days
+        for pid, player in players.items()
+        if (sp, player.pro_team_id) in schedule
     }
+    first_tip: dict[int, datetime] = {}
+    for (sp, _), info in schedule.items():
+        if not info.start_time_tbd and (sp not in first_tip or info.starts_at < first_tip[sp]):
+            first_tip[sp] = info.starts_at
 
     overrides = {
         row.matchup_id: row.used
@@ -202,6 +223,7 @@ def load_plan(
         waiver_hours=rules.waiver_hours,
         waiver_tz=get_settings().waiver_clear_tz,
         move_time=get_settings().plan_move_time(),
+        first_tip=first_tip,
         acquisition_limit=rules.matchup_acquisition_limit,
         # Every matchup, not just the plan's: the day view asks about whichever day it shows.
         espn_used={
@@ -223,6 +245,8 @@ def load_plan(
         players=players,
         pending=pending_claims(db, season, team.team_id, rows),
         slot_counts=slot_counts_by_id(settings_row.roster_slots if settings_row else None),
+        windows=windows,
+        schedule=schedule,
     )
 
 
@@ -281,6 +305,37 @@ def drop_display(player: PlanPlayerRef | None, alternatives: Sequence[PlanPlayer
     return f"{player.name} (or {' or '.join(alt.name for alt in alternatives)})"
 
 
+def _stream_out(season: int, bundle: PlanBundle, window: StreamWindow) -> StreamOut:
+    player = bundle.players.get(window.player_id)
+    game_days = []
+    for sp in window.days:
+        info = bundle.schedule.get((sp, player.pro_team_id)) if player is not None else None
+        if info is not None:
+            game_days.append(
+                StreamGameDay(sp=sp, date=period_date(season, sp), display=format_game(info))
+            )
+    by_matchup: dict[int, int] = {}
+    for sp in window.days:
+        matchup = matchup_for_period(season, sp)
+        if matchup is not None:
+            by_matchup.setdefault(matchup.id, 0)
+    for day in game_days:
+        matchup = matchup_for_period(season, day.sp)
+        if matchup is not None:
+            by_matchup[matchup.id] += 1
+    return StreamOut(
+        first_sp=window.first_sp,
+        last_sp=window.last_sp,
+        open_ended=window.open_ended,
+        ended_by_move_id=window.ended_by,
+        game_days=game_days,
+        games=len(game_days),
+        games_by_matchup=[
+            StreamMatchupGames(matchup_id=mid, games=n) for mid, n in sorted(by_matchup.items())
+        ],
+    )
+
+
 def plan_response(db: Session, season: int, now: datetime) -> PlanResponse:
     """Every move with its candidates, resolved drop and status; every warning; and the
     acquisition math for the current matchup through the last one any move touches."""
@@ -307,6 +362,7 @@ def _plan_response(season: int, bundle: PlanBundle) -> PlanResponse:
                 matchup_id=matchup.id,
                 sequence=move.sequence,
                 status=move.status,
+                timing=move.timing,
                 lands_sp=landing_period(move, bundle.today_sp) if planned else None,
                 overdue=planned and move.sp < bundle.today_sp,
                 drop=PlanDropOut(
@@ -328,6 +384,11 @@ def _plan_response(season: int, bundle: PlanBundle) -> PlanResponse:
                 note=row.note,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
+                stream=(
+                    _stream_out(season, bundle, bundle.windows[move.id])
+                    if move.id in bundle.windows
+                    else None
+                ),
             )
         )
     tallies = acquisition_tallies(
@@ -395,12 +456,14 @@ def _plan_day_response(
 ) -> TeamDayResponse:
     day = bundle.sim.day(sp)
     players, placement, source, carried_from = _plan_day(db, season, sp, bundle)
+    leaving = {drop.player_id: drop.move_id for drop in day.leaving}
     flags = {
         pid: PlanFlag(
             status=entry.status,
             move_id=entry.move_id,
             alternatives=_refs(bundle.players, entry.alternatives),
             claim_pending=entry.move_id in bundle.pending if entry.move_id else False,
+            leaving_move_id=leaving.get(pid),
         )
         for pid, entry in day.roster.items()
     }
@@ -441,6 +504,23 @@ def _plan_day_response(
             for drop in day.planned_drops
         ],
         plan_warnings=day_warnings,
+        leaving_tonight=[
+            PlannedDropOut(
+                player=_ref(bundle.players, drop.player_id),
+                move_id=drop.move_id,
+                alternatives=_refs(bundle.players, drop.alternatives),
+            )
+            for drop in day.leaving
+        ],
+        joining_tonight=[
+            JoiningOut(
+                player=_ref(bundle.players, entry.player_id),
+                move_id=entry.move_id,
+                alternatives=_refs(bundle.players, entry.alternatives),
+            )
+            for entry in day.joining
+            if entry.move_id is not None
+        ],
     )
 
 
@@ -609,6 +689,7 @@ def create_move(
     candidate_ids: Sequence[int],
     note: str | None,
     sequence: int | None,
+    timing: str = TIMING_AFTER_TIPOFF,
 ) -> PlanMutationResponse:
     """Add a move to my plan. Commits. Returns the whole plan, since warnings move with it."""
     team = _require_team(db, season)
@@ -632,6 +713,7 @@ def create_move(
         drop_player_id=drop_player_id,
         drop_from_move_id=drop_from_move_id,
         status=PLAN_PLANNED,
+        timing=timing,
         drop_mismatch=False,
         note=note,
         created_at=now,
@@ -690,6 +772,8 @@ def update_move(
     )
     if "status" in fields and fields["status"] is None:
         raise PlanInvalid(["status can't be null"])
+    if "timing" in fields and fields["timing"] is None:
+        raise PlanInvalid(["timing can't be null"])
 
     moved_day = sp != row.scoring_period_id
     row.scoring_period_id = sp  # type: ignore[assignment]
@@ -712,6 +796,8 @@ def update_move(
             row.espn_transaction_id = None
     if "note" in fields:
         row.note = fields["note"]  # type: ignore[assignment]
+    if "timing" in fields:
+        row.timing = fields["timing"]  # type: ignore[assignment]
     row.drop_mismatch = False
     row.detected_drop_player_id = None
     row.updated_at = now

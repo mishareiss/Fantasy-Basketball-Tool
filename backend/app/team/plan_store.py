@@ -32,4 +32,5 @@ def engine_move(row: PlanMove) -> Move:
         resolved_player_id=row.resolved_player_id,
         drop_mismatch=row.drop_mismatch,
         detected_drop_player_id=row.detected_drop_player_id,
+        timing=row.timing,
     )

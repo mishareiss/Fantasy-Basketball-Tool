@@ -1,4 +1,4 @@
-import type { PlanFlag, PlanMove, PlanWarning, PlannedDrop } from "@/lib/api";
+import type { JoiningTonight, PlanFlag, PlanMove, PlanWarning, PlannedDrop } from "@/lib/api";
 import { withAlternatives } from "@/lib/plan";
 import { dayLabel } from "@/lib/team";
 import { Badge } from "./TeamStates";
@@ -61,6 +61,38 @@ export function PlanWarningLine({ warning }: { warning: PlanWarning }) {
       <span className="font-semibold">{warning.severity === "warning" ? "Warning" : "Note"}:</span>{" "}
       {warning.message}
     </li>
+  );
+}
+
+/** On a player an after-tip-off move drops tonight: he still plays today, then leaves. */
+export function LeavingTag() {
+  return (
+    <span className="flex flex-wrap items-center gap-1" data-leaving-tag>
+      <Badge tone="amber">Leaving tonight</Badge>
+    </span>
+  );
+}
+
+/** Pickups an after-tip-off move adds tonight (on the roster from tomorrow), under the grid. */
+export function JoiningTonightStrip({ joining }: { joining: readonly JoiningTonight[] }) {
+  if (joining.length === 0) return null;
+  return (
+    <div
+      data-joining-tonight
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed border-sky-300 px-2.5 py-1.5 text-xs dark:border-sky-800"
+    >
+      <span className="text-[10px] font-semibold tracking-wide text-sky-700 uppercase dark:text-sky-300">
+        Joining tonight
+      </span>
+      {joining.map((entry) => (
+        <span key={`${entry.move_id}-${entry.player.id}`} data-joining-player={entry.player.id} className="text-zinc-800 dark:text-zinc-200">
+          {entry.player.name}
+          {entry.alternatives.length > 0 ? (
+            <span className="text-zinc-500"> or {entry.alternatives.map((p) => p.name).join(", ")}</span>
+          ) : null}
+        </span>
+      ))}
+    </div>
   );
 }
 

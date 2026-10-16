@@ -1103,12 +1103,19 @@ export type TeamDayResponse = {
   view?: DayView;
   planned_drops?: PlannedDrop[];
   plan_warnings?: PlanWarning[];
+  /** Task 33, Plan view only: after-tip-off moves made tonight. Who leaves is still on the
+   *  roster today (flagged `plan.leaving_move_id`); who joins is on it from tomorrow. */
+  leaving_tonight?: PlannedDrop[];
+  joining_tonight?: JoiningTonight[];
 };
 
 /* --- the waiver plan (task 30) ------------------------------------------------------- */
 
 export type DayView = "actual" | "plan";
 export type PlanMoveStatus = "planned" | "done" | "skipped";
+/** Task 33: when on its day a move is made. After tip-off keeps the dropped player's game
+ *  that day and brings the pickup in from the next; before games does both that morning. */
+export type PlanMoveTiming = "after_tipoff" | "before_games";
 
 /** schemas.py: PlanPlayerRef. */
 export type PlanPlayerRef = {
@@ -1127,6 +1134,8 @@ export type PlanFlag = {
   alternatives: PlanPlayerRef[];
   /** ESPN shows a pending waiver claim of ours for one of the move's candidates. */
   claim_pending: boolean;
+  /** Task 33: an after-tip-off move drops him tonight (he still plays today). */
+  leaving_move_id?: number | null;
 };
 
 /** schemas.py: PlannedDropOut. */
@@ -1134,6 +1143,14 @@ export type PlannedDrop = {
   player: PlanPlayerRef;
   move_id: number;
   /** An unsettled chained drop: who else it could turn out to be ("A (or B)"). */
+  alternatives: PlanPlayerRef[];
+};
+
+/** schemas.py: JoiningOut. A pickup an after-tip-off move adds tonight. */
+export type JoiningTonight = {
+  player: PlanPlayerRef;
+  move_id: number;
+  /** His backups still in play ("or B"). */
   alternatives: PlanPlayerRef[];
 };
 
@@ -1146,7 +1163,9 @@ export type PlanWarningCode =
   | "bad_chain"
   | "chain_cycle"
   | "backup_overlap"
-  | "no_game"
+  | "stream_no_games"
+  | "stream_info"
+  | "drop_game_lost"
   | "overdue"
   | "different_drop";
 
@@ -1171,15 +1190,32 @@ export type PlanDrop = {
   display: string;
 };
 
+/** schemas.py: StreamOut. The days the pickup is mine in the plan, and his games in them. */
+export type PlanStream = {
+  first_sp: number;
+  /** Before `first_sp` when he's dropped as soon as he arrives. */
+  last_sp: number;
+  /** No later move drops him: the window runs to the end of the plan. */
+  open_ended: boolean;
+  ended_by_move_id: number | null;
+  /** `display` is `@ LAL 7:00 PM`, Pacific. */
+  game_days: { sp: number; date: string; display: string }[];
+  games: number;
+  games_by_matchup: { matchup_id: number; games: number }[];
+};
+
 /** schemas.py: PlanMoveOut. */
 export type PlanMove = {
   id: number;
+  /** The day the move is MADE (its acquisition counts in this day's matchup). */
   sp: number;
   date: string;
   matchup_id: number | null;
   sequence: number;
   status: PlanMoveStatus;
-  /** The day it takes effect in the plan (today if overdue). Null unless planned. */
+  timing: PlanMoveTiming;
+  /** The day it changes the plan roster: `sp`, or the day after for an after-tip-off move
+   *  (from today if overdue). Null unless planned. */
   lands_sp: number | null;
   overdue: boolean;
   drop: PlanDrop;
@@ -1193,6 +1229,8 @@ export type PlanMove = {
   note: string | null;
   created_at: string;
   updated_at: string;
+  /** Null for a skipped move. */
+  stream: PlanStream | null;
 };
 
 /** schemas.py: AcquisitionRow. */
@@ -1234,6 +1272,8 @@ export type PlanMoveCreateBody = {
   candidate_ids: number[];
   note?: string | null;
   sequence?: number | null;
+  /** Default `after_tipoff`. */
+  timing?: PlanMoveTiming;
 };
 
 /** schemas.py: PlanMovePatch. Only the keys sent are touched. */
@@ -1246,6 +1286,7 @@ export type PlanMovePatchBody = Partial<{
   status: PlanMoveStatus;
   resolved_player_id: number | null;
   note: string | null;
+  timing: PlanMoveTiming;
 }>;
 
 export type LineupAssignment = {

@@ -27,7 +27,7 @@ import {
 import { BasisToggle } from "./BasisToggle";
 import { DayPicker } from "./DayPicker";
 import { MoveComposer } from "./MoveComposer";
-import { DayPlanWarnings, DroppedTodayStrip } from "./PlanRosterExtras";
+import { DayPlanWarnings, DroppedTodayStrip, JoiningTonightStrip } from "./PlanRosterExtras";
 import { PlanTab, type PlanNotice } from "./PlanTab";
 import { RightPanelTabs, rememberTab, rememberedTab, type RightTab } from "./RightPanelTabs";
 import { RosterHeader, RosterTable } from "./RosterTable";
@@ -429,6 +429,7 @@ export function TeamView({
               </div>
 
               {view === "plan" ? <DroppedTodayStrip drops={day.planned_drops ?? []} /> : null}
+              {view === "plan" ? <JoiningTonightStrip joining={day.joining_tonight ?? []} /> : null}
             </>
           )}
         </section>

@@ -1025,7 +1025,7 @@ def test_there_is_exactly_one_head_after_this_revision(migrated):
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [WAIVER_PLAN]
+    assert ScriptDirectory.from_config(config).get_heads() == [MOVE_TIMING]
 
 
 # --- the in-season team data (task 27) ------------------------------------------------------
@@ -1213,3 +1213,50 @@ def test_a_candidate_is_unique_by_rank_and_by_player_within_a_move(migrated):
             connection.execute(
                 text(f"INSERT INTO plan_candidate (move_id, rank, player_id) VALUES {values}")
             )
+
+
+# --- move timing (task 33) ------------------------------------------------------------------
+
+MOVE_TIMING = "b7e2c5d81f04"
+
+
+def test_existing_moves_become_before_games_and_new_rows_can_say_after_tipoff(migrated):
+    config, engine = migrated
+    command.upgrade(config, WAIVER_PLAN)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        _plan_move(connection, 1)
+        _plan_move(connection, 2)
+
+    command.upgrade(config, MOVE_TIMING)
+    with engine.begin() as connection:
+        rows = connection.execute(text("SELECT id, timing FROM plan_move ORDER BY id")).all()
+        assert [tuple(row) for row in rows] == [(1, "before_games"), (2, "before_games")]
+        # A row written without a timing is still an old-style move.
+        _plan_move(connection, 3)
+        assert connection.scalar(text("SELECT timing FROM plan_move WHERE id = 3")) == (
+            "before_games"
+        )
+        connection.execute(text("UPDATE plan_move SET timing = 'after_tipoff' WHERE id = 3"))
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(text("UPDATE plan_move SET timing = 'whenever' WHERE id = 1"))
+
+
+def test_the_move_timing_round_trip_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, MOVE_TIMING)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        _plan_move(connection, 1)
+
+    command.downgrade(config, WAIVER_PLAN)
+    assert "timing" not in _columns(engine, "plan_move")
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM plan_move")) == 1
+
+    command.upgrade(config, MOVE_TIMING)
+    assert "timing" in _columns(engine, "plan_move")
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT timing FROM plan_move WHERE id = 1")) == (
+            "before_games"
+        )

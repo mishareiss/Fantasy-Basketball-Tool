@@ -242,3 +242,22 @@ def test_the_league_sync_runs_detect_against_the_recorded_log(league, db, client
 
     # And again: idempotent.
     assert sync_league(db, client_stub, now=PRESEASON_NOW).plan_moves_detected == 0
+
+
+def test_an_after_tipoff_move_made_wednesday_evening_pacific_is_detected(pool, db):
+    """Wed 10/21's move is made at 7:45 PM PT, which is already Thu 02:45 in UTC (and Thu in
+    ESPN's Eastern day). Planned that morning, or written down an hour after making it, it
+    still matches: the window is about when the move was created, not the UTC date."""
+    morning = datetime(2026, 10, 21, 16, 0, tzinfo=UTC)  # 9:00 AM PT
+    evening = datetime(2026, 10, 22, 2, 45, tzinfo=UTC)  # 7:45 PM PT Wed
+    planned = _move(db, 2, [ALPHA], drop=GOBERT, created=morning)
+    planned.timing = "after_tipoff"
+    late = _move(db, 2, [BRAVO], drop=SIMONS, created=evening + timedelta(hours=1))
+    late.timing = "after_tipoff"
+    db.commit()
+    _tx(db, "tx-eve-1", [ALPHA], [GOBERT], when=evening)
+    _tx(db, "tx-eve-2", [BRAVO], [SIMONS], when=evening + timedelta(minutes=5))
+
+    assert _detect(db).detected == 2
+    assert _state(planned) == ("done", ALPHA, "tx-eve-1", False)
+    assert _state(late) == ("done", BRAVO, "tx-eve-2", False)

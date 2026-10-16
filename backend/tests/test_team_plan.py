@@ -448,15 +448,8 @@ def test_planned_pickups_count_in_the_matchup_they_land_in():
 # --- infos ----------------------------------------------------------------------------------
 
 
-def test_no_game_on_the_move_day_is_an_info():
+def test_no_schedule_means_no_stream_infos():
     moves = [Move(1, 2, (A,), drop_player_id=X3), Move(2, 3, (B,), drop_player_id=X2)]
-    _, found = run(moves, games={(2, A)})
-    (info,) = found
-    assert (info.code, info.severity, info.move_id) == ("no_game", "info", 2)
-    assert info.message == (
-        "The Thu 10/22 move (Xander Two → Bam) picks up Bam, who has no game on Thu 10/22"
-    )
-    # No schedule known: no infos at all.
     _, found = run(moves)
     assert found == []
 
@@ -611,7 +604,8 @@ def test_no_warning_names_a_move_by_number():
             detected_drop_player_id=X1,
         ),
     ]
-    _, found = run(moves, today=3, games=set())
+    # Jerami Grant (X3) plays the day move 1 drops him before tip-off; Alpha plays Fri.
+    _, found = run(moves, today=3, games={(3, X3), (4, A)})
     mentioned = {
         "drop_not_rostered",
         "pickup_already_rostered",
@@ -619,7 +613,9 @@ def test_no_warning_names_a_move_by_number():
         "bad_chain",
         "chain_cycle",
         "backup_overlap",
-        "no_game",
+        "stream_no_games",
+        "stream_info",
+        "drop_game_lost",
         "overdue",
         "different_drop",
     }
@@ -635,3 +631,256 @@ def test_no_warning_names_a_move_by_number():
     assert {w.move_id for w in found if w.code in mentioned} >= {1, 2, 3, 4, 5, 7, 11}
     deleted = next(w for w in found if w.code == "bad_chain" and w.move_id == 10)
     assert "whoever a deleted move picks up" in deleted.message
+
+
+# --- move timing: made on D, landing on D (before games) or D+1 (after tip-off) -------------
+
+AFTER = plan.AFTER_TIPOFF
+BEFORE = plan.BEFORE_GAMES
+
+
+def test_after_tipoff_keeps_the_dropped_player_on_the_day_and_adds_the_pickup_next_day():
+    move = Move(1, 2, (A, B), drop_player_id=X1, timing=AFTER)
+    sim = simulate(ROSTER, [move], 1, 5)
+
+    wed, thu = sim.day(2), sim.day(3)
+    assert set(wed.roster) == {X1, X2, X3}
+    assert [(d.player_id, d.move_id) for d in wed.leaving] == [(X1, 1)]
+    assert [(e.player_id, e.move_id, e.alternatives) for e in wed.joining] == [(A, 1, (B,))]
+    assert wed.planned_drops == ()
+    assert set(thu.roster) == {X2, X3, A}
+    # The drop was announced the night before, not again on the day it lands.
+    assert (thu.planned_drops, thu.leaving, thu.joining) == ((), (), ())
+    (event,) = sim.applied
+    assert (event.sp, event.made, event.timing) == (3, 2, AFTER)
+    assert plan.made_period(move, 1) == 2 and plan.landing_period(move, 1) == 3
+
+
+def test_before_games_is_the_old_behaviour():
+    move = Move(1, 2, (A,), drop_player_id=X1, timing=BEFORE)
+    sim = simulate(ROSTER, [move], 1, 5)
+    assert set(sim.day(2).roster) == {X2, X3, A}
+    assert [d.player_id for d in sim.day(2).planned_drops] == [X1]
+    assert sim.day(2).leaving == () and sim.day(2).joining == ()
+    assert plan.landing_period(move, 1) == 2
+
+
+def test_an_overdue_after_tipoff_move_is_made_today_and_lands_tomorrow():
+    move = Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)
+    sim, found = run([move], today=4)
+    assert X1 in sim.day(4).roster and A in sim.day(5).roster
+    (overdue,) = [w for w in found if w.code == "overdue"]
+    assert overdue.sp == 4
+    assert overdue.message.endswith("so the plan has it made tonight")
+
+
+def test_a_chain_with_mixed_timings():
+    """Move 1 (Wed, after tip-off) brings Alpha in Thu. Move 2 (Thu, after tip-off) drops
+    him for Bam from Fri; move 3 (Fri, before games) drops Bam for Cole that morning."""
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 3, (B,), drop_from_move_id=1, timing=AFTER),
+        Move(3, 4, (C_,), drop_from_move_id=2, timing=BEFORE),
+    ]
+    sim = simulate(ROSTER, moves, 1, 6)
+    assert {X1}.issubset(sim.day(2).roster)
+    assert A in sim.day(3).roster and X1 not in sim.day(3).roster
+    assert [d.player_id for d in sim.day(3).leaving] == [A]
+    # Fri: Bam lands and leaves before Fri's games; Cole holds X1's slot.
+    assert C_ in sim.day(4).roster and B not in sim.day(4).roster and A not in sim.day(4).roster
+    assert sim.conflicts == ()
+    assert slot_substitutions(sim.day(4)) == {C_: X1}
+
+
+def test_a_before_games_move_cant_drop_a_pickup_who_only_joins_that_night():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 2, (B,), drop_from_move_id=1, sequence=1, timing=BEFORE),
+    ]
+    sim = simulate(ROSTER, moves, 1, 5)
+    assert [(c.code, c.move_id) for c in sim.conflicts] == [("drop_not_rostered", 2)]
+
+
+def test_the_lineup_substitution_lands_the_day_after():
+    sim = simulate(ROSTER, [Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)], 1, 5)
+    assert plan_lineup(sim.day(2), ACTUAL, {}, ELIGIBLE).placement == ACTUAL
+    assert slot_substitutions(sim.day(2)) == {}
+    assert plan_lineup(sim.day(3), ACTUAL, {}, ELIGIBLE).placement == {X2: SG, X3: BE, A: PG}
+
+
+# --- the stream window ----------------------------------------------------------------------
+
+
+def test_a_stream_window_ends_the_day_before_a_chained_drop_lands():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),  # Alpha from Thu
+        Move(2, 5, (B,), drop_from_move_id=1, timing=AFTER),  # made Sat night, lands Sun
+    ]
+    windows = plan.stream_windows(moves, 1, 6)
+    assert windows[1] == plan.StreamWindow(1, A, 3, 5, False, 2)
+    assert (windows[2].first_sp, windows[2].last_sp, windows[2].open_ended) == (6, 6, True)
+
+
+def test_a_stream_window_ends_at_a_named_drop_of_the_pickup():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 5, (B,), drop_player_id=A, timing=BEFORE),  # lands Sat itself
+    ]
+    window = plan.stream_windows(moves, 1, 6)[1]
+    assert (window.first_sp, window.last_sp, window.ended_by) == (3, 4, 2)
+    assert list(window.days) == [3, 4]
+
+
+def test_a_chain_through_another_move_that_resolves_to_him_ends_the_window_too():
+    """Two moves pick up Alpha (a double pickup the plan warns about); a later move drops
+    "move 2's pickup", which is Alpha. The simulation drops him then, so move 1's window ends
+    there as well, not at the end of the plan."""
+    moves = [
+        Move(1, 1, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 3, (A,), drop_player_id=X2, timing=BEFORE),
+        Move(3, 5, (B,), drop_from_move_id=2, timing=BEFORE),
+    ]
+    windows = plan.stream_windows(moves, 1, 6)
+    assert (windows[1].last_sp, windows[1].ended_by) == (4, 3)
+    sim = simulate(ROSTER, moves, 1, 6)
+    assert A in sim.day(4).roster and A not in sim.day(5).roster
+
+
+def test_an_open_ended_window_runs_to_the_end_of_the_plan():
+    moves = [Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)]
+    assert plan.plan_horizon_end(moves, SEASON, 1) == 6  # Matchup 1 ends Sun 10/25
+    window = plan.stream_windows(moves, 1, 6)[1]
+    assert (window.first_sp, window.last_sp, window.open_ended, window.ended_by) == (
+        3,
+        6,
+        True,
+        None,
+    )
+
+
+def test_skipped_moves_neither_stream_nor_end_a_window():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 4, (B,), drop_from_move_id=1, status=PLAN_SKIPPED),
+    ]
+    windows = plan.stream_windows(moves, 1, 6)
+    assert set(windows) == {1} and windows[1].open_ended
+
+
+def test_stream_info_says_when_he_plays_and_what_drops_him():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 5, (B,), drop_player_id=A, timing=AFTER),
+    ]
+    _, found = run(moves, games={(3, A), (6, B)})
+    info = next(w for w in found if w.code == "stream_info" and w.move_id == 1)
+    assert info.severity == "info" and info.sp == 2
+    assert info.message == (
+        "The Wed 10/21 move (Xavier One → Alpha): Alpha plays Thu 10/22 (1 game) "
+        "before the Sat 10/24 move (Alpha → Bam) drops him"
+    )
+    assert info.detail == {
+        "player_id": A,
+        "first_sp": 3,
+        "last_sp": 5,
+        "games": 1,
+        "ended_by": 2,
+    }
+    last = next(w for w in found if w.move_id == 2 and w.code == "stream_info")
+    assert last.message == (
+        "The Sat 10/24 move (Alpha → Bam): Bam plays Sun 10/25 (1 game) "
+        "through Sun 10/25, the end of the plan"
+    )
+
+
+def test_stream_no_games_warns():
+    moves = [Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)]
+    _, found = run(moves, games={(2, A)})  # his only game is the night he's added
+    (warning,) = found
+    assert (warning.code, warning.severity) == ("stream_no_games", "warning")
+    assert warning.message == (
+        "The Wed 10/21 move (Xavier One → Alpha) picks up Alpha, who plays no games "
+        "through Sun 10/25, the end of the plan"
+    )
+
+
+def test_a_pickup_dropped_the_day_he_lands_never_plays():
+    moves = [
+        Move(1, 2, (A,), drop_player_id=X1, timing=AFTER),
+        Move(2, 3, (B,), drop_from_move_id=1, timing=BEFORE),
+    ]
+    _, found = run(moves, games={(3, A), (3, B)})
+    warning = next(w for w in found if w.code == "stream_no_games")
+    assert warning.move_id == 1
+    assert warning.message.endswith(
+        "who is dropped by the Thu 10/22 move (Alpha → Bam) before he plays a game"
+    )
+
+
+def test_drop_game_lost_is_only_for_before_games():
+    before = [Move(1, 2, (A,), drop_player_id=X1, timing=BEFORE)]
+    _, found = run(before, games={(2, X1), (2, A)})
+    lost = next(w for w in found if w.code == "drop_game_lost")
+    assert (lost.severity, lost.sp, lost.detail) == ("info", 2, {"player_id": X1})
+    assert lost.message == (
+        "The Wed 10/21 move (Xavier One → Alpha) is made before tip-off, so you give up "
+        "Xavier One's Wed 10/21 game"
+    )
+    after = [Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)]
+    _, found = run(after, games={(2, X1), (3, A)})
+    assert "drop_game_lost" not in {w.code for w in found}
+
+
+# --- waiver math from the first tip-off -----------------------------------------------------
+
+
+def test_an_after_tipoff_move_happens_at_the_days_first_tip():
+    """Alpha clears 16:30 PT Wed. A move at Wed's first tip (16:00 PT) is too early; one at a
+    17:00 PT tip is not; a day without games falls back to 16:00 PT; 09:00 is too early."""
+    clears = {A: utc(2026, 10, 21, 23, 30)}
+    move = Move(1, 2, (A,), drop_player_id=X1, timing=AFTER)
+
+    _, found = run([move], on_waivers=clears, first_tip={2: utc(2026, 10, 21, 23, 0)})
+    assert [w.code for w in found] == ["on_waivers"]
+    assert found[0].sp == 2 and found[0].message.endswith("but the move is Wed 10/21")
+    _, found = run([move], on_waivers=clears, first_tip={2: utc(2026, 10, 22, 0, 0)})
+    assert found == []
+    _, found = run([move], on_waivers=clears)
+    assert [w.code for w in found] == ["on_waivers"]
+    morning = Move(1, 2, (A,), drop_player_id=X1, timing=BEFORE)
+    _, found = run([morning], on_waivers=clears, first_tip={2: utc(2026, 10, 22, 0, 0)})
+    assert [w.code for w in found] == ["on_waivers"]
+
+
+def test_the_waiver_clock_starts_at_tip_off_across_the_dst_change():
+    """Jerami Grant is dropped Sat 10/31 (sp 12) after the 7:00 PM PDT tip (02:00Z Sun) with a
+    14h waiver period: drop + 14h is 08:00 PST Sun 11/1, the day clocks fall back, so he clears
+    at the next Pacific midnight, Mon 11/2 00:00 PST = 08:00Z. Re-adding him Sun morning warns.
+    Dropped Sat 09:00 PDT instead, he'd clear Sun 00:00 PDT = 07:00Z, before that re-add."""
+    acquired = {X3: utc(2026, 10, 1)}
+    tip = {12: utc(2026, 11, 1, 2, 0)}
+    readd = Move(2, 13, (X3,), drop_player_id=A, timing=BEFORE)
+
+    moves = [Move(1, 12, (A,), drop_player_id=X3, timing=AFTER), readd]
+    _, found = run(moves, through=14, acquired_at=acquired, first_tip=tip, waiver_hours=14)
+    (warning,) = [w for w in found if w.code == "on_waivers"]
+    assert warning.detail["clears_at"] == "2026-11-02T08:00:00+00:00"
+    assert warning.message == "Jerami Grant is on waivers until Mon 11/2, but the move is Sun 11/1"
+
+    moves = [Move(1, 12, (A,), drop_player_id=X3, timing=BEFORE), readd]
+    _, found = run(moves, through=14, acquired_at=acquired, first_tip=tip, waiver_hours=14)
+    assert "on_waivers" not in {w.code for w in found}
+
+
+# --- acquisitions are counted on the day the move is made -----------------------------------
+
+
+def test_a_sunday_after_tipoff_move_spends_the_ending_matchups_budget():
+    """Sun 10/25 (sp 6) is Matchup 1's last day. The pickup plays from Mon (Matchup 2), but
+    the acquisition is Sunday's."""
+    move = Move(1, 6, (A,), drop_player_id=X1, timing=AFTER)
+    tallies = acquisition_tallies([move], ctx(acquisition_limit=7), [1, 2])
+    assert [(t.matchup_id, t.planned) for t in tallies] == [(1, 1), (2, 0)]
+    assert plan.plan_matchup_ids([move], SEASON, 1) == [1, 2]
+    sim = simulate(ROSTER, [move], 1, 8)
+    assert X1 in sim.day(6).roster and A in sim.day(7).roster

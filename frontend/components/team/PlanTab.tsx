@@ -13,7 +13,9 @@ import {
   type TeamCalendarResponse,
 } from "@/lib/api";
 import {
+  ACQUISITION_HINT,
   canReorder,
+  crossMatchupNote,
   dropProblem,
   groupMovesByMatchup,
   moveNumbers,
@@ -21,6 +23,7 @@ import {
   reorderWithinDay,
   splitWarnings,
   statusChip,
+  streamChips,
 } from "@/lib/plan";
 import { matchupRange } from "@/lib/team";
 import { AcquisitionMeter } from "./AcquisitionMeter";
@@ -114,6 +117,9 @@ export function PlanTab({
           Add move
         </button>
       </div>
+      <p className="text-[11px] text-zinc-500" data-acquisition-hint>
+        {ACQUISITION_HINT}
+      </p>
 
       {notice ? (
         <div
@@ -195,6 +201,7 @@ export function PlanTab({
                     number={numbers.get(move.id) ?? 0}
                     numbers={numbers}
                     moves={plan.moves}
+                    calendar={calendar}
                     warnings={byMove.get(move.id) ?? []}
                     busy={busy}
                     onEdit={() => onEdit(move)}
@@ -300,6 +307,7 @@ export function PlanMoveRow({
   number,
   numbers,
   moves,
+  calendar,
   warnings,
   busy,
   onEdit,
@@ -309,6 +317,7 @@ export function PlanMoveRow({
   number: number;
   numbers: ReadonlyMap<number, number>;
   moves: readonly PlanMove[];
+  calendar: Pick<TeamCalendarResponse, "days" | "matchups">;
   warnings: readonly PlanWarning[];
   busy: boolean;
   onEdit: () => void;
@@ -318,6 +327,8 @@ export function PlanMoveRow({
   const [dependents, setDependents] = useState<number[] | null>(null);
   const chip = statusChip(move);
   const problem = dropProblem(move);
+  const chips = streamChips(move.stream);
+  const crossing = crossMatchupNote(move, calendar);
   const candidates = [...move.candidates].sort((a, b) => a.rank - b.rank);
 
   async function reorder(delta: -1 | 1) {
@@ -370,6 +381,25 @@ export function PlanMoveRow({
           {chip.label}
         </Badge>
       </div>
+      {chips.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1" data-stream-chips aria-label="Game days in his window">
+          {chips.map((c) => (
+            <span
+              key={c.sp}
+              data-stream-day={c.sp}
+              title={c.title}
+              className="rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-500/10 dark:text-sky-200"
+            >
+              {c.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {crossing ? (
+        <p className="text-[11px] text-amber-800 dark:text-amber-200" data-cross-matchup>
+          {crossing}
+        </p>
+      ) : null}
       {problem ? (
         <p className="text-[11px] text-rose-700 dark:text-rose-300" data-chain-problem={move.drop.problem ?? ""}>
           Broken chain: {problem}.

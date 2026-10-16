@@ -130,7 +130,7 @@ function planDay(sp = 1, overrides: Partial<TeamDayResponse> = {}): TeamDayRespo
     planned_drops: [{ player: GOBERT, move_id: 1, alternatives: [] }],
     plan_warnings: [
       warning({ code: "acq_limit", message: "Matchup 1 goes over its 7 adds", matchup_id: 1 }),
-      warning({ code: "no_game", message: "Jerami Grant has no game Tue 10/20", move_id: 1, severity: "info" }),
+      warning({ code: "stream_info", message: "Jerami Grant plays Thu 10/22 (1 game)", move_id: 1, severity: "info" }),
     ],
     ...overrides,
   };
@@ -280,7 +280,7 @@ describe("the plan roster", () => {
     expect(acq.dataset.severity).toBe("warning");
     expect(acq.className).toContain("amber");
     expect(acq.textContent).toContain("Warning:");
-    const info = roster().querySelector<HTMLElement>('[data-plan-warning="no_game"]')!;
+    const info = roster().querySelector<HTMLElement>('[data-plan-warning="stream_info"]')!;
     expect(info.dataset.severity).toBe("info");
     expect(info.className).not.toContain("amber");
     expect(info.textContent).toContain("Note:");
@@ -388,9 +388,11 @@ describe("the Plan tab", () => {
     await openPlanTab(user);
 
     const sentence = (id: number) => moveRow(id).querySelector("[data-move-sentence]")!.textContent;
-    expect(sentence(1)).toBe("Wed 10/21 · Drop No Game Center → Add Jerami Grant (backups: Draymond Green)");
+    expect(sentence(1)).toBe(
+      "Wed 10/21 · before games · Drop No Game Center → Add Jerami Grant (backups: Draymond Green)",
+    );
     expect(sentence(2)).toBe(
-      "Wed 10/21 · Drop move 1's pickup: Jerami Grant (or Draymond Green) → Add Cam Whitmore",
+      "Wed 10/21 · before games · Drop move 1's pickup: Jerami Grant (or Draymond Green) → Add Cam Whitmore",
     );
     expect(within(moveRow(1)).getByText("Planned")).toBeTruthy();
     expect(within(moveRow(5)).getByText("Overdue")).toBeTruthy();
@@ -604,7 +606,7 @@ describe("the move composer", () => {
     await user.click(within(planTab()).getByRole("button", { name: "Add move" }));
     await dropOptionsReady();
     expect(pickups()).toEqual([]);
-    expect(within(dialog()).queryByRole("radio", { checked: true })).toBeNull();
+    expect(within(within(dialog()).getByRole("radiogroup", { name: "Drop" })).queryByRole("radio", { checked: true })).toBeNull();
     await user.click(within(dialog()).getByRole("button", { name: "Cancel" }));
 
     await user.click(within(moveRow(1)).getByRole("button", { name: "Edit" }));
@@ -688,6 +690,7 @@ describe("the move composer", () => {
     await user.click(within(dialog()).getByRole("button", { name: "Save move" }));
     expect(createMove).toHaveBeenCalledWith({
       sp: 1,
+      timing: "after_tipoff",
       drop_player_id: 3,
       candidate_ids: [GRANT.id, GREEN.id],
       note: null,
@@ -721,6 +724,7 @@ describe("the move composer", () => {
     await user.click(within(dialog()).getByRole("button", { name: "Save move" }));
     expect(createMove).toHaveBeenCalledWith({
       sp: 4,
+      timing: "after_tipoff",
       drop_from_move_id: 1,
       candidate_ids: [WHITMORE.id],
       note: "if Grant clears",
@@ -739,6 +743,7 @@ describe("the move composer", () => {
     await user.click(within(dialog()).getByRole("button", { name: "Save changes" }));
     expect(updateMove).toHaveBeenCalledWith(1, {
       sp: 2,
+      timing: "before_games",
       drop_player_id: 3,
       candidate_ids: [GREEN.id, GRANT.id],
       note: null,
@@ -766,6 +771,166 @@ describe("the move composer", () => {
     await user.click(within(dialog()).getByRole("button", { name: "Save move" }));
     expect(await within(dialog()).findByText("candidate_ids lists 201 more than once")).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+});
+
+describe("move timing (task 33)", () => {
+  const dialog = () => screen.getByRole("dialog");
+  const daySelect = () => within(dialog()).getByRole("combobox", { name: "Move day" }) as HTMLSelectElement;
+  const timing = (name: RegExp) => within(dialog()).getByRole("radio", { name }) as HTMLInputElement;
+
+  /** The composer from + Plan on Grant, on the waiver panel's day (Tue unless `thursday`). */
+  async function composeGrantOn(user: ReturnType<typeof userEvent.setup>, thursday = false) {
+    renderPage();
+    await ready();
+    if (thursday) {
+      // Tue is the panel's default day: add Thu, then take Tue off.
+      await user.click(within(waivers()).getByRole("button", { name: /^Thu\s*10\/22$/ }));
+      await user.click(within(waivers()).getByRole("button", { name: /^Tue\s*10\/20$/ }));
+    }
+    await user.click(within(waivers()).getByRole("button", { name: "Plan a pickup of Jerami Grant" }));
+    await within(dialog()).findByRole("radiogroup", { name: "Drop" });
+  }
+
+  it("defaults to after tip-off and reads when the pickup plays from the next day", async () => {
+    const user = userEvent.setup();
+    await composeGrantOn(user, true);
+    expect(within(dialog()).getByText("Make the move on")).toBeTruthy();
+    expect(timing(/After tip-off \(keep his game\)/).checked).toBe(true);
+    // Made Thu night: he's mine Fri-Sun (the end of the plan), and plays on odd days.
+    const readout = await waitFor(() => {
+      const found = dialog().querySelector<HTMLElement>("[data-plays-readout]")!;
+      expect(found.textContent).toMatch(/^Plays:/);
+      return found;
+    });
+    expect(readout.textContent).toBe("Plays: Sat 10/24 @ NYK 7:00 PM · 1 game through Sun 10/25");
+
+    // Before games, he joins Thu itself, and Thu's game is his too.
+    await user.click(timing(/Before games/));
+    await waitFor(() =>
+      expect(dialog().querySelector("[data-plays-readout]")!.textContent).toBe(
+        "Plays: Thu 10/22 @ NYK 7:00 PM, Sat 10/24 @ NYK 7:00 PM · 2 games through Sun 10/25",
+      ),
+    );
+  });
+
+  it("says whether the dropped player's game that day counts", async () => {
+    const user = userEvent.setup();
+    await composeGrantOn(user, true);
+    await user.click(within(dialog()).getByRole("radio", { name: /Luka Doncic/ }));
+    const note = () => dialog().querySelector<HTMLElement>("[data-drop-game-note]")!;
+    expect(note().textContent).toBe("Luka Doncic still plays Thu 10/22 (his game counts)");
+    await user.click(timing(/Before games/));
+    expect(note().textContent).toBe("You give up Luka Doncic’s Thu 10/22 game");
+    // No game that day, nothing to say.
+    await user.click(within(dialog()).getByRole("radio", { name: /No Game Center/ }));
+    expect(dialog().querySelector("[data-drop-game-note]")).toBeNull();
+  });
+
+  it("suggests the move from the days you want him, and lets you override it", async () => {
+    createMove.mockResolvedValue({ ...planResponse(), move_id: 9 });
+    const user = userEvent.setup();
+    await composeGrantOn(user);
+    const streamFor = () => dialog().querySelector<HTMLElement>("[data-stream-for]")!;
+    // His game days are marked once his schedule is read (odd days in the fixture).
+    await waitFor(() => expect(streamFor().querySelector('[data-stream-for-day="5"]')!.getAttribute("data-plays")).toBe("true"));
+
+    await user.click(within(streamFor()).getByRole("button", { name: /Stream for Sat 10\/24/ }));
+    await user.click(within(streamFor()).getByRole("button", { name: /Stream for Thu 10\/22/ }));
+    // The evening before the first chosen day, after tip-off.
+    expect(daySelect().value).toBe("2");
+    expect(timing(/After tip-off/).checked).toBe(true);
+
+    // Today is too late for "the evening before": that morning instead.
+    await user.click(within(streamFor()).getByRole("button", { name: /Stream for Tue 10\/20/ }));
+    expect(daySelect().value).toBe("1");
+    expect(timing(/Before games/).checked).toBe(true);
+
+    // Misha overrides it.
+    await user.selectOptions(daySelect(), "3");
+    await user.click(timing(/After tip-off/));
+    await user.click(within(dialog()).getByRole("radio", { name: /No Game Center/ }));
+    await user.click(within(dialog()).getByRole("button", { name: "Save move" }));
+    expect(createMove).toHaveBeenCalledWith(expect.objectContaining({ sp: 3, timing: "after_tipoff" }));
+  });
+
+  it("reads a plan row with its timing, when he plays, and his game days as chips", async () => {
+    const stream = {
+      first_sp: 2,
+      last_sp: 6,
+      open_ended: true,
+      ended_by_move_id: null,
+      game_days: [{ sp: 3, date: isoFor(3), display: "@ LAL 7:00 PM" }],
+      games: 1,
+      games_by_matchup: [{ matchup_id: 1, games: 1 }],
+    };
+    getPlan.mockResolvedValue(
+      planResponse({
+        moves: [
+          planMove({ id: 1, sp: 1, timing: "after_tipoff", lands_sp: 2, pickups: [GRANT, GREEN], stream }),
+          planMove({ id: 2, sp: 6, timing: "after_tipoff", lands_sp: 7, pickups: [WHITMORE], stream: null }),
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await openPlanTab(user);
+
+    expect(moveRow(1).querySelector("[data-move-sentence]")!.textContent).toBe(
+      "Tue 10/20 · after tip-off · Drop No Game Center → Add Jerami Grant (backups: Draymond Green) · plays Thu 10/22 (1 game)",
+    );
+    const chip = moveRow(1).querySelector<HTMLElement>('[data-stream-day="3"]')!;
+    expect(chip.textContent).toBe("Thu 10/22");
+    expect(chip.title).toBe("Thu 10/22 @ LAL 7:00 PM");
+    // A Sunday-night move spends Matchup 1's budget for a pickup who plays in Matchup 2.
+    expect(moveRow(2).querySelector("[data-cross-matchup]")!.textContent).toBe(
+      "Counts against Matchup 1 (the day it’s made); he plays in Matchup 2.",
+    );
+    expect(moveRow(1).querySelector("[data-cross-matchup]")).toBeNull();
+    expect(planTab().querySelector("[data-acquisition-hint]")!.textContent).toMatch(
+      /counted on the day the move is made/,
+    );
+  });
+
+  it("tags the player leaving tonight and lists who joins tonight", async () => {
+    getDay.mockImplementation(async ({ sp = 1, view } = {}) => {
+      if (view !== "plan") return teamDay(sp);
+      const day = planDay(sp, { planned_drops: [], plan_warnings: [] });
+      return {
+        ...day,
+        slots: day.slots.map((row) =>
+          row.player?.name === "Luka Doncic"
+            ? {
+                ...row,
+                player: {
+                  ...row.player,
+                  plan: { status: "actual" as const, move_id: null, alternatives: [], claim_pending: false, leaving_move_id: 1 },
+                },
+              }
+            : row,
+        ),
+        leaving_tonight: [{ player: { ...GRANT, id: 1, name: "Luka Doncic" }, move_id: 1, alternatives: [] }],
+        joining_tonight: [{ player: WHITMORE, move_id: 1, alternatives: [GREEN] }],
+      };
+    });
+    renderPage({ initialView: "plan" });
+    await ready();
+    const luka = await waitFor(() => {
+      const row = roster().querySelector<HTMLElement>('tr[data-slot-player="1"]')!;
+      expect(row.querySelector("[data-leaving-tag]")).toBeTruthy();
+      return row;
+    });
+    expect(within(luka).getByText("Leaving tonight")).toBeTruthy();
+    const joining = roster().querySelector<HTMLElement>("[data-joining-tonight]")!;
+    expect(joining.textContent).toBe("Joining tonightCam Whitmore or Draymond Green");
+  });
+
+  it("draws no tonight tags in the Actual view", async () => {
+    renderPage();
+    await ready();
+    expect(roster().querySelector("[data-leaving-tag]")).toBeNull();
+    expect(roster().querySelector("[data-joining-tonight]")).toBeNull();
   });
 });
 

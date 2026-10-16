@@ -1,5 +1,5 @@
 import type { Acquisitions, PlanAcquisitions } from "@/lib/api";
-import { meter } from "@/lib/plan";
+import { ACQUISITION_HINT, meter } from "@/lib/plan";
 
 /**
  * Adds used + planned against the matchup's limit: `1 used + 3 planned · 4/7`. Over the limit
@@ -8,6 +8,9 @@ import { meter } from "@/lib/plan";
  * tab.
  *
  * `compact` (the Actual view) keeps the old `2 / 7 this matchup` while nothing is planned.
+ *
+ * A planned move counts in the matchup of the day it's MADE (its tooltip says so), so a
+ * Sunday-night after-tip-off move spends the ending matchup's budget.
  */
 export function AcquisitionMeter({
   acquisitions,
@@ -19,7 +22,7 @@ export function AcquisitionMeter({
   const reading = meter(acquisitions, compact);
   const short = compact && (acquisitions.planned ?? 0) === 0;
   return (
-    <span className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
+    <span className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums" title={ACQUISITION_HINT}>
       <span
         data-acquisitions
         data-over={reading.over ? "true" : undefined}

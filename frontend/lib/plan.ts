@@ -19,7 +19,9 @@ import type {
   PlanMove,
   PlanMoveCreateBody,
   PlanMovePatchBody,
+  PlanMoveTiming,
   PlanPlayerRef,
+  PlanStream,
   PlanWarning,
   TeamCalendarResponse,
   TeamDayResponse,
@@ -119,10 +121,80 @@ export function pickupText(move: PlanMove): string {
     : `Add ${primary.name}`;
 }
 
-/** `Wed 10/21 · Drop Rudy Gobert → Add Jerami Grant (backups: Draymond Green)`. */
-export function moveSentence(move: PlanMove, numbers: ReadonlyMap<number, number>): string {
-  return `${dayLabel(move.date)} · ${dropText(move, numbers)} → ${pickupText(move)}`;
+/* --- timing and the stream window (task 33) ----------------------------------------- */
+
+/** `after tip-off` / `before games`, as a row prints it. */
+export function timingLabel(timing: PlanMoveTiming): string {
+  return timing === "after_tipoff" ? "after tip-off" : "before games";
 }
+
+/** The day a move with this timing made on `sp` changes the plan roster. */
+export function landsOn(sp: number, timing: PlanMoveTiming): number {
+  return sp + (timing === "after_tipoff" ? 1 : 0);
+}
+
+/** `Thu 10/22`, `Thu 10/22, Sat 10/24`; past three days, `… +2`. */
+function daysText(dates: readonly string[]): string {
+  const shown = dates.slice(0, 3).map(dayLabel).join(", ");
+  return dates.length > 3 ? `${shown} +${dates.length - 3}` : shown;
+}
+
+function gamesCount(n: number): string {
+  return `${n} game${n === 1 ? "" : "s"}`;
+}
+
+/** What the pickup's window holds, for a plan row: `plays Thu 10/22 (1 game)`, or
+ *  `no games before he's dropped` / `no games in the plan`. Null with no window. */
+export function streamText(stream: PlanStream | null): string | null {
+  if (!stream) return null;
+  if (stream.games === 0) {
+    return stream.open_ended ? "no games in the plan" : "no games before he’s dropped";
+  }
+  return `plays ${daysText(stream.game_days.map((d) => d.date))} (${gamesCount(stream.games)})`;
+}
+
+/** `Thu 10/22 @ LAL` chips for a row: each game day in the pickup's window. */
+export function streamChips(stream: PlanStream | null): { sp: number; label: string; title: string }[] {
+  return (stream?.game_days ?? []).map((day) => ({
+    sp: day.sp,
+    label: dayLabel(day.date),
+    title: `${dayLabel(day.date)} ${day.display}`,
+  }));
+}
+
+/**
+ * `Tue 10/20 · after tip-off · Drop Anfernee Simons → Add Cameron Johnson · plays Thu 10/22
+ * (1 game)`. The day is the day the move is MADE.
+ */
+export function moveSentence(move: PlanMove, numbers: ReadonlyMap<number, number>): string {
+  const parts = [
+    dayLabel(move.date),
+    timingLabel(move.timing),
+    `${dropText(move, numbers)} → ${pickupText(move)}`,
+  ];
+  const stream = streamText(move.stream);
+  if (stream) parts.push(stream);
+  return parts.join(" · ");
+}
+
+/**
+ * When the acquisition and the games fall in different matchups (a Sunday-night after-tip-off
+ * move): `Counts against Matchup 1 (the day it's made); he plays in Matchup 2.` Else null.
+ */
+export function crossMatchupNote(
+  move: PlanMove,
+  calendar: Pick<TeamCalendarResponse, "days" | "matchups">,
+): string | null {
+  if (move.status !== "planned" || move.lands_sp === null) return null;
+  const made = calendar.days.find((d) => d.sp === move.sp)?.matchup_id ?? move.matchup_id;
+  const lands = calendar.days.find((d) => d.sp === move.lands_sp)?.matchup_id ?? null;
+  if (made === null || lands === null || made === lands) return null;
+  const label = (id: number) => calendar.matchups.find((m) => m.id === id)?.label ?? `Matchup ${id}`;
+  return `Counts against ${label(made)} (the day it’s made); he plays in ${label(lands)}.`;
+}
+
+/** The hint under the meter. */
+export const ACQUISITION_HINT = "Acquisitions are counted on the day the move is made, not the day the pickup plays.";
 
 export type StatusChip = {
   kind: "planned" | "done" | "skipped" | "overdue" | "claim_pending";
@@ -267,7 +339,9 @@ export type DropChoice = { kind: "player"; id: number; name: string } | { kind: 
 export type ComposerDraft = {
   /** Null for a new move; set when editing. */
   moveId: number | null;
+  /** The day the move is made. */
   sp: number;
+  timing: PlanMoveTiming;
   drop: DropChoice | null;
   pickups: Candidate[];
   note: string;
@@ -370,17 +444,25 @@ export function composerPrefill(
   const fallbackDay = context.waiverDay ?? context.today;
   switch (entry.kind) {
     case "waiver":
-      return { moveId: null, sp: fallbackDay, drop: null, pickups: [entry.player], note: "" };
+      return {
+        moveId: null,
+        sp: fallbackDay,
+        timing: "after_tipoff",
+        drop: null,
+        pickups: [entry.player],
+        note: "",
+      };
     case "roster-drop":
       return {
         moveId: null,
         sp: entry.sp,
+        timing: "after_tipoff",
         drop: { kind: "player", id: entry.player.id, name: entry.player.name },
         pickups: [],
         note: "",
       };
     case "add":
-      return { moveId: null, sp: fallbackDay, drop: null, pickups: [], note: "" };
+      return { moveId: null, sp: fallbackDay, timing: "after_tipoff", drop: null, pickups: [], note: "" };
     case "edit": {
       const move = entry.move;
       const drop: DropChoice | null =
@@ -392,6 +474,7 @@ export function composerPrefill(
       return {
         moveId: move.id,
         sp: move.sp,
+        timing: move.timing,
         drop,
         pickups: [...move.candidates].sort((a, b) => a.rank - b.rank).map((c) => c.player),
         note: move.note ?? "",
@@ -416,6 +499,7 @@ function dropFields(drop: DropChoice): { drop_player_id: number } | { drop_from_
 export function createBody(draft: ComposerDraft & { drop: DropChoice }): PlanMoveCreateBody {
   return {
     sp: draft.sp,
+    timing: draft.timing,
     ...dropFields(draft.drop),
     candidate_ids: draft.pickups.map((p) => p.id),
     note: draft.note.trim() || null,
@@ -426,8 +510,115 @@ export function createBody(draft: ComposerDraft & { drop: DropChoice }): PlanMov
 export function patchBody(draft: ComposerDraft & { drop: DropChoice }): PlanMovePatchBody {
   return {
     sp: draft.sp,
+    timing: draft.timing,
     ...dropFields(draft.drop),
     candidate_ids: draft.pickups.map((p) => p.id),
     note: draft.note.trim() || null,
   };
+}
+
+/* --- the composer's play read-out (task 33) ---------------------------------------- */
+
+/** The day a saved move changes the plan roster (its `lands_sp`, else from its timing). */
+function moveLands(move: PlanMove): number {
+  return move.lands_sp ?? landsOn(move.sp, move.timing);
+}
+
+export type ComposerWindow = {
+  /** The day the pickup joins the plan roster. */
+  firstSp: number;
+  /** His last day before the next planned move that drops him lands, else the plan's end. */
+  lastSp: number;
+  /** The planned move that drops him, if any. */
+  endedBy: PlanMove | null;
+};
+
+/**
+ * The days the composer's primary pickup would be mine: from the day he lands through the
+ * day before the next planned move that drops him (one chained to this move, or any whose drop
+ * resolves to him) lands, else through the end of the last matchup the plan touches. Mirrors the
+ * server's `stream` so the read-out matches the row it becomes.
+ */
+export function composerWindow(
+  draft: Pick<ComposerDraft, "moveId" | "sp" | "timing" | "pickups">,
+  moves: readonly PlanMove[],
+  calendar: Pick<TeamCalendarResponse, "days" | "matchups">,
+): ComposerWindow {
+  const firstSp = landsOn(draft.sp, draft.timing);
+  const primary = draft.pickups[0]?.id ?? null;
+  const enders = moves
+    .filter((m) => m.id !== draft.moveId && m.status !== "skipped")
+    .filter(
+      (m) =>
+        (draft.moveId !== null && m.drop.from_move_id === draft.moveId) ||
+        (primary !== null && m.drop.problem === null && m.drop.player?.id === primary),
+    )
+    .filter((m) => moveLands(m) >= firstSp)
+    .sort((a, b) => moveLands(a) - moveLands(b) || a.sp - b.sp || a.sequence - b.sequence);
+  const endedBy = enders[0] ?? null;
+  if (endedBy) return { firstSp, lastSp: moveLands(endedBy) - 1, endedBy };
+
+  const matchupOf = (sp: number) => calendar.days.find((d) => d.sp === sp)?.matchup_id ?? null;
+  const touched = [firstSp, ...moves.map(moveLands)]
+    .map(matchupOf)
+    .filter((id): id is number => id !== null);
+  const lastMatchup = calendar.matchups
+    .filter((m) => touched.includes(m.id))
+    .reduce<CalendarMatchup | null>((latest, m) => (latest && latest.last_sp >= m.last_sp ? latest : m), null);
+  return { firstSp, lastSp: Math.max(lastMatchup?.last_sp ?? firstSp, firstSp), endedBy: null };
+}
+
+/** The days of a window, at most `cap` of them (the read-out's schedule lookup). */
+export function windowDays(window: ComposerWindow, cap = 14): number[] {
+  const out: number[] = [];
+  for (let sp = window.firstSp; sp <= window.lastSp && out.length < cap; sp += 1) out.push(sp);
+  return out;
+}
+
+/**
+ * `Plays: Thu 10/22 @ LAL 7:00 PM, Sat 10/24 vs DEN 5:00 PM · 2 games before the next planned
+ * move`, or `· 1 game through Sun 10/25` with no move dropping him. `games` are his games in
+ * the window, in day order.
+ */
+export function playsReadout(
+  games: readonly { date: string; display: string }[],
+  window: ComposerWindow,
+  calendar: Pick<TeamCalendarResponse, "days">,
+): string {
+  const lastDate = calendar.days.find((d) => d.sp === window.lastSp)?.date;
+  const until = window.endedBy
+    ? "before the next planned move"
+    : lastDate
+      ? `through ${dayLabel(lastDate)}`
+      : "in the plan";
+  if (window.lastSp < window.firstSp) return "He’s dropped by the next planned move before he plays.";
+  if (games.length === 0) return `No games ${until}.`;
+  const listed = games.map((g) => `${dayLabel(g.date)} ${g.display}`).join(", ");
+  return `Plays: ${listed} · ${gamesCount(games.length)} ${until}`;
+}
+
+/**
+ * What happens to the dropped player's game on the move day: `Anfernee Simons still plays Tue
+ * 10/20 (his game counts)` after tip-off, `You give up Anfernee Simons's Tue 10/20 game`
+ * before games. Null when he doesn't play that day.
+ */
+export function dropGameNote(name: string, gameDate: string | null, timing: PlanMoveTiming): string | null {
+  if (!gameDate) return null;
+  return timing === "after_tipoff"
+    ? `${name} still plays ${dayLabel(gameDate)} (his game counts)`
+    : `You give up ${name}’s ${dayLabel(gameDate)} game`;
+}
+
+/**
+ * "Stream for": the days he's wanted for -> the move to make. The evening before the first
+ * chosen day, after tip-off; when that evening is already past (the first day is today or
+ * earlier), that day itself, before games.
+ */
+export function suggestFromStreamDays(
+  days: readonly number[],
+  today: number,
+): { sp: number; timing: PlanMoveTiming } | null {
+  if (days.length === 0) return null;
+  const first = Math.min(...days);
+  return first - 1 >= today ? { sp: first - 1, timing: "after_tipoff" } : { sp: first, timing: "before_games" };
 }

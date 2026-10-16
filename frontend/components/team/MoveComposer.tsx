@@ -8,7 +8,9 @@ import {
   ApiError,
   api,
   type FreeAgentRow,
+  type GameInfo,
   type PlanMove,
+  type PlanMoveTiming,
   type PlanMutationResponse,
   type TeamCalendarResponse,
   type TeamDayResponse,
@@ -17,14 +19,19 @@ import {
 import { decimal } from "@/lib/format";
 import {
   addCandidate,
+  composerWindow,
   createBody,
   draftProblems,
+  dropGameNote,
   dropKey,
   dropOptions,
   moveCandidate,
   moveNumbers,
   patchBody,
+  playsReadout,
   removeCandidate,
+  suggestFromStreamDays,
+  windowDays,
   type Candidate,
   type ComposerDraft,
   type DropChoice,
@@ -33,7 +40,9 @@ import { dayLabel } from "@/lib/team";
 import { GameCell } from "./GameCell";
 
 /**
- * Plan one move, or change one: the day, who goes (a player on the PLAN roster that day, or
+ * Plan one move, or change one: the day it's made and when on that day (after tip-off, so the
+ * dropped player's game still counts and the pickup plays from the next day, or before games),
+ * who goes (a player on the PLAN roster that day, or
  * "the pickup from move N", which follows whichever of that move's candidates ends up added),
  * the pickups in rank order (the primary, then the backups), and a note.
  *
@@ -41,12 +50,24 @@ import { GameCell } from "./GameCell";
  * as the plan leaves it on that day, not as it is now. Pickups come from a search over the
  * free agents (on the chosen day, so each shows his game that day) or the watchlist.
  *
+ * Under the timing, a read-out of when the primary pickup would play: his games from the day
+ * he lands until the next planned move that drops him (else the plan's end), read from the
+ * free-agent schedule. "Stream for" works the other way round: pick the days you want him and
+ * the composer sets the move to the evening before the first, after tip-off.
+ *
  * A 422 is a malformed move and its reasons show here; league rules never block a save (they
  * come back as warnings, which the Plan tab shows).
  */
 
 const DEBOUNCE_MS = 300;
 const SEARCH_LIMIT = 8;
+// How many days ahead "Stream for" offers.
+const STREAM_FOR_DAYS = 14;
+
+const TIMINGS: { value: PlanMoveTiming; label: string }[] = [
+  { value: "after_tipoff", label: "After tip-off (keep his game)" },
+  { value: "before_games", label: "Before games" },
+];
 
 function asApiError(caught: unknown): ApiError {
   return caught instanceof ApiError ? caught : new ApiError(String(caught));
@@ -186,6 +207,83 @@ export function MoveComposer({
     }
   }, [draft.pickups, sp, info]);
 
+  // The primary pickup's games over the "Stream for" days and his window, in one lookup.
+  const today = calendar.today_period ?? calendar.effective_period;
+  const streamForDays = calendar.days
+    .filter((d) => d.sp >= today)
+    .slice(0, STREAM_FOR_DAYS)
+    .map((d) => d.sp);
+  const stream = composerWindow(draft, moves, calendar);
+  const inWindow = windowDays(stream);
+  const primary = draft.pickups[0] ?? null;
+  const scheduleDays = [...new Set([...streamForDays, ...inWindow])].sort((a, b) => a - b);
+  const scheduleKey = primary ? `${primary.id}|${scheduleDays.join(",")}` : null;
+  const [schedule, setSchedule] = useState<{ key: string; games: Map<number, GameInfo> | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!primary || scheduleKey === null || scheduleDays.length === 0) return;
+    let cancelled = false;
+    api
+      .freeAgents({ days: scheduleDays, q: primary.name, limit: 10 })
+      .then((answer) => {
+        if (cancelled) return;
+        const row = answer.players.find((p) => p.id === primary.id);
+        const games = row
+          ? new Map(row.games.flatMap((g) => (g.game ? [[g.sp, g.game] as const] : [])))
+          : null;
+        setSchedule({ key: scheduleKey, games });
+      })
+      .catch(() => {
+        if (!cancelled) setSchedule({ key: scheduleKey, games: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // scheduleKey carries the player and the days.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleKey]);
+  const games = schedule?.key === scheduleKey ? schedule.games : undefined;
+  const dateOf = (day: number) => calendar.days.find((d) => d.sp === day)?.date ?? null;
+
+  let readout: string | null = null;
+  if (primary) {
+    if (games === undefined) readout = "Reading his schedule…";
+    else if (games === null) readout = `${primary.name}’s schedule isn’t available (he isn’t in the free-agent pool).`;
+    else {
+      const shownLast = stream.endedBy
+        ? stream.lastSp
+        : Math.min(stream.lastSp, inWindow.at(-1) ?? stream.lastSp);
+      const played = inWindow.flatMap((day) => {
+        const game = games.get(day);
+        const date = dateOf(day);
+        return game && date ? [{ date, display: game.display }] : [];
+      });
+      readout = playsReadout(played, { ...stream, lastSp: shownLast }, calendar);
+    }
+  }
+
+  // The dropped player as the plan roster has him on the move day: a named drop, or the
+  // pickup a chained drop follows.
+  const drop = draft.drop;
+  const droppedId =
+    drop === null
+      ? null
+      : drop.kind === "player"
+        ? drop.id
+        : (moves.find((m) => m.id === drop.moveId)?.pickup?.id ?? null);
+  const dropped =
+    droppedId === null ? null : (roster?.slots.find((row) => row.player?.id === droppedId)?.player ?? null);
+  const dropNote = dropped ? dropGameNote(dropped.name, dropped.game ? dateOf(sp) : null, draft.timing) : null;
+
+  const [streamFor, setStreamFor] = useState<number[]>([]);
+  function toggleStreamDay(day: number) {
+    const next = streamFor.includes(day) ? streamFor.filter((d) => d !== day) : [...streamFor, day];
+    setStreamFor(next);
+    const suggestion = suggestFromStreamDays(next, today);
+    if (suggestion) update(suggestion);
+  }
+
   function update(next: Partial<ComposerDraft>) {
     setDraft((current) => ({ ...current, ...next }));
     setErrors(null);
@@ -234,7 +332,7 @@ export function MoveComposer({
     >
       <div data-move-composer className="flex flex-col gap-5">
         <label className="flex flex-wrap items-center gap-2 text-sm">
-          <span className={DIALOG_HEADING}>Day</span>
+          <span className={DIALOG_HEADING}>Make the move on</span>
           <select
             aria-label="Move day"
             className={`${FIELD} py-1 text-sm`}
@@ -252,6 +350,67 @@ export function MoveComposer({
             })}
           </select>
         </label>
+
+        <div className="flex flex-col gap-1.5" data-move-timing>
+          <div className="flex flex-wrap items-center gap-3 text-sm" role="radiogroup" aria-label="Move timing">
+            {TIMINGS.map((option) => (
+              <label key={option.value} className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="timing"
+                  value={option.value}
+                  checked={draft.timing === option.value}
+                  onChange={() => update({ timing: option.value })}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          {readout ? (
+            <p className="text-xs text-zinc-700 dark:text-zinc-300" data-plays-readout>
+              {readout}
+            </p>
+          ) : null}
+          {dropNote ? (
+            <p
+              className={`text-xs ${draft.timing === "after_tipoff" ? "text-zinc-600 dark:text-zinc-400" : "text-amber-800 dark:text-amber-200"}`}
+              data-drop-game-note={draft.timing}
+            >
+              {dropNote}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-1" data-stream-for>
+            <span className="mr-1 text-[11px] text-zinc-500">Stream for:</span>
+            {streamForDays.map((day) => {
+              const date = dateOf(day);
+              const plays = games ? games.has(day) : false;
+              const on = streamFor.includes(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={on}
+                  aria-label={`Stream for ${date ? dayLabel(date) : `day ${day}`}${plays ? " (he plays)" : ""}`}
+                  data-stream-for-day={day}
+                  data-plays={plays ? "true" : undefined}
+                  onClick={() => toggleStreamDay(day)}
+                  className={`rounded-full border px-1.5 py-0.5 text-[10px] ${
+                    on
+                      ? "border-sky-500 bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100"
+                      : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                  } ${plays ? "font-semibold" : ""}`}
+                >
+                  {date ? dayLabel(date) : day}
+                  {plays ? " •" : ""}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-zinc-500">
+            Pick the days you want him; the move goes the evening before the first, after tip-off.
+            {primary ? " • marks his game days." : ""}
+          </p>
+        </div>
 
         <fieldset className={DIALOG_SECTION}>
           <legend className={`${DIALOG_HEADING} mb-1`}>Drop</legend>

@@ -18,10 +18,22 @@ import {
   reorderWithinDay,
   splitWarnings,
   statusChip,
+  composerWindow,
+  crossMatchupNote,
+  dropGameNote,
+  landsOn,
+  playsReadout,
+  streamChips,
+  streamText,
+  suggestFromStreamDays,
+  timingLabel,
+  windowDays,
 } from "@/lib/plan";
 import { teamHref } from "@/lib/team";
 import {
   CALENDAR_DAYS,
+  calendar,
+  isoFor,
   GOBERT,
   GRANT,
   GREEN,
@@ -73,7 +85,7 @@ describe("the move sentence", () => {
 
   it("reads a named drop with backups", () => {
     expect(moveSentence(first, numbers)).toBe(
-      "Wed 10/21 · Drop No Game Center → Add Jerami Grant (backups: Draymond Green)",
+      "Wed 10/21 · before games · Drop No Game Center → Add Jerami Grant (backups: Draymond Green)",
     );
   });
 
@@ -85,7 +97,7 @@ describe("the move sentence", () => {
       drop: chainedDrop(11, "Jerami Grant (or Draymond Green)", [GREEN]),
     });
     expect(moveSentence(chained, numbers)).toBe(
-      "Fri 10/23 · Drop move 1's pickup: Jerami Grant (or Draymond Green) → Add Cam Whitmore",
+      "Fri 10/23 · before games · Drop move 1's pickup: Jerami Grant (or Draymond Green) → Add Cam Whitmore",
     );
     const settled = { ...chained, drop: chainedDrop(11, "Draymond Green") };
     expect(dropText(settled, numbers)).toBe("Drop move 1's pickup: Draymond Green");
@@ -134,11 +146,11 @@ describe("warnings", () => {
   it("splits per-move warnings from the plan-level ones", () => {
     const { byMove, general } = splitWarnings([
       warning({ code: "acq_limit", message: "over", matchup_id: 1 }),
-      warning({ code: "no_game", message: "no game", move_id: 4, severity: "info" }),
+      warning({ code: "stream_info", message: "plays Thu", move_id: 4, severity: "info" }),
       warning({ code: "on_waivers", message: "waivers", move_id: 4 }),
     ]);
     expect(general.map((w) => w.code)).toEqual(["acq_limit"]);
-    expect(byMove.get(4)?.map((w) => w.code)).toEqual(["no_game", "on_waivers"]);
+    expect(byMove.get(4)?.map((w) => w.code)).toEqual(["stream_info", "on_waivers"]);
   });
 });
 
@@ -271,6 +283,7 @@ describe("composer prefill", () => {
     expect(composerPrefill({ kind: "waiver", player: GRANT }, context)).toEqual({
       moveId: null,
       sp: 3,
+      timing: "after_tipoff",
       drop: null,
       pickups: [GRANT],
       note: "",
@@ -280,11 +293,13 @@ describe("composer prefill", () => {
     ).toEqual({
       moveId: null,
       sp: 5,
+      timing: "after_tipoff",
       drop: { kind: "player", id: 3, name: "No Game Center" },
       pickups: [],
       note: "",
     });
     expect(composerPrefill({ kind: "add" }, context).sp).toBe(3);
+    expect(composerPrefill({ kind: "add" }, context).timing).toBe("after_tipoff");
     expect(composerPrefill({ kind: "add" }, { waiverDay: null, today: 1 }).sp).toBe(1);
   });
 
@@ -299,6 +314,7 @@ describe("composer prefill", () => {
     expect(composerPrefill({ kind: "edit", move }, context)).toEqual({
       moveId: 12,
       sp: 4,
+      timing: "before_games",
       drop: { kind: "move", moveId: 11 },
       pickups: [WHITMORE, GREEN],
       note: "if Grant clears",
@@ -308,14 +324,33 @@ describe("composer prefill", () => {
 
 describe("the request bodies", () => {
   it("sends exactly one drop reference and the candidates in order", () => {
-    const named = { moveId: null, sp: 2, drop: { kind: "player" as const, id: 3, name: "x" }, pickups: [GRANT, GREEN], note: " " };
-    expect(createBody(named)).toEqual({ sp: 2, drop_player_id: 3, candidate_ids: [201, 202], note: null });
-    const chained = { ...named, drop: { kind: "move" as const, moveId: 11 }, note: "hi" };
-    expect(patchBody(chained)).toEqual({ sp: 2, drop_from_move_id: 11, candidate_ids: [201, 202], note: "hi" });
+    const named = {
+      moveId: null,
+      sp: 2,
+      timing: "after_tipoff" as const,
+      drop: { kind: "player" as const, id: 3, name: "x" },
+      pickups: [GRANT, GREEN],
+      note: " ",
+    };
+    expect(createBody(named)).toEqual({
+      sp: 2,
+      timing: "after_tipoff",
+      drop_player_id: 3,
+      candidate_ids: [201, 202],
+      note: null,
+    });
+    const chained = { ...named, timing: "before_games" as const, drop: { kind: "move" as const, moveId: 11 }, note: "hi" };
+    expect(patchBody(chained)).toEqual({
+      sp: 2,
+      timing: "before_games",
+      drop_from_move_id: 11,
+      candidate_ids: [201, 202],
+      note: "hi",
+    });
   });
 
   it("names what's missing before a save", () => {
-    expect(draftProblems({ moveId: null, sp: 1, drop: null, pickups: [], note: "" })).toEqual([
+    expect(draftProblems({ moveId: null, sp: 1, timing: "after_tipoff", drop: null, pickups: [], note: "" })).toEqual([
       "Choose who to drop.",
       "Add at least one pickup.",
     ]);
@@ -345,4 +380,125 @@ describe("teamHref", () => {
 it("builds a ref", () => {
   expect(ref(1, "A").name).toBe("A");
   expect(GOBERT.id).toBe(3);
+});
+
+describe("move timing and the stream window (task 33)", () => {
+  const SIMONS = ref(10, "Anfernee Simons");
+  const JOHNSON = ref(20, "Cameron Johnson");
+  const TYSON = ref(21, "Jaylon Tyson");
+  const stream = {
+    first_sp: 2,
+    last_sp: 6,
+    open_ended: true,
+    ended_by_move_id: null,
+    game_days: [{ sp: 3, date: isoFor(3), display: "@ LAL 7:00 PM" }],
+    games: 1,
+    games_by_matchup: [{ matchup_id: 1, games: 1 }],
+  };
+
+  it("labels and lands each timing", () => {
+    expect(timingLabel("after_tipoff")).toBe("after tip-off");
+    expect(timingLabel("before_games")).toBe("before games");
+    expect(landsOn(1, "after_tipoff")).toBe(2);
+    expect(landsOn(1, "before_games")).toBe(1);
+  });
+
+  it("reads the plan row: day, timing, the move, and when the pickup plays", () => {
+    const move = planMove({
+      id: 5,
+      sp: 1,
+      timing: "after_tipoff",
+      lands_sp: 2,
+      drop: { player: SIMONS, alternatives: [], from_move_id: null, problem: null, display: SIMONS.name },
+      pickups: [JOHNSON, TYSON],
+      stream,
+    });
+    expect(moveSentence(move, moveNumbers([move]))).toBe(
+      "Tue 10/20 · after tip-off · Drop Anfernee Simons → Add Cameron Johnson (backups: Jaylon Tyson) · plays Thu 10/22 (1 game)",
+    );
+    expect(streamChips(move.stream)).toEqual([{ sp: 3, label: "Thu 10/22", title: "Thu 10/22 @ LAL 7:00 PM" }]);
+  });
+
+  it("says when a window has no games, and shortens a long one", () => {
+    expect(streamText(null)).toBeNull();
+    expect(streamText({ ...stream, games: 0, game_days: [] })).toBe("no games in the plan");
+    expect(streamText({ ...stream, open_ended: false, games: 0, game_days: [] })).toBe(
+      "no games before he’s dropped",
+    );
+    const many = [2, 3, 4, 5, 6].map((sp) => ({ sp, date: isoFor(sp), display: "vs X" }));
+    expect(streamText({ ...stream, game_days: many, games: 5 })).toBe(
+      "plays Wed 10/21, Thu 10/22, Fri 10/23 +2 (5 games)",
+    );
+  });
+
+  it("notes a Sunday-night move that spends one matchup and plays in the next", () => {
+    const sunday = planMove({ id: 6, sp: 6, timing: "after_tipoff", lands_sp: 7 });
+    expect(crossMatchupNote(sunday, calendar())).toBe(
+      "Counts against Matchup 1 (the day it’s made); he plays in Matchup 2.",
+    );
+    expect(crossMatchupNote(planMove({ id: 7, sp: 5, timing: "after_tipoff", lands_sp: 6 }), calendar())).toBeNull();
+  });
+
+  it("bounds the composer's window by the next planned move that drops him", () => {
+    const draft = { moveId: null, sp: 1, timing: "after_tipoff" as const, pickups: [JOHNSON] };
+    expect(composerWindow(draft, [], calendar())).toEqual({ firstSp: 2, lastSp: 6, endedBy: null });
+
+    const named = planMove({
+      id: 9,
+      sp: 4,
+      timing: "after_tipoff",
+      lands_sp: 5,
+      drop: { player: JOHNSON, alternatives: [], from_move_id: null, problem: null, display: JOHNSON.name },
+    });
+    expect(composerWindow(draft, [named], calendar())).toMatchObject({ firstSp: 2, lastSp: 4 });
+    expect(windowDays(composerWindow(draft, [named], calendar()))).toEqual([2, 3, 4]);
+
+    // Editing move 5: a move chained to it ends the window too; a skipped one doesn't.
+    const chained = planMove({ id: 10, sp: 3, lands_sp: 3, drop: chainedDrop(5, JOHNSON.name) });
+    const editing = { ...draft, moveId: 5 };
+    expect(composerWindow(editing, [chained], calendar()).endedBy?.id).toBe(10);
+    expect(composerWindow(editing, [{ ...chained, status: "skipped" }], calendar()).endedBy).toBeNull();
+    // A chain through another move that resolves to him ends it too.
+    const through = planMove({ id: 12, sp: 4, lands_sp: 4, drop: { ...chainedDrop(8, JOHNSON.name), player: JOHNSON } });
+    expect(composerWindow(draft, [through], calendar()).endedBy?.id).toBe(12);
+    // A later move in Matchup 2 stretches the open-ended window to that matchup's end.
+    const later = planMove({ id: 11, sp: 9, lands_sp: 9 });
+    expect(composerWindow(draft, [later], calendar()).lastSp).toBe(13);
+  });
+
+  it("reads the composer's play read-out", () => {
+    const window = { firstSp: 2, lastSp: 6, endedBy: null };
+    const games = [
+      { date: isoFor(3), display: "@ LAL 7:00 PM" },
+      { date: isoFor(5), display: "vs DEN 5:00 PM" },
+    ];
+    expect(playsReadout(games, window, calendar())).toBe(
+      "Plays: Thu 10/22 @ LAL 7:00 PM, Sat 10/24 vs DEN 5:00 PM · 2 games through Sun 10/25",
+    );
+    const ended = { ...window, lastSp: 5, endedBy: planMove({ id: 1, sp: 5 }) };
+    expect(playsReadout(games, ended, calendar())).toBe(
+      "Plays: Thu 10/22 @ LAL 7:00 PM, Sat 10/24 vs DEN 5:00 PM · 2 games before the next planned move",
+    );
+    expect(playsReadout([], window, calendar())).toBe("No games through Sun 10/25.");
+    expect(playsReadout([], { ...ended, lastSp: 1 }, calendar())).toBe(
+      "He’s dropped by the next planned move before he plays.",
+    );
+  });
+
+  it("says what happens to the dropped player's game on the move day", () => {
+    expect(dropGameNote("Anfernee Simons", isoFor(1), "after_tipoff")).toBe(
+      "Anfernee Simons still plays Tue 10/20 (his game counts)",
+    );
+    expect(dropGameNote("Anfernee Simons", isoFor(1), "before_games")).toBe(
+      "You give up Anfernee Simons’s Tue 10/20 game",
+    );
+    expect(dropGameNote("Anfernee Simons", null, "after_tipoff")).toBeNull();
+  });
+
+  it("suggests the evening before the first stream day, after tip-off", () => {
+    expect(suggestFromStreamDays([5, 3], 1)).toEqual({ sp: 2, timing: "after_tipoff" });
+    // Today is the first day wanted: too late for last night, so this morning.
+    expect(suggestFromStreamDays([3], 3)).toEqual({ sp: 3, timing: "before_games" });
+    expect(suggestFromStreamDays([], 1)).toBeNull();
+  });
 });
