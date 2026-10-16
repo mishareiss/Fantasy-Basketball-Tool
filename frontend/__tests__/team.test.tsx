@@ -28,6 +28,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
       teamCalendar: vi.fn(),
       teamDay: vi.fn(),
       saveLineup: vi.fn(),
+      autoFillLineup: vi.fn(),
+      autoFillPlanLineup: vi.fn(),
       syncLineup: vi.fn(),
       freeAgents: vi.fn(),
       teamPlayer: vi.fn(),
@@ -42,6 +44,8 @@ const getCalendar = vi.mocked(api.teamCalendar);
 const getDay = vi.mocked(api.teamDay);
 const saveLineup = vi.mocked(api.saveLineup);
 const syncLineup = vi.mocked(api.syncLineup);
+const autoFill = vi.mocked(api.autoFillLineup);
+const autoFillPlan = vi.mocked(api.autoFillPlanLineup);
 const freeAgents = vi.mocked(api.freeAgents);
 const teamPlayer = vi.mocked(api.teamPlayer);
 const getWatchlist = vi.mocked(api.watchlist);
@@ -290,6 +294,73 @@ describe("moving a player", () => {
     await user.click(screen.getByRole("button", { name: "Move Luka Doncic" }));
     expect(within(roster()).queryAllByRole("button", { name: "Here" })).toHaveLength(0);
     expect(saveLineup).not.toHaveBeenCalled();
+  });
+});
+
+describe("Auto-fill lineup", () => {
+  const filled = (sp: number, over: Record<string, unknown> = {}) => ({
+    ...teamDay(sp, { source: "manual" }),
+    days_written: 1,
+    changed: true,
+    days: [
+      { sp, starters_playing: 7, slots: 7, benched_playing: ["Ty Jerome", "Rudy Gobert"] },
+    ],
+    ...over,
+  });
+
+  it("fills the Actual lineup, says who sits, and re-reads the day", async () => {
+    autoFill.mockImplementation(async ({ sp }) => filled(sp));
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    const reads = getDay.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "Auto-fill lineup" }));
+    expect(autoFill).toHaveBeenCalledWith({ sp: 1, through_sp: null });
+    expect(autoFillPlan).not.toHaveBeenCalled();
+    expect(saveLineup).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(
+        "7 of 7 starters playing. Benched with games: Ty Jerome, Rudy Gobert.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() => expect(getDay.mock.calls.length).toBe(reads + 1));
+  });
+
+  it("has its own through-end-of-matchup box", async () => {
+    autoFill.mockImplementation(async ({ sp }) => filled(sp, { days_written: 6 }));
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+
+    await user.click(screen.getByRole("checkbox", { name: "through end of matchup" }));
+    expect(
+      (screen.getByRole("checkbox", { name: "Apply through end of matchup" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Auto-fill lineup" }));
+    expect(autoFill).toHaveBeenCalledWith({ sp: 1, through_sp: 6 });
+    expect(await screen.findByText(/Set 6 days\./)).toBeTruthy();
+  });
+
+  it("says when the lineup was already optimal", async () => {
+    autoFill.mockImplementation(async ({ sp }) => filled(sp, { changed: false, days_written: 0 }));
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "Auto-fill lineup" }));
+    expect(await screen.findByText("Lineup already optimal")).toBeTruthy();
+  });
+
+  it("shows a refusal's reasons", async () => {
+    autoFill.mockRejectedValue(
+      new ApiError("/team/lineup/auto responded 422", 422, undefined, ["through_sp 0 is before sp 1"]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "Auto-fill lineup" }));
+    expect(await screen.findByText("through_sp 0 is before sp 1")).toBeTruthy();
   });
 });
 

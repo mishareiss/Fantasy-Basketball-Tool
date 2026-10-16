@@ -15,6 +15,7 @@
  */
 
 import type {
+  AutoFillResponse,
   CalendarDay,
   CalendarMatchup,
   DayView,
@@ -245,6 +246,24 @@ export function lineupSourceLabel(source: LineupSource, carriedFrom?: string | n
     case "from_actual":
       return "Plan: from the actual lineup";
   }
+}
+
+/**
+ * Auto-fill's one-line result: "7 of 7 starters playing. Benched with games: A, B" for the
+ * day on screen, "Lineup already optimal" when nothing changed, and how many days were set
+ * when it ran through the matchup.
+ */
+export function autoFillSummary(answer: AutoFillResponse): string {
+  if (!answer.changed) return "Lineup already optimal";
+  const first = answer.days.find((d) => d.sp === answer.sp) ?? answer.days[0];
+  const parts: string[] = [];
+  if (first) {
+    parts.push(`${first.starters_playing} of ${first.slots} starters playing.`);
+    if (first.benched_playing.length > 0)
+      parts.push(`Benched with games: ${first.benched_playing.join(", ")}.`);
+  }
+  if (answer.days_written > 1) parts.push(`Set ${answer.days_written} days.`);
+  return parts.join(" ");
 }
 
 const INJURY_SHORT: Record<string, string> = {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BENCH_SLOT,
+  autoFillSummary,
   buildMove,
   canMoveTo,
   canPlay,
@@ -19,7 +20,7 @@ import {
   toggleDay,
   waiverBadge,
 } from "@/lib/team";
-import { CALENDAR_DAYS, MATCHUPS, calendar, slots } from "./teamFixtures";
+import { CALENDAR_DAYS, MATCHUPS, calendar, slots, teamDay } from "./teamFixtures";
 
 /**
  * The Team tab's rules. The grid (teamFixtures.slots) is, by row:
@@ -169,5 +170,42 @@ describe("teamHref", () => {
     expect(teamHref(null, "projected")).toBe("/team");
     expect(teamHref(3, "projected")).toBe("/team?day=3");
     expect(teamHref(3, "l7")).toBe("/team?day=3&basis=l7");
+  });
+});
+
+describe("autoFillSummary", () => {
+  const answer = (over: Record<string, unknown> = {}) => ({
+    ...teamDay(2),
+    days_written: 1,
+    changed: true,
+    days: [{ sp: 2, starters_playing: 7, slots: 7, benched_playing: ["Ty Jerome", "Rudy Gobert"] }],
+    ...over,
+  });
+
+  it("counts starters and names who sits with a game", () => {
+    expect(autoFillSummary(answer())).toBe(
+      "7 of 7 starters playing. Benched with games: Ty Jerome, Rudy Gobert.",
+    );
+  });
+
+  it("leaves the benched part out when nobody playing sits", () => {
+    const days = [{ sp: 2, starters_playing: 5, slots: 7, benched_playing: [] }];
+    expect(autoFillSummary(answer({ days }))).toBe("5 of 7 starters playing.");
+  });
+
+  it("describes the day on screen and counts the days set", () => {
+    const days = [
+      { sp: 2, starters_playing: 7, slots: 7, benched_playing: [] },
+      { sp: 3, starters_playing: 3, slots: 7, benched_playing: [] },
+    ];
+    expect(autoFillSummary(answer({ days, days_written: 2 }))).toBe(
+      "7 of 7 starters playing. Set 2 days.",
+    );
+  });
+
+  it("says when nothing changed", () => {
+    expect(autoFillSummary(answer({ changed: false, days_written: 0 }))).toBe(
+      "Lineup already optimal",
+    );
   });
 });

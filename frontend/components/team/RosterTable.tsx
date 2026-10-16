@@ -41,12 +41,20 @@ export function RosterHeader({
   onSync,
   view = "actual",
   onViewChange,
+  autoFill,
 }: {
   day: TeamDayResponse;
   syncing: boolean;
   onSync: () => void;
   view?: DayView;
   onViewChange?: (view: DayView) => void;
+  /** The Auto-fill button and its own "through end of matchup" box (task 32). */
+  autoFill?: {
+    running: boolean;
+    through: boolean;
+    onThroughChange: (through: boolean) => void;
+    onRun: () => void;
+  };
 }) {
   const [confirming, setConfirming] = useState(false);
   const manual = day.lineup_source === "manual" || day.lineup_source === "plan_edit";
@@ -59,7 +67,36 @@ export function RosterHeader({
       </Badge>
       <AcquisitionMeter acquisitions={day.acquisitions} compact={view === "actual"} />
       {onViewChange ? <ViewToggle view={view} onChange={onViewChange} /> : null}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        {autoFill ? (
+          <div className="flex items-center gap-2" data-auto-fill>
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              disabled={autoFill.running || syncing}
+              onClick={autoFill.onRun}
+              title={
+                view === "plan"
+                  ? "Start everyone on the plan roster who plays, best first. Changes the plan’s lineup only."
+                  : "Start everyone who plays, best first (this season’s FPTS/G, else projected)."
+              }
+            >
+              {autoFill.running
+                ? "Filling…"
+                : view === "plan"
+                  ? "Auto-fill plan lineup"
+                  : "Auto-fill lineup"}
+            </button>
+            <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+              <input
+                type="checkbox"
+                checked={autoFill.through}
+                onChange={(event) => autoFill.onThroughChange(event.target.checked)}
+              />
+              through end of matchup
+            </label>
+          </div>
+        ) : null}
         {view === "plan" ? null : confirming ? (
           <div
             data-sync-confirm

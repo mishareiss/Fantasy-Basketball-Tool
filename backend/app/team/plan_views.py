@@ -74,11 +74,11 @@ from app.team.schemas import (
 from app.team.store import league_settings_row
 from app.team.views import (
     LineupRejected,
-    PeriodOutOfRange,
     _require_team,
     _roster,
     actual_placement,
     check_period,
+    check_range,
     day_response,
     games_index,
     matchup_acquisitions_used,
@@ -460,16 +460,36 @@ def edit_plan_lineup(
     with a player who isn't there. Writes `PlanLineupAssignment` only: the Actual lineup is
     never touched.
     """
-    check_period(season, sp)
-    last = sp if through_sp is None else check_period(season, through_sp, "through_sp")
-    if last < sp:
-        raise PeriodOutOfRange(f"through_sp {last} is before sp {sp}")
+    last = check_range(season, sp, through_sp)
     team = _require_team(db, season)
     bundle = load_plan(db, season, team, now, through_sp=last)
+    warnings_out = store_plan_lineups(
+        db, season, bundle, {day_sp: assignments for day_sp in range(sp, last + 1)}, now
+    )
+    view = _plan_day_response(db, season, sp, basis, now, bundle)
+    return LineupEditResponse(
+        **view.model_dump(exclude={"warnings"}),
+        warnings=warnings_out + view.warnings,
+        days_written=last - sp + 1,
+    )
 
+
+def store_plan_lineups(
+    db: Session,
+    season: int,
+    bundle: PlanBundle,
+    lineups: Mapping[int, Sequence[tuple[int, int]]],
+    now: datetime,
+) -> list[str]:
+    """Store Plan-view lineups, `{sp: [(player_id, slot_id)]}`. Commits.
+
+    Each day is checked against that day's PLAN roster (`bundle` must be simulated through
+    the last day); any error on any day writes nothing. Returns the first day's warnings.
+    """
     errors: list[str] = []
     warnings_out: list[str] = []
-    for day_sp in range(sp, last + 1):
+    first = min(lineups)
+    for day_sp, assignments in sorted(lineups.items()):
         roster = {
             pid: LineupCandidate(
                 player_id=pid,
@@ -481,9 +501,9 @@ def edit_plan_lineup(
             if pid in bundle.players
         }
         day_errors, day_warnings = validate_lineup(assignments, roster, bundle.slot_counts)
-        prefix = "" if last == sp else f"Day {day_sp}: "
+        prefix = "" if len(lineups) == 1 else f"Day {day_sp}: "
         errors.extend(prefix + e for e in day_errors)
-        if day_sp == sp:
+        if day_sp == first:
             warnings_out.extend(day_warnings)
     if errors:
         raise LineupRejected(errors)
@@ -491,16 +511,16 @@ def edit_plan_lineup(
     db.execute(
         delete(PlanLineupAssignment).where(
             PlanLineupAssignment.season == season,
-            PlanLineupAssignment.team_id == team.team_id,
-            PlanLineupAssignment.scoring_period_id.between(sp, last),
+            PlanLineupAssignment.team_id == bundle.team.team_id,
+            PlanLineupAssignment.scoring_period_id.in_(list(lineups)),
         )
     )
-    for day_sp in range(sp, last + 1):
+    for day_sp, assignments in lineups.items():
         for player_id, slot_id in assignments:
             db.add(
                 PlanLineupAssignment(
                     season=season,
-                    team_id=team.team_id,
+                    team_id=bundle.team.team_id,
                     scoring_period_id=day_sp,
                     player_id=player_id,
                     lineup_slot_id=slot_id,
@@ -508,13 +528,7 @@ def edit_plan_lineup(
                 )
             )
     db.commit()
-
-    view = _plan_day_response(db, season, sp, basis, now, bundle)
-    return LineupEditResponse(
-        **view.model_dump(exclude={"warnings"}),
-        warnings=warnings_out + view.warnings,
-        days_written=last - sp + 1,
-    )
+    return warnings_out
 
 
 # --- writes ---------------------------------------------------------------------------------

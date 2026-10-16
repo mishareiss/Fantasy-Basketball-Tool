@@ -15,7 +15,15 @@ import {
   type TeamDayResponse,
 } from "@/lib/api";
 import { composerPrefill, moveNumbers, type ComposerDraft, type ComposerEntry } from "@/lib/plan";
-import { clampDay, isDayView, isTeamBasis, matchupOf, syncRange, teamHref } from "@/lib/team";
+import {
+  autoFillSummary,
+  clampDay,
+  isDayView,
+  isTeamBasis,
+  matchupOf,
+  syncRange,
+  teamHref,
+} from "@/lib/team";
 import { BasisToggle } from "./BasisToggle";
 import { DayPicker } from "./DayPicker";
 import { MoveComposer } from "./MoveComposer";
@@ -99,6 +107,9 @@ export function TeamView({
   const [errors, setErrors] = useState<string[] | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [through, setThrough] = useState(false);
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [autoThrough, setAutoThrough] = useState(false);
+  const [autoResult, setAutoResult] = useState<string | null>(null);
   const [card, setCard] = useState<{ id: number; name: string; fromSp: number | null } | null>(
     null,
   );
@@ -193,6 +204,7 @@ export function TeamView({
     setChosenDay(next);
     setErrors(null);
     setNotes([]);
+    setAutoResult(null);
     onUrlChange(teamHref(next, basis, view));
   }
 
@@ -205,6 +217,7 @@ export function TeamView({
     setView(next);
     setErrors(null);
     setNotes([]);
+    setAutoResult(null);
     onUrlChange(teamHref(sp, basis, next));
   }
 
@@ -248,6 +261,7 @@ export function TeamView({
     setSaving(true);
     setErrors(null);
     setNotes([]);
+    setAutoResult(null);
     try {
       const body = { assignments, through_sp: through && matchup ? matchup.last_sp : null };
       // The Plan view's moves go to the plan's lineup and never touch the Actual one.
@@ -260,6 +274,28 @@ export function TeamView({
       setErrors(error.details ?? [error.detail ?? error.message]);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function autoFill() {
+    if (sp === null) return;
+    setAutoFilling(true);
+    setErrors(null);
+    setNotes([]);
+    setAutoResult(null);
+    try {
+      const body = { sp, through_sp: autoThrough && matchup ? matchup.last_sp : null };
+      // Each view fills its own lineup: the Plan view's never touches the Actual one.
+      const answer =
+        view === "plan" ? await api.autoFillPlanLineup(body) : await api.autoFillLineup(body);
+      setAutoResult(autoFillSummary(answer));
+      setNotes(answer.warnings);
+      setVersion((v) => v + 1);
+    } catch (caught: unknown) {
+      const error = asApiError(caught);
+      setErrors(error.details ?? [error.detail ?? error.message]);
+    } finally {
+      setAutoFilling(false);
     }
   }
 
@@ -312,7 +348,22 @@ export function TeamView({
                 onSync={syncFromEspn}
                 view={view}
                 onViewChange={changeView}
+                autoFill={{
+                  running: autoFilling,
+                  through: autoThrough,
+                  onThroughChange: setAutoThrough,
+                  onRun: autoFill,
+                }}
               />
+              {autoResult ? (
+                <p
+                  role="status"
+                  data-auto-fill-result
+                  className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200"
+                >
+                  {autoResult}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <BasisToggle
                   label="Stats"
@@ -362,10 +413,13 @@ export function TeamView({
 
               {view === "plan" ? <DayPlanWarnings warnings={day.plan_warnings ?? []} /> : null}
 
-              <div className={dayLoading || saving ? "opacity-60" : ""} aria-busy={dayLoading || saving}>
+              <div
+                className={dayLoading || saving || autoFilling ? "opacity-60" : ""}
+                aria-busy={dayLoading || saving || autoFilling}
+              >
                 <RosterTable
                   day={day}
-                  busy={saving || syncing || dayLoading}
+                  busy={saving || syncing || autoFilling || dayLoading}
                   onOpenPlayer={(player) => setCard({ ...player, fromSp: day.sp })}
                   onMove={save}
                   view={view}

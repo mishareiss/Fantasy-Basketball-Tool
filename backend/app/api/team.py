@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import LineupAssignment, NbaGame, RosterEntry
 from app.db.session import get_db
-from app.team import plan_views, views
+from app.team import autofill_views, plan_views, views
 from app.team.calendar import (
     UnknownSeasonError,
     effective_period,
@@ -24,6 +24,8 @@ from app.team.calendar import (
 )
 from app.team.schemas import (
     AcquisitionOverrideIn,
+    AutoFillRequest,
+    AutoFillResponse,
     Basis,
     DayView,
     FreeAgentsResponse,
@@ -193,6 +195,24 @@ def edit_lineup(
     assignments = [(a.player_id, a.slot_id) for a in body.assignments]
     with _domain_errors():
         return views.edit_lineup(db, season, sp, assignments, body.through_sp, basis, _now())
+
+
+@router.post("/lineup/auto", response_model=AutoFillResponse)
+def auto_fill_lineup(
+    body: AutoFillRequest = Body(...),
+    basis: Basis = Query("projected"),
+    db: Session = Depends(get_db),
+) -> AutoFillResponse:
+    """Auto-fill my Actual lineup on day `sp` (through `through_sp`, each day from its own
+    games): every starting slot to a player who plays if one can fill it, the best by FPTS/G
+    (this season's once he's played, else projected). OUT and SUSPENSION don't play. Today,
+    anyone whose game has started stays where he is. Stored as a manual edit, like
+    `PUT /team/lineup/{sp}`. `changed: false` means it was already optimal; nothing written."""
+    season = _season()
+    with _domain_errors():
+        return autofill_views.auto_fill_actual(
+            db, season, body.sp, body.through_sp, body.leave_empty, basis, _now()
+        )
 
 
 def _parse_days(raw: str | None, season: int) -> list[int]:
@@ -409,4 +429,19 @@ def edit_plan_lineup(
     with _domain_errors():
         return plan_views.edit_plan_lineup(
             db, season, sp, assignments, body.through_sp, basis, _now()
+        )
+
+
+@router.post("/plan/lineup/auto", response_model=AutoFillResponse)
+def auto_fill_plan_lineup(
+    body: AutoFillRequest = Body(...),
+    basis: Basis = Query("projected"),
+    db: Session = Depends(get_db),
+) -> AutoFillResponse:
+    """`POST /team/lineup/auto` for the Plan view: over each day's PLAN roster, stored as
+    Plan-view rows, with no locks. Never touches the Actual lineup."""
+    season = _season()
+    with _domain_errors():
+        return autofill_views.auto_fill_plan(
+            db, season, body.sp, body.through_sp, body.leave_empty, basis, _now()
         )

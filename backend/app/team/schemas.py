@@ -170,6 +170,30 @@ class LineupEditResponse(TeamDayResponse):
     days_written: int
 
 
+class AutoFillRequest(BaseModel):
+    sp: int
+    # Auto-fill every day from `sp` through this one (inclusive), each from its own games.
+    through_sp: int | None = None
+    # Leave starting slots nobody playing can fill empty, rather than filling them with the
+    # best players who aren't playing.
+    leave_empty: bool = False
+
+
+class AutoFillDay(BaseModel):
+    sp: int
+    starters_playing: int
+    slots: int
+    # Players who play that day but sit, because more play than there are starting slots
+    # (or because his game had started on the bench, which locks him there).
+    benched_playing: list[str]
+
+
+class AutoFillResponse(LineupEditResponse):
+    days: list[AutoFillDay]
+    # False when every day's auto-filled lineup is the one it already had.
+    changed: bool
+
+
 class WaiverOut(BaseModel):
     clears_at: datetime | None = None
     # `clears Thu 10/22`, Pacific. Null when the clear time isn't known.

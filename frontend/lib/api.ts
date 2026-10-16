@@ -1265,6 +1265,31 @@ export type LineupEditResponse = TeamDayResponse & {
   days_written: number;
 };
 
+/** schemas.py: AutoFillRequest. */
+export type AutoFillBody = {
+  sp: number;
+  /** Auto-fill every day from `sp` through this one, each from its own games. */
+  through_sp?: number | null;
+  /** Leave starting slots nobody playing can fill empty. */
+  leave_empty?: boolean;
+};
+
+/** schemas.py: AutoFillDay. */
+export type AutoFillDay = {
+  sp: number;
+  starters_playing: number;
+  slots: number;
+  /** Players with a game that day who sit (more play than there are slots). */
+  benched_playing: string[];
+};
+
+/** schemas.py: AutoFillResponse. */
+export type AutoFillResponse = LineupEditResponse & {
+  days: AutoFillDay[];
+  /** False when the lineup was already optimal (nothing written). */
+  changed: boolean;
+};
+
 /** schemas.py: SyncLineupResponse (app/api/sync.py). */
 export type SyncLineupResponse = {
   team_id: number;
@@ -1977,6 +2002,16 @@ export const api = {
    */
   saveLineup: (sp: number, body: LineupEditBody) =>
     put<LineupEditResponse>(`/team/lineup/${sp}`, body),
+
+  /**
+   * Auto-fill my Actual lineup: every player who plays starts, best FPTS/G first. Stored as
+   * a manual edit; today, a player whose game has started stays where he is.
+   */
+  autoFillLineup: (body: AutoFillBody) => post<AutoFillResponse>("/team/lineup/auto", body),
+
+  /** Auto-fill the Plan view's lineup over the plan roster (never the Actual one). */
+  autoFillPlanLineup: (body: AutoFillBody) =>
+    post<AutoFillResponse>("/team/plan/lineup/auto", body),
 
   /** Pull ESPN's lineup over the stored one for the days in range, manual edits included. */
   syncLineup: (params: { first_sp?: number; last_sp?: number } = {}) =>

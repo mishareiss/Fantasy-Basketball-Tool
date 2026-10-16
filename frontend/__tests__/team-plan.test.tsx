@@ -44,6 +44,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
       teamDay: vi.fn(),
       saveLineup: vi.fn(),
       savePlanLineup: vi.fn(),
+      autoFillLineup: vi.fn(),
+      autoFillPlanLineup: vi.fn(),
       syncLineup: vi.fn(),
       freeAgents: vi.fn(),
       teamPlayer: vi.fn(),
@@ -61,6 +63,8 @@ const getCalendar = vi.mocked(api.teamCalendar);
 const getDay = vi.mocked(api.teamDay);
 const saveLineup = vi.mocked(api.saveLineup);
 const savePlanLineup = vi.mocked(api.savePlanLineup);
+const autoFill = vi.mocked(api.autoFillLineup);
+const autoFillPlan = vi.mocked(api.autoFillPlanLineup);
 const freeAgents = vi.mocked(api.freeAgents);
 const getWatchlist = vi.mocked(api.watchlist);
 const getPlan = vi.mocked(api.plan);
@@ -219,6 +223,30 @@ describe("the Actual | Plan toggle", () => {
     await user.click(within(sg).getByRole("button", { name: "Here" }));
     expect(savePlanLineup).toHaveBeenCalledWith(1, expect.objectContaining({ through_sp: null }));
     expect(saveLineup).not.toHaveBeenCalled();
+    await waitFor(() => expect(getDay.mock.calls.length).toBe(reads + 1));
+    expect(getDay).toHaveBeenLastCalledWith({ sp: 1, basis: "projected", view: "plan" });
+  });
+});
+
+describe("Auto-fill in the Plan view", () => {
+  it("fills the plan's lineup, never the Actual one, and re-reads the Plan day", async () => {
+    autoFillPlan.mockImplementation(async ({ sp }) => ({
+      ...planDay(sp),
+      days_written: 1,
+      changed: true,
+      days: [{ sp, starters_playing: 6, slots: 7, benched_playing: [] }],
+    }));
+    const user = userEvent.setup();
+    renderPage({ initialView: "plan" });
+    await ready();
+    const reads = getDay.mock.calls.length;
+
+    expect(within(roster()).queryByRole("button", { name: "Auto-fill lineup" })).toBeNull();
+    await user.click(within(roster()).getByRole("button", { name: "Auto-fill plan lineup" }));
+    expect(autoFillPlan).toHaveBeenCalledWith({ sp: 1, through_sp: null });
+    expect(autoFill).not.toHaveBeenCalled();
+    expect(savePlanLineup).not.toHaveBeenCalled();
+    expect(await screen.findByText("6 of 7 starters playing.")).toBeTruthy();
     await waitFor(() => expect(getDay.mock.calls.length).toBe(reads + 1));
     expect(getDay).toHaveBeenLastCalledWith({ sp: 1, basis: "projected", view: "plan" });
   });

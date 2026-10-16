@@ -7,7 +7,7 @@ every stat line for one basis in one, waiver clears in one batch.
 """
 
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 
 from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
@@ -512,14 +512,42 @@ def edit_lineup(
     Validated as a whole first; any error writes nothing. Replaces those days' rows for my
     team and nobody else's. Only `POST /sync/lineup` ever puts ESPN's lineup back.
     """
+    last = check_range(season, sp, through_sp)
+    team = _require_team(db, season)
+    warnings = store_lineups(
+        db, season, team, {day: assignments for day in range(sp, last + 1)}, now
+    )
+    view = team_day(db, season, sp, basis, now)
+    return LineupEditResponse(
+        **view.model_dump(exclude={"warnings"}),
+        warnings=warnings + view.warnings,
+        days_written=last - sp + 1,
+    )
+
+
+def check_range(season: int, sp: int, through_sp: int | None) -> int:
+    """The last day of `sp`..`through_sp` (just `sp` without one), both checked."""
     check_period(season, sp)
     last = sp if through_sp is None else check_period(season, through_sp, "through_sp")
     if last < sp:
         raise PeriodOutOfRange(f"through_sp {last} is before sp {sp}")
-    team = _require_team(db, season)
+    return last
+
+
+def store_lineups(
+    db: Session,
+    season: int,
+    team: FantasyTeam,
+    lineups: Mapping[int, Sequence[tuple[int, int]]],
+    now: datetime,
+) -> list[str]:
+    """Store manual lineups, `{sp: [(player_id, slot_id)]}`, for my team. Commits.
+
+    Every day is validated first; any error on any day writes nothing. Replaces those days'
+    rows for my team and nobody else's. Returns the first day's warnings.
+    """
     settings_row = league_settings_row(db, season)
     slot_counts = slot_counts_by_id(settings_row.roster_slots if settings_row else None)
-
     roster = {
         player.espn_player_id: LineupCandidate(
             player_id=player.espn_player_id,
@@ -529,7 +557,15 @@ def edit_lineup(
         )
         for _, player in _roster(db, season, team.team_id)
     }
-    errors, warnings = validate_lineup(assignments, roster, slot_counts)
+    errors: list[str] = []
+    warnings: list[str] = []
+    first = min(lineups)
+    for day, assignments in sorted(lineups.items()):
+        day_errors, day_warnings = validate_lineup(assignments, roster, slot_counts)
+        # One lineup written to every day fails the same way on each: say it once.
+        errors.extend(e for e in day_errors if e not in errors)
+        if day == first:
+            warnings = day_warnings
     if errors:
         raise LineupRejected(errors)
 
@@ -537,10 +573,10 @@ def edit_lineup(
         delete(LineupAssignment).where(
             LineupAssignment.season == season,
             LineupAssignment.team_id == team.team_id,
-            LineupAssignment.scoring_period_id.between(sp, last),
+            LineupAssignment.scoring_period_id.in_(list(lineups)),
         )
     )
-    for day in range(sp, last + 1):
+    for day, assignments in lineups.items():
         for player_id, slot_id in assignments:
             db.add(
                 LineupAssignment(
@@ -554,13 +590,7 @@ def edit_lineup(
                 )
             )
     db.commit()
-
-    view = team_day(db, season, sp, basis, now)
-    return LineupEditResponse(
-        **view.model_dump(exclude={"warnings"}),
-        warnings=warnings + view.warnings,
-        days_written=last - sp + 1,
-    )
+    return warnings
 
 
 # --- the waiver list ------------------------------------------------------------------------
