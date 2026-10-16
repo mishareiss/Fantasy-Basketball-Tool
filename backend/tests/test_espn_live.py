@@ -20,14 +20,16 @@ from app.team.calendar import eastern_date
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        not credentials_available(), reason="ESPN cookies not set in .env; skipping live pull"
+        not credentials_available(Settings()),
+        reason="ESPN cookies not set in .env; skipping live pull",
     ),
 ]
 
 
 @pytest.fixture(scope="module")
-def client() -> ESPNClient:
-    return ESPNClient.from_settings()
+def client(live_settings) -> ESPNClient:
+    """Built from the real `.env` (`live_settings`), not the suite's pinned fake league."""
+    return ESPNClient.from_settings(live_settings)
 
 
 @pytest.fixture(scope="module")
@@ -96,10 +98,9 @@ def test_espn_api_league_loads_with_our_cookies(client):
     assert len(league.teams) > 0
 
 
-def test_the_in_season_views_resolve_our_team_and_date_the_schedule():
-    """Schedule, mTeam and mRoster, live. Built from a fresh `Settings()` read of `.env`: the
-    suite pins a fake league id session-wide, and the real one is what this test is about."""
-    live = ESPNClient.from_settings(Settings())
+def test_the_in_season_views_resolve_our_team_and_date_the_schedule(client):
+    """Schedule, mTeam and mRoster, live, against the real league from `.env`."""
+    live = client
 
     teams = parse_teams(live.fetch_teams())
     resolution = resolve_my_team(teams, swid=live.credentials.swid, override=None)

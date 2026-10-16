@@ -19,9 +19,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import EspnTransaction, LeagueSettings, Player, RosterEntry
+from app.db.models import EspnTransaction, Player, RosterEntry
 from app.espn.league import WAIVERS_STATUS
 from app.scoring.settings import AcquisitionSettings
+from app.team.store import league_settings_row
 
 EXECUTED = "EXECUTED"
 ADD_ITEM = "ADD"
@@ -65,10 +66,7 @@ class WaiverStatus:
 
 def acquisition_settings(db: Session, season: int) -> AcquisitionSettings:
     """The stored add/waiver rules for `season` (our configured league's row, if several)."""
-    query = select(LeagueSettings).where(LeagueSettings.season == season)
-    league_id = get_settings().espn_league_id
-    rows = list(db.scalars(query))
-    row = next((r for r in rows if r.espn_league_id == league_id), rows[0] if rows else None)
+    row = league_settings_row(db, season)
     return AcquisitionSettings.from_raw(row.acquisition_settings if row else None)
 
 

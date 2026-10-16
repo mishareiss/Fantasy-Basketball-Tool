@@ -37,6 +37,10 @@ handoff. Invoke the `anthropic-skills:delegated-build-loop` skill each session.
 - STANDING CI RULE (learned the hard way): a `userEvent`-driven Vitest test over a full-depth fixture
   (deepMasterBoard(400)) can pass on Misha's node 25 but time out at 5s on CI node 22. Keep such tests on
   a small fixture (just past the 175 window, ~210) or set an explicit `it(..., 15000)` timeout.
+  Since then a GLOBAL `testTimeout: 20_000` is set in `frontend/vitest.config.mts` (main failed again at
+  masterboard.test.tsx:515 "draws a window rather than the whole board", and task 26 failed the same way at :248).
+  Keep it. Don't lower it or remove it, and don't loosen assertions to make a slow test pass. A new test
+  that needs more than 20s should shrink its fixture, not raise the limit.
 
 ## Done & merged (1-18)
 - T1-11 foundation: ESPN sync (projections, ADP, custom scoring coefficients, player ages), import

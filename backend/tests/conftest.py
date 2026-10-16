@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.ages import NbaPlayer, birthdate_from_payload, sync_ages
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db.base import Base
 from app.db.models import (
     Player,  # noqa: F401  # registers every table on Base.metadata
@@ -142,6 +142,18 @@ def pinned_settings():
     settings.age_as_of, settings.espn_season, settings.espn_league_id = original
     for field, value in original_pinned.items():
         setattr(settings, field, value)
+
+
+@pytest.fixture(scope="session")
+def live_settings() -> Settings:
+    """The real configuration, read fresh from `.env`, for `@pytest.mark.live` tests only.
+
+    `pinned_settings` rewrites the shared `get_settings()` object for the whole session (a
+    fake league id among other things), so a live test that built its client from that would
+    ask ESPN about league 999999. This is a separate `Settings()`, so the pins stay exactly as
+    tight for every offline test.
+    """
+    return Settings()
 
 
 def load_fixture(name: str) -> Any:
