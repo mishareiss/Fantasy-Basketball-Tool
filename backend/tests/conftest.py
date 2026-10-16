@@ -98,6 +98,7 @@ AUTH_PARAMS: dict[str, object] = {"app_access_token": None}
 TEAM_PARAMS: dict[str, object] = {
     "espn_my_team_id": None,
     "waiver_clear_tz": "America/Los_Angeles",
+    "plan_move_local_time": "09:00",
 }
 
 # The SWID the recorded owner lists carry for OUR team (scripts/record_fixtures.FAKE_MY_SWID).

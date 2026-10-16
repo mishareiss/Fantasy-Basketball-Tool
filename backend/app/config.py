@@ -1,7 +1,7 @@
 """Application settings, loaded from the environment / repo-root `.env`."""
 
 import json
-from datetime import date
+from datetime import date, time
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
@@ -53,6 +53,22 @@ class Settings(BaseSettings):
     # Pacific: a player held more than `waiverHours` and then dropped clears at the first
     # Pacific midnight after drop + waiverHours (app.team.waivers).
     waiver_clear_tz: str = "America/Los_Angeles"
+
+    # When on its day a planned waiver move is assumed to happen, Pacific wall-clock "HH:MM".
+    # The waiver plan (app.team.plan) times every move at this moment to ask whether a pickup
+    # is still on waivers then, and when a player it drops would clear.
+    plan_move_local_time: str = "09:00"
+
+    @field_validator("plan_move_local_time")
+    @classmethod
+    def _check_plan_move_local_time(cls, value: str) -> str:
+        """`HH:MM`, 24-hour. Checked here so a typo fails at startup, not mid-request."""
+        time.fromisoformat(value)
+        return value
+
+    def plan_move_time(self) -> time:
+        """`plan_move_local_time` as a `time` (wall clock, no zone: it is Pacific by rule)."""
+        return time.fromisoformat(self.plan_move_local_time)
 
     # The date ages are computed as of. Ages must be reproducible: computing them from
     # `date.today()` would silently change a player's stored age (and therefore his dynasty

@@ -234,6 +234,15 @@ export function lineupSourceLabel(source: LineupSource, carriedFrom?: string | n
       return carriedFrom ? `Carried from ${dayLabel(carriedFrom)}` : "Carried from an earlier day";
     case "roster":
       return "From roster";
+    // The Plan view's sources (task 30).
+    case "plan_edit":
+      return "Plan: edited here";
+    case "plan_carried":
+      return carriedFrom
+        ? `Plan: carried from ${dayLabel(carriedFrom)}`
+        : "Plan: carried from an earlier day";
+    case "from_actual":
+      return "Plan: from the actual lineup";
   }
 }
 

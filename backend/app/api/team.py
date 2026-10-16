@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import LineupAssignment, NbaGame, RosterEntry
 from app.db.session import get_db
-from app.team import views
+from app.team import plan_views, views
 from app.team.calendar import (
     UnknownSeasonError,
     effective_period,
@@ -23,11 +23,18 @@ from app.team.calendar import (
     today_period,
 )
 from app.team.schemas import (
+    AcquisitionOverrideIn,
     Basis,
+    DayView,
     FreeAgentsResponse,
     LineupEditRequest,
     LineupEditResponse,
     MatchupRef,
+    PlanDeleteResponse,
+    PlanMoveCreate,
+    PlanMovePatch,
+    PlanMutationResponse,
+    PlanResponse,
     PlayerCardResponse,
     TeamCalendarResponse,
     TeamDayResponse,
@@ -134,6 +141,15 @@ def _domain_errors() -> Iterator[None]:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
     except views.PeriodOutOfRange as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except plan_views.PlanInvalid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
+    except plan_views.MoveNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except plan_views.MoveHasDependents as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"message": str(exc), "move_id": exc.move_id, "dependent_move_ids": exc.dependents},
+        ) from exc
 
 
 def _default_period(season: int, sp: int | None) -> int:
@@ -144,13 +160,20 @@ def _default_period(season: int, sp: int | None) -> int:
 def team_day(
     sp: int | None = Query(None, description="Scoring period (default: today, clamped)"),
     basis: Basis = Query("projected", description="projected, or this season's season/l7/l15/l30"),
+    view: DayView = Query("actual", description="actual: my roster; plan: as if the plan ran"),
     db: Session = Depends(get_db),
 ) -> TeamDayResponse:
     """My roster on one day, in ESPN's slot grid (empty slots included), with each player's
-    game that day and his stat line under `basis`."""
+    game that day and his stat line under `basis`.
+
+    `view=plan` shows the roster as if the waiver plan had been carried out: planned pickups
+    in their dropped player's slot (flagged `plan.status: planned`), `planned_drops` for the
+    day, and the plan's warnings for the day and its matchup.
+    """
     season = _season()
+    day = views.team_day if view == "actual" else plan_views.team_day_plan
     with _domain_errors():
-        return views.team_day(db, season, _default_period(season, sp), basis, _now())
+        return day(db, season, _default_period(season, sp), basis, _now())
 
 
 @router.put("/lineup/{sp}", response_model=LineupEditResponse)
@@ -292,3 +315,98 @@ def team_calendar(db: Session = Depends(get_db)) -> TeamCalendarResponse:
     season = _season()
     with _domain_errors():
         return views.team_calendar(db, season, _now())
+
+
+# --- the waiver plan ------------------------------------------------------------------------
+
+
+@router.get("/plan", response_model=PlanResponse)
+def get_plan(db: Session = Depends(get_db)) -> PlanResponse:
+    """The shared waiver plan: every move (candidates, resolved drop, status), every warning,
+    and the acquisition math from the current matchup through the last one a move touches.
+    Rules only ever warn: nothing here is refused for breaking one."""
+    season = _season()
+    with _domain_errors():
+        return plan_views.plan_response(db, season, _now())
+
+
+@router.post(
+    "/plan/moves", response_model=PlanMutationResponse, status_code=status.HTTP_201_CREATED
+)
+def create_plan_move(
+    body: PlanMoveCreate = Body(...), db: Session = Depends(get_db)
+) -> PlanMutationResponse:
+    """Plan a move: on day `sp`, drop a player (`drop_player_id`) or whoever another move picks
+    up (`drop_from_move_id`), and pick up the first available of `candidate_ids`. Returns the
+    whole plan, with `move_id` set to the new move."""
+    season = _season()
+    with _domain_errors():
+        return plan_views.create_move(
+            db,
+            season,
+            _now(),
+            sp=body.sp,
+            drop_player_id=body.drop_player_id,
+            drop_from_move_id=body.drop_from_move_id,
+            candidate_ids=body.candidate_ids,
+            note=body.note,
+            sequence=body.sequence,
+        )
+
+
+@router.patch("/plan/moves/{move_id}", response_model=PlanMutationResponse)
+def update_plan_move(
+    move_id: int = Path(...),
+    body: PlanMovePatch = Body(...),
+    db: Session = Depends(get_db),
+) -> PlanMutationResponse:
+    """Change any of a move's fields; only the ones sent are touched. Sending one drop
+    reference clears the other. `resolved_player_id` must be one of the candidates."""
+    season = _season()
+    fields = {name: getattr(body, name) for name in body.model_fields_set}
+    with _domain_errors():
+        return plan_views.update_move(db, season, move_id, fields, _now())
+
+
+@router.delete("/plan/moves/{move_id}", response_model=PlanDeleteResponse)
+def delete_plan_move(
+    move_id: int = Path(...),
+    repoint: bool = Query(
+        False, description="Turn each move chained to this one into a named drop first"
+    ),
+    db: Session = Depends(get_db),
+) -> PlanDeleteResponse:
+    """Delete a move. A 409 lists the moves whose drop is this move's pickup, unless
+    `repoint=true`, which makes each of them drop that player by name and then deletes."""
+    season = _season()
+    with _domain_errors():
+        return plan_views.delete_move(db, season, move_id, _now(), repoint=repoint)
+
+
+@router.put("/plan/acquisition-override", response_model=PlanMutationResponse)
+def put_acquisition_override(
+    body: AcquisitionOverrideIn = Body(...), db: Session = Depends(get_db)
+) -> PlanMutationResponse:
+    """Replace ESPN's adds-used count for one matchup with a hand-set one (`used: null`
+    clears it). For unforeseen circumstances; ESPN's count is the default."""
+    season = _season()
+    with _domain_errors():
+        return plan_views.set_acquisition_override(db, season, body.matchup_id, body.used, _now())
+
+
+@router.put("/plan/lineup/{sp}", response_model=LineupEditResponse)
+def edit_plan_lineup(
+    sp: int = Path(..., description="The first day to set"),
+    body: LineupEditRequest = Body(...),
+    basis: Basis = Query("projected"),
+    db: Session = Depends(get_db),
+) -> LineupEditResponse:
+    """Set the Plan view's lineup for day `sp` (through `through_sp`): the same rules as
+    `PUT /team/lineup/{sp}`, checked against the PLAN roster. Never touches the Actual
+    lineup, and `POST /sync/lineup` never touches this one."""
+    season = _season()
+    assignments = [(a.player_id, a.slot_id) for a in body.assignments]
+    with _domain_errors():
+        return plan_views.edit_plan_lineup(
+            db, season, sp, assignments, body.through_sp, basis, _now()
+        )

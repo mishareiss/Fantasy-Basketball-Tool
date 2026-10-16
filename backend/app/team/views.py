@@ -17,9 +17,13 @@ from sqlalchemy.orm import Session
 from app.api.players import _newest_by_player, _per_game
 from app.db.models import (
     LINEUP_SOURCE_MANUAL,
+    PLAN_PLANNED,
+    AcquisitionOverride,
     FantasyTeam,
     LineupAssignment,
     NbaGame,
+    PlanCandidate,
+    PlanMove,
     Player,
     Projection,
     RosterEntry,
@@ -60,6 +64,8 @@ from app.team.grid import (
     validate_lineup,
 )
 from app.team.lineup import resolve_lineup
+from app.team.plan import PlanContext, acquisition_tallies
+from app.team.plan_store import engine_move, load_moves
 from app.team.schemas import (
     Acquisitions,
     Basis,
@@ -72,10 +78,12 @@ from app.team.schemas import (
     FreeAgentRow,
     FreeAgentsResponse,
     GameOut,
+    InPlanRef,
     LineupEditResponse,
     MatchupGroup,
     MatchupRef,
     OwnerTeam,
+    PlanFlag,
     PlayerCardResponse,
     RosterPlayer,
     ScheduleDay,
@@ -333,6 +341,122 @@ def _stored_lineup(
     return {day: {row.player_id: row.lineup_slot_id for row in rows}}, source
 
 
+def day_acquisitions(
+    db: Session, season: int, team: FantasyTeam, matchup_id: int, limit: int | None, today_sp: int
+) -> Acquisitions:
+    """Adds used in one matchup (the hand-set override if there is one, else ESPN's count)
+    and the plan's pickups still to come in it. Three queries."""
+    override = db.get(AcquisitionOverride, (season, team.team_id, matchup_id))
+    moves = [engine_move(row) for row in load_moves(db, season, team.team_id)]
+    ctx = PlanContext(
+        season=season,
+        today_sp=today_sp,
+        acquisition_limit=limit,
+        espn_used={
+            matchup_id: matchup_acquisitions_used(team.matchup_acquisition_totals, matchup_id)
+        },
+        used_overrides={matchup_id: override.used} if override else {},
+    )
+    (tally,) = acquisition_tallies(moves, ctx, [matchup_id])
+    return Acquisitions(
+        used=tally.used,
+        limit=tally.limit,
+        matchup_id=matchup_id,
+        used_source=tally.used_source,
+        planned=tally.planned,
+    )
+
+
+def roster_player(
+    player: Player,
+    game: GameInfo | None,
+    line: StatLine | None,
+    plan: PlanFlag | None = None,
+) -> RosterPlayer:
+    return RosterPlayer(
+        id=player.espn_player_id,
+        name=player.full_name,
+        nba_team=player.nba_team,
+        positions=list(player.positions or []),
+        eligible_slots=list(player.eligible_slots or []),
+        injury_status=player.injury_status,
+        game=game_out(game),
+        stats=line,
+        plan=plan,
+    )
+
+
+def day_response(
+    db: Session,
+    season: int,
+    sp: int,
+    basis: Basis,
+    now: datetime,
+    *,
+    team: FantasyTeam,
+    slot_counts: dict[int, int],
+    players: dict[int, Player],
+    placement: dict[int, int],
+    lineup_source: str,
+    carried_from_sp: int | None,
+    acquisitions: Acquisitions,
+    plan_flags: dict[int, PlanFlag] | None = None,
+    **extra: object,
+) -> TeamDayResponse:
+    """The day view's response for any roster and placement: the Actual view and the Plan
+    view are both this, fed different players and slots. `players` is in slot-fill order."""
+    games = games_index(db, season, [sp])
+    lines = stat_lines(db, season, players, basis)
+    rows, warnings = build_slot_grid(slot_counts, placement, order=list(players))
+    flags = plan_flags or {}
+
+    def cell(pid: int) -> RosterPlayer:
+        player = players[pid]
+        return roster_player(
+            player, games.get((sp, player.pro_team_id)), lines.get(pid), flags.get(pid)
+        )
+
+    return TeamDayResponse(
+        season=season,
+        sp=sp,
+        date=period_date(season, sp),
+        matchup=matchup_ref(season, sp),
+        is_today=today_period(season, now) == sp,
+        team=TeamRef(id=team.team_id, name=team.name, abbrev=team.abbrev),
+        actuals_available=actuals_available(db, season),
+        basis=basis,
+        stat_columns=stat_columns(lines.values()),
+        lineup_source=lineup_source,
+        carried_from_sp=carried_from_sp,
+        carried_from_date=(
+            period_date(season, carried_from_sp) if carried_from_sp is not None else None
+        ),
+        acquisitions=acquisitions,
+        slots=[
+            SlotRow(
+                slot_id=row.slot_id,
+                slot=row.slot,
+                player=cell(row.player_id) if row.player_id is not None else None,
+            )
+            for row in rows
+        ],
+        warnings=warnings,
+        **extra,
+    )
+
+
+def actual_placement(
+    db: Session, season: int, team_id: int, sp: int, roster: list[tuple[RosterEntry, Player]]
+) -> tuple[dict[int, int], str, int | None]:
+    """The Actual lineup on day `sp`: placement, its source, and the day it's carried from."""
+    stored, source = _stored_lineup(db, season, team_id, sp)
+    placement = resolve_lineup(
+        stored, {entry.player_id: entry.lineup_slot_id for entry, _ in roster}, sp
+    )
+    carried_from = next(iter(stored)) if source == "carried" else None
+    return placement, source, carried_from
+
+
 def team_day(db: Session, season: int, sp: int, basis: Basis, now: datetime) -> TeamDayResponse:
     """My roster on day `sp`, in ESPN's slot grid, with each player's game and stat line."""
     check_period(season, sp)
@@ -341,58 +465,28 @@ def team_day(db: Session, season: int, sp: int, basis: Basis, now: datetime) -> 
     rules = AcquisitionSettings.from_raw(
         settings_row.acquisition_settings if settings_row else None
     )
-    slot_counts = slot_counts_by_id(settings_row.roster_slots if settings_row else None)
-
     roster = _roster(db, season, team.team_id)
-    stored, source = _stored_lineup(db, season, team.team_id, sp)
-    placement = resolve_lineup(
-        stored, {entry.player_id: entry.lineup_slot_id for entry, _ in roster}, sp
-    )
-    players = {player.espn_player_id: player for _, player in roster}
-
-    games = games_index(db, season, [sp])
-    lines = stat_lines(db, season, players, basis)
-    rows, warnings = build_slot_grid(slot_counts, placement, order=list(players))
-
-    def roster_player(pid: int) -> RosterPlayer:
-        player = players[pid]
-        return RosterPlayer(
-            id=pid,
-            name=player.full_name,
-            nba_team=player.nba_team,
-            positions=list(player.positions or []),
-            eligible_slots=list(player.eligible_slots or []),
-            injury_status=player.injury_status,
-            game=game_out(games.get((sp, player.pro_team_id))),
-            stats=lines.get(pid),
-        )
-
-    matchup = matchup_ref(season, sp)
-    return TeamDayResponse(
-        season=season,
-        sp=sp,
-        date=period_date(season, sp),
-        matchup=matchup,
-        is_today=today_period(season, now) == sp,
-        team=TeamRef(id=team.team_id, name=team.name, abbrev=team.abbrev),
-        actuals_available=actuals_available(db, season),
-        basis=basis,
-        stat_columns=stat_columns(lines.values()),
+    placement, source, carried_from = actual_placement(db, season, team.team_id, sp, roster)
+    return day_response(
+        db,
+        season,
+        sp,
+        basis,
+        now,
+        team=team,
+        slot_counts=slot_counts_by_id(settings_row.roster_slots if settings_row else None),
+        players={player.espn_player_id: player for _, player in roster},
+        placement=placement,
         lineup_source=source,
-        acquisitions=Acquisitions(
-            used=matchup_acquisitions_used(team.matchup_acquisition_totals, matchup.id),
-            limit=rules.matchup_acquisition_limit,
-            matchup_id=matchup.id,
+        carried_from_sp=carried_from,
+        acquisitions=day_acquisitions(
+            db,
+            season,
+            team,
+            matchup_ref(season, sp).id,
+            rules.matchup_acquisition_limit,
+            effective_period(season, now),
         ),
-        slots=[
-            SlotRow(
-                slot_id=row.slot_id,
-                slot=row.slot,
-                player=roster_player(row.player_id) if row.player_id is not None else None,
-            )
-            for row in rows
-        ],
-        warnings=warnings,
     )
 
 
@@ -488,6 +582,34 @@ def _plays(player: Player, filter_slot: int) -> bool:
     )
 
 
+def plan_candidacies(db: Session, season: int, player_ids: list[int]) -> dict[int, list[InPlanRef]]:
+    """`{player: [InPlanRef]}`: every planned move of my team each player is a candidate in.
+    One query (my team is joined in, not looked up)."""
+    if not player_ids:
+        return {}
+    out: dict[int, list[InPlanRef]] = {}
+    for player_id, move_id, rank, sp in db.execute(
+        select(PlanCandidate.player_id, PlanMove.id, PlanCandidate.rank, PlanMove.scoring_period_id)
+        .join(PlanMove, PlanMove.id == PlanCandidate.move_id)
+        .join(
+            FantasyTeam,
+            and_(
+                FantasyTeam.season == PlanMove.season,
+                FantasyTeam.team_id == PlanMove.team_id,
+                FantasyTeam.is_mine.is_(True),
+            ),
+        )
+        .where(
+            PlanMove.season == season,
+            PlanMove.status == PLAN_PLANNED,
+            PlanCandidate.player_id.in_(player_ids),
+        )
+        .order_by(PlanMove.scoring_period_id, PlanMove.sequence, PlanMove.id)
+    ).tuples():
+        out.setdefault(player_id, []).append(InPlanRef(move_id=move_id, sp=sp, rank=rank))
+    return out
+
+
 def free_agents(
     db: Session,
     season: int,
@@ -581,6 +703,8 @@ def free_agents(
         [player.espn_player_id for player in page if player.roster_status == WAIVERS_STATUS],
     )
 
+    in_plan = plan_candidacies(db, season, [player.espn_player_id for player in page])
+
     rows = []
     for player in page:
         pid = player.espn_player_id
@@ -602,6 +726,7 @@ def free_agents(
                 games_in_days=games_in_days(player),
                 stats=StatSummary(fantasy_ppg=line.fantasy_ppg, games=line.games) if line else None,
                 watched=pid in watched,
+                in_plan=in_plan.get(pid, []),
             )
         )
 

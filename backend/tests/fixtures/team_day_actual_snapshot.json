@@ -1,0 +1,3942 @@
+{
+ "sp1": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 0
+  },
+  "actuals_available": false,
+  "basis": "projected",
+  "date": "2026-10-20",
+  "is_today": false,
+  "lineup_source": "roster",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "@ NYK 4:00 PM",
+      "display_matchup": "@ NYK",
+      "display_time": "4:00 PM",
+      "game_id": 401909089,
+      "is_home": false,
+      "opponent": "NYK",
+      "opponent_pro_team_id": 18,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-20T23:00:00Z"
+     },
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "@ SAS 6:30 PM",
+      "display_matchup": "@ SAS",
+      "display_time": "6:30 PM",
+      "game_id": 401909090,
+      "is_home": false,
+      "opponent": "SAS",
+      "opponent_pro_team_id": 24,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-21T01:30:00Z"
+     },
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "vs BOS 12:00 PM",
+      "display_matchup": "vs BOS",
+      "display_time": "12:00 PM",
+      "game_id": 401909088,
+      "is_home": true,
+      "opponent": "BOS",
+      "opponent_pro_team_id": 2,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-20T19:00:00Z"
+     },
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "@ DET 12:00 PM",
+      "display_matchup": "@ DET",
+      "display_time": "12:00 PM",
+      "game_id": 401909088,
+      "is_home": false,
+      "opponent": "DET",
+      "opponent_pro_team_id": 8,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-20T19:00:00Z"
+     },
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": {
+      "display": "@ SAS 6:30 PM",
+      "display_matchup": "@ SAS",
+      "display_time": "6:30 PM",
+      "game_id": 401909090,
+      "is_home": false,
+      "opponent": "SAS",
+      "opponent_pro_team_id": 24,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-21T01:30:00Z"
+     },
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": {
+      "fantasy_ppg": 112.16891891891892,
+      "fantasy_total": 8300.5,
+      "games": 74.0,
+      "per_game": {
+       "3PA": 5.0,
+       "3PM": 1.7837837837837838,
+       "3PMI": 3.2162162162162162,
+       "AST": 4.202702702702703,
+       "BLK": 0.5,
+       "FGA": 12.5,
+       "FGM": 5.905405405405405,
+       "FGMI": 6.594594594594595,
+       "FTA": 5.202702702702703,
+       "FTM": 4.027027027027027,
+       "FTMI": 1.1756756756756757,
+       "GP": 74.0,
+       "MIN": 34.0,
+       "PTS": 17.62162162162162,
+       "REB": 8.202702702702704,
+       "STL": 1.0945945945945945,
+       "TO": 2.9054054054054053
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 123.5220588235294,
+      "fantasy_total": 8399.5,
+      "games": 68.0,
+      "per_game": {
+       "3PA": 6.602941176470588,
+       "3PM": 2.6176470588235294,
+       "3PMI": 3.985294117647059,
+       "AST": 6.102941176470588,
+       "BLK": 0.5,
+       "FGA": 17.897058823529413,
+       "FGM": 8.455882352941176,
+       "FGMI": 9.441176470588236,
+       "FTA": 4.294117647058823,
+       "FTM": 3.7794117647058822,
+       "FTMI": 0.5147058823529411,
+       "GP": 68.0,
+       "MIN": 35.699999999999996,
+       "PTS": 23.308823529411764,
+       "REB": 4.0,
+       "STL": 1.2941176470588236,
+       "TO": 2.1029411764705883
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 171.86805555555554,
+      "fantasy_total": 12374.5,
+      "games": 72.0,
+      "per_game": {
+       "3PA": 9.694444444444445,
+       "3PM": 3.5833333333333335,
+       "3PMI": 6.111111111111111,
+       "AST": 8.194444444444445,
+       "BLK": 0.5,
+       "FGA": 21.5,
+       "FGM": 10.01388888888889,
+       "FGMI": 11.48611111111111,
+       "FTA": 8.402777777777779,
+       "FTM": 6.527777777777778,
+       "FTMI": 1.875,
+       "GP": 72.0,
+       "MIN": 36.0,
+       "PTS": 30.13888888888889,
+       "REB": 8.5,
+       "STL": 1.5972222222222223,
+       "TO": 3.6944444444444446
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "vs OKC 6:30 PM",
+      "display_matchup": "vs OKC",
+      "display_time": "6:30 PM",
+      "game_id": 401909090,
+      "is_home": true,
+      "opponent": "OKC",
+      "opponent_pro_team_id": 25,
+      "sp": 1,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-21T01:30:00Z"
+     },
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 1,
+  "stat_columns": [
+   "MIN",
+   "PTS",
+   "REB",
+   "AST",
+   "STL",
+   "BLK",
+   "TO",
+   "3PM",
+   "FTM"
+  ],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ },
+ "sp2": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 0
+  },
+  "actuals_available": false,
+  "basis": "projected",
+  "date": "2026-10-21",
+  "is_today": false,
+  "lineup_source": "espn",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": null,
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": {
+      "fantasy_ppg": 112.16891891891892,
+      "fantasy_total": 8300.5,
+      "games": 74.0,
+      "per_game": {
+       "3PA": 5.0,
+       "3PM": 1.7837837837837838,
+       "3PMI": 3.2162162162162162,
+       "AST": 4.202702702702703,
+       "BLK": 0.5,
+       "FGA": 12.5,
+       "FGM": 5.905405405405405,
+       "FGMI": 6.594594594594595,
+       "FTA": 5.202702702702703,
+       "FTM": 4.027027027027027,
+       "FTMI": 1.1756756756756757,
+       "GP": 74.0,
+       "MIN": 34.0,
+       "PTS": 17.62162162162162,
+       "REB": 8.202702702702704,
+       "STL": 1.0945945945945945,
+       "TO": 2.9054054054054053
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 123.5220588235294,
+      "fantasy_total": 8399.5,
+      "games": 68.0,
+      "per_game": {
+       "3PA": 6.602941176470588,
+       "3PM": 2.6176470588235294,
+       "3PMI": 3.985294117647059,
+       "AST": 6.102941176470588,
+       "BLK": 0.5,
+       "FGA": 17.897058823529413,
+       "FGM": 8.455882352941176,
+       "FGMI": 9.441176470588236,
+       "FTA": 4.294117647058823,
+       "FTM": 3.7794117647058822,
+       "FTMI": 0.5147058823529411,
+       "GP": 68.0,
+       "MIN": 35.699999999999996,
+       "PTS": 23.308823529411764,
+       "REB": 4.0,
+       "STL": 1.2941176470588236,
+       "TO": 2.1029411764705883
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 171.86805555555554,
+      "fantasy_total": 12374.5,
+      "games": 72.0,
+      "per_game": {
+       "3PA": 9.694444444444445,
+       "3PM": 3.5833333333333335,
+       "3PMI": 6.111111111111111,
+       "AST": 8.194444444444445,
+       "BLK": 0.5,
+       "FGA": 21.5,
+       "FGM": 10.01388888888889,
+       "FGMI": 11.48611111111111,
+       "FTA": 8.402777777777779,
+       "FTM": 6.527777777777778,
+       "FTMI": 1.875,
+       "GP": 72.0,
+       "MIN": 36.0,
+       "PTS": 30.13888888888889,
+       "REB": 8.5,
+       "STL": 1.5972222222222223,
+       "TO": 3.6944444444444446
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 2,
+  "stat_columns": [
+   "MIN",
+   "PTS",
+   "REB",
+   "AST",
+   "STL",
+   "BLK",
+   "TO",
+   "3PM",
+   "FTM"
+  ],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ },
+ "sp3_acq": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 2
+  },
+  "actuals_available": false,
+  "basis": "season",
+  "date": "2026-10-22",
+  "is_today": false,
+  "lineup_source": "carried",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "vs CLE 4:00 PM",
+      "display_matchup": "vs CLE",
+      "display_time": "4:00 PM",
+      "game_id": 401909093,
+      "is_home": true,
+      "opponent": "CLE",
+      "opponent_pro_team_id": 5,
+      "sp": 3,
+      "start_time_tbd": false,
+      "starts_at": "2026-10-22T23:00:00Z"
+     },
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "vs DEN TBD",
+      "display_matchup": "vs DEN",
+      "display_time": "TBD",
+      "game_id": 401909094,
+      "is_home": true,
+      "opponent": "DEN",
+      "opponent_pro_team_id": 7,
+      "sp": 3,
+      "start_time_tbd": true,
+      "starts_at": "2026-10-23T01:30:00Z"
+     },
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": {
+      "display": "vs DEN TBD",
+      "display_matchup": "vs DEN",
+      "display_time": "TBD",
+      "game_id": 401909094,
+      "is_home": true,
+      "opponent": "DEN",
+      "opponent_pro_team_id": 7,
+      "sp": 3,
+      "start_time_tbd": true,
+      "starts_at": "2026-10-23T01:30:00Z"
+     },
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": {
+      "display": "@ OKC TBD",
+      "display_matchup": "@ OKC",
+      "display_time": "TBD",
+      "game_id": 401909094,
+      "is_home": false,
+      "opponent": "OKC",
+      "opponent_pro_team_id": 25,
+      "sp": 3,
+      "start_time_tbd": true,
+      "starts_at": "2026-10-23T01:30:00Z"
+     },
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 3,
+  "stat_columns": [],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ },
+ "sp5": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 0
+  },
+  "actuals_available": false,
+  "basis": "projected",
+  "date": "2026-10-24",
+  "is_today": false,
+  "lineup_source": "carried",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": null,
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": {
+      "fantasy_ppg": 112.16891891891892,
+      "fantasy_total": 8300.5,
+      "games": 74.0,
+      "per_game": {
+       "3PA": 5.0,
+       "3PM": 1.7837837837837838,
+       "3PMI": 3.2162162162162162,
+       "AST": 4.202702702702703,
+       "BLK": 0.5,
+       "FGA": 12.5,
+       "FGM": 5.905405405405405,
+       "FGMI": 6.594594594594595,
+       "FTA": 5.202702702702703,
+       "FTM": 4.027027027027027,
+       "FTMI": 1.1756756756756757,
+       "GP": 74.0,
+       "MIN": 34.0,
+       "PTS": 17.62162162162162,
+       "REB": 8.202702702702704,
+       "STL": 1.0945945945945945,
+       "TO": 2.9054054054054053
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 123.5220588235294,
+      "fantasy_total": 8399.5,
+      "games": 68.0,
+      "per_game": {
+       "3PA": 6.602941176470588,
+       "3PM": 2.6176470588235294,
+       "3PMI": 3.985294117647059,
+       "AST": 6.102941176470588,
+       "BLK": 0.5,
+       "FGA": 17.897058823529413,
+       "FGM": 8.455882352941176,
+       "FGMI": 9.441176470588236,
+       "FTA": 4.294117647058823,
+       "FTM": 3.7794117647058822,
+       "FTMI": 0.5147058823529411,
+       "GP": 68.0,
+       "MIN": 35.699999999999996,
+       "PTS": 23.308823529411764,
+       "REB": 4.0,
+       "STL": 1.2941176470588236,
+       "TO": 2.1029411764705883
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 171.86805555555554,
+      "fantasy_total": 12374.5,
+      "games": 72.0,
+      "per_game": {
+       "3PA": 9.694444444444445,
+       "3PM": 3.5833333333333335,
+       "3PMI": 6.111111111111111,
+       "AST": 8.194444444444445,
+       "BLK": 0.5,
+       "FGA": 21.5,
+       "FGM": 10.01388888888889,
+       "FGMI": 11.48611111111111,
+       "FTA": 8.402777777777779,
+       "FTM": 6.527777777777778,
+       "FTMI": 1.875,
+       "GP": 72.0,
+       "MIN": 36.0,
+       "PTS": 30.13888888888889,
+       "REB": 8.5,
+       "STL": 1.5972222222222223,
+       "TO": 3.6944444444444446
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 5,
+  "stat_columns": [
+   "MIN",
+   "PTS",
+   "REB",
+   "AST",
+   "STL",
+   "BLK",
+   "TO",
+   "3PM",
+   "FTM"
+  ],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ },
+ "sp5_manual": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 0
+  },
+  "actuals_available": false,
+  "basis": "projected",
+  "date": "2026-10-24",
+  "is_today": false,
+  "lineup_source": "manual",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": null,
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": {
+      "fantasy_ppg": 112.16891891891892,
+      "fantasy_total": 8300.5,
+      "games": 74.0,
+      "per_game": {
+       "3PA": 5.0,
+       "3PM": 1.7837837837837838,
+       "3PMI": 3.2162162162162162,
+       "AST": 4.202702702702703,
+       "BLK": 0.5,
+       "FGA": 12.5,
+       "FGM": 5.905405405405405,
+       "FGMI": 6.594594594594595,
+       "FTA": 5.202702702702703,
+       "FTM": 4.027027027027027,
+       "FTMI": 1.1756756756756757,
+       "GP": 74.0,
+       "MIN": 34.0,
+       "PTS": 17.62162162162162,
+       "REB": 8.202702702702704,
+       "STL": 1.0945945945945945,
+       "TO": 2.9054054054054053
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 123.5220588235294,
+      "fantasy_total": 8399.5,
+      "games": 68.0,
+      "per_game": {
+       "3PA": 6.602941176470588,
+       "3PM": 2.6176470588235294,
+       "3PMI": 3.985294117647059,
+       "AST": 6.102941176470588,
+       "BLK": 0.5,
+       "FGA": 17.897058823529413,
+       "FGM": 8.455882352941176,
+       "FGMI": 9.441176470588236,
+       "FTA": 4.294117647058823,
+       "FTM": 3.7794117647058822,
+       "FTMI": 0.5147058823529411,
+       "GP": 68.0,
+       "MIN": 35.699999999999996,
+       "PTS": 23.308823529411764,
+       "REB": 4.0,
+       "STL": 1.2941176470588236,
+       "TO": 2.1029411764705883
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 171.86805555555554,
+      "fantasy_total": 12374.5,
+      "games": 72.0,
+      "per_game": {
+       "3PA": 9.694444444444445,
+       "3PM": 3.5833333333333335,
+       "3PMI": 6.111111111111111,
+       "AST": 8.194444444444445,
+       "BLK": 0.5,
+       "FGA": 21.5,
+       "FGM": 10.01388888888889,
+       "FGMI": 11.48611111111111,
+       "FTA": 8.402777777777779,
+       "FTM": 6.527777777777778,
+       "FTMI": 1.875,
+       "GP": 72.0,
+       "MIN": 36.0,
+       "PTS": 30.13888888888889,
+       "REB": 8.5,
+       "STL": 1.5972222222222223,
+       "TO": 3.6944444444444446
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 5,
+  "stat_columns": [
+   "MIN",
+   "PTS",
+   "REB",
+   "AST",
+   "STL",
+   "BLK",
+   "TO",
+   "3PM",
+   "FTM"
+  ],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ },
+ "sp6": {
+  "acquisitions": {
+   "limit": 7,
+   "matchup_id": 1,
+   "used": 0
+  },
+  "actuals_available": false,
+  "basis": "projected",
+  "date": "2026-10-25",
+  "is_today": false,
+  "lineup_source": "carried",
+  "matchup": {
+   "end": "2026-10-25",
+   "id": 1,
+   "label": "Matchup 1",
+   "start": "2026-10-20"
+  },
+  "season": 2027,
+  "slots": [
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396993,
+     "injury_status": "ACTIVE",
+     "name": "Tyrese Haliburton",
+     "nba_team": "IND",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "PG",
+    "slot_id": 0
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4900671,
+     "injury_status": "ACTIVE",
+     "name": "Ajay Mitchell",
+     "nba_team": "OKC",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "SG",
+    "slot_id": 1
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3157465,
+     "injury_status": "ACTIVE",
+     "name": "Duncan Robinson",
+     "nba_team": "DET",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "SF",
+    "slot_id": 2
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4251,
+     "injury_status": "ACTIVE",
+     "name": "Paul George",
+     "nba_team": "BOS",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "PF",
+    "slot_id": 3
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15
+     ],
+     "game": null,
+     "id": 5174983,
+     "injury_status": "ACTIVE",
+     "name": "Aday Mara",
+     "nba_team": "OKC",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "C",
+    "slot_id": 4
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4433287,
+     "injury_status": "ACTIVE",
+     "name": "Brandon Miller",
+     "nba_team": "CHA",
+     "positions": [
+      "SG",
+      "SF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4431671,
+     "injury_status": "ACTIVE",
+     "name": "Jaden McDaniels",
+     "nba_team": "MIN",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "UT",
+    "slot_id": 11
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4351851,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anfernee Simons",
+     "nba_team": "PHL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4712849,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Anthony Black",
+     "nba_team": "ORL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5093267,
+     "injury_status": "ACTIVE",
+     "name": "Collin Murray-Boyles",
+     "nba_team": "TOR",
+     "positions": [
+      "PF"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4396907,
+     "injury_status": "ACTIVE",
+     "name": "Darius Garland",
+     "nba_team": "LAC",
+     "positions": [
+      "PG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3907497,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Dejounte Murray",
+     "nba_team": "NOP",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      2,
+      3,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4683021,
+     "injury_status": "ACTIVE",
+     "name": "Deni Avdija",
+     "nba_team": "POR",
+     "positions": [
+      "SF",
+      "PF"
+     ],
+     "stats": {
+      "fantasy_ppg": 112.16891891891892,
+      "fantasy_total": 8300.5,
+      "games": 74.0,
+      "per_game": {
+       "3PA": 5.0,
+       "3PM": 1.7837837837837838,
+       "3PMI": 3.2162162162162162,
+       "AST": 4.202702702702703,
+       "BLK": 0.5,
+       "FGA": 12.5,
+       "FGM": 5.905405405405405,
+       "FGMI": 6.594594594594595,
+       "FTA": 5.202702702702703,
+       "FTM": 4.027027027027027,
+       "FTMI": 1.1756756756756757,
+       "GP": 74.0,
+       "MIN": 34.0,
+       "PTS": 17.62162162162162,
+       "REB": 8.202702702702704,
+       "STL": 1.0945945945945945,
+       "TO": 2.9054054054054053
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5105565,
+     "injury_status": "ACTIVE",
+     "name": "Donovan Clingan",
+     "nba_team": "POR",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3936299,
+     "injury_status": "ACTIVE",
+     "name": "Jamal Murray",
+     "nba_team": "DEN",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 123.5220588235294,
+      "fantasy_total": 8399.5,
+      "games": 68.0,
+      "per_game": {
+       "3PA": 6.602941176470588,
+       "3PM": 2.6176470588235294,
+       "3PMI": 3.985294117647059,
+       "AST": 6.102941176470588,
+       "BLK": 0.5,
+       "FGA": 17.897058823529413,
+       "FGM": 8.455882352941176,
+       "FGMI": 9.441176470588236,
+       "FTA": 4.294117647058823,
+       "FTM": 3.7794117647058822,
+       "FTMI": 0.5147058823529411,
+       "GP": 68.0,
+       "MIN": 35.699999999999996,
+       "PTS": 23.308823529411764,
+       "REB": 4.0,
+       "STL": 1.2941176470588236,
+       "TO": 2.1029411764705883
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13,
+      0
+     ],
+     "game": null,
+     "id": 5149077,
+     "injury_status": "ACTIVE",
+     "name": "Kingston Flemings",
+     "nba_team": "ATL",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      5,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3945274,
+     "injury_status": "DAY_TO_DAY",
+     "name": "Luka Doncic",
+     "nba_team": "LAL",
+     "positions": [
+      "PG"
+     ],
+     "stats": {
+      "fantasy_ppg": 171.86805555555554,
+      "fantasy_total": 12374.5,
+      "games": 72.0,
+      "per_game": {
+       "3PA": 9.694444444444445,
+       "3PM": 3.5833333333333335,
+       "3PMI": 6.111111111111111,
+       "AST": 8.194444444444445,
+       "BLK": 0.5,
+       "FGA": 21.5,
+       "FGM": 10.01388888888889,
+       "FGMI": 11.48611111111111,
+       "FTA": 8.402777777777779,
+       "FTM": 6.527777777777778,
+       "FTMI": 1.875,
+       "GP": 72.0,
+       "MIN": 36.0,
+       "PTS": 30.13888888888889,
+       "REB": 8.5,
+       "STL": 1.5972222222222223,
+       "TO": 3.6944444444444446
+      },
+      "season": 2026
+     }
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 3032976,
+     "injury_status": "ACTIVE",
+     "name": "Rudy Gobert",
+     "nba_team": "MIN",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      0,
+      1,
+      5,
+      7,
+      8,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4065733,
+     "injury_status": "ACTIVE",
+     "name": "Ty Jerome",
+     "nba_team": "MEM",
+     "positions": [
+      "PG",
+      "SG"
+     ],
+     "stats": null
+    },
+    "slot": "BE",
+    "slot_id": 12
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      3,
+      4,
+      6,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 5101845,
+     "injury_status": "OUT",
+     "name": "Jayden Quaintance",
+     "nba_team": "SAS",
+     "positions": [
+      "PF",
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": {
+     "eligible_slots": [
+      4,
+      9,
+      10,
+      11,
+      12,
+      13
+     ],
+     "game": null,
+     "id": 4701232,
+     "injury_status": "OUT",
+     "name": "Mark Williams",
+     "nba_team": "PHO",
+     "positions": [
+      "C"
+     ],
+     "stats": null
+    },
+    "slot": "IR",
+    "slot_id": 13
+   },
+   {
+    "player": null,
+    "slot": "IR",
+    "slot_id": 13
+   }
+  ],
+  "sp": 6,
+  "stat_columns": [
+   "MIN",
+   "PTS",
+   "REB",
+   "AST",
+   "STL",
+   "BLK",
+   "TO",
+   "3PM",
+   "FTM"
+  ],
+  "team": {
+   "abbrev": "T8",
+   "id": 8,
+   "name": "Team 8"
+  },
+  "warnings": []
+ }
+}

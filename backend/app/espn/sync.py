@@ -49,6 +49,7 @@ from app.scoring.engine import ScoringEngine
 from app.scoring.projections import score_projection
 from app.scoring.settings import LeagueScoringSettings, parse_league_settings
 from app.team.calendar import UnknownSeasonError, eastern_date, effective_period, period_date
+from app.team.plan_detect import detect_plan_moves
 
 # What we call ourselves in `Projection.source` / `AdpEntry.source`, and the projection horizon
 # ESPN publishes. Named so imported sources slot in beside them without touching this module.
@@ -186,6 +187,13 @@ class SyncSummary:
     transactions_created: int = 0
     transactions_updated: int = 0
     transactions_unchanged: int = 0
+
+    # Waiver-plan auto-detect (app.team.plan_detect), run after transactions: planned moves
+    # marked done this sync, how many of those dropped someone other than planned, and how
+    # many planned moves have a pending waiver claim on ESPN.
+    plan_moves_detected: int = 0
+    plan_moves_different_drop: int = 0
+    plan_claims_pending: int = 0
 
     # Sorted keys of any WAIVERS entry in the player pool (and of its `player`), so the first
     # sync that sees someone on waivers shows whether ESPN publishes a clear time after all.
@@ -778,7 +786,7 @@ def sync_league(
 
     Settings (scoring + acquisition rules) -> players (+ eligible slots) -> projections ->
     last season's actuals -> this season's actuals -> ADP -> NBA schedule -> fantasy teams
-    (+ which is ours) -> rosters -> transactions.
+    (+ which is ours) -> rosters -> transactions -> waiver-plan auto-detect.
 
     Order matters. The scoring rules have to land before projections, because pricing a
     projection needs them; players have to land before everything that hangs off `player`.
@@ -838,6 +846,11 @@ def sync_league(
     )
     sync_rosters(db, rosters_payload, season, summary)
     sync_transactions(db, transactions_payload, season, summary)
+    if summary.my_team_id is not None:
+        detected = detect_plan_moves(db, season, summary.my_team_id)
+        summary.plan_moves_detected = detected.detected
+        summary.plan_moves_different_drop = detected.different_drop
+        summary.plan_claims_pending = detected.claims_pending
 
     db.commit()
     return summary

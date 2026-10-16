@@ -998,7 +998,16 @@ export const TEAM_BASES = ["projected", "season", "l7", "l15", "l30"] as const;
 export type TeamBasis = (typeof TEAM_BASES)[number];
 
 /** Where the day's lineup came from — schemas.py: LineupSource. */
-export type LineupSource = "espn" | "manual" | "carried" | "roster";
+export type LineupSource =
+  | "espn"
+  | "manual"
+  | "carried"
+  | "roster"
+  /* The Plan view's (task 30): plan-edited, carried from a plan-edited day, or the Actual
+   * lineup with each planned pickup in his drop's slot. */
+  | "plan_edit"
+  | "plan_carried"
+  | "from_actual";
 
 /** A player on no roster is one of these — schemas.py: PoolStatus. */
 export type PoolStatus = "FREEAGENT" | "WAIVERS";
@@ -1050,6 +1059,8 @@ export type TeamPlayer = {
   injury_status: string | null;
   game: GameInfo | null;
   stats: StatLine | null;
+  /** Plan view only (task 30); null in the Actual view. */
+  plan?: PlanFlag | null;
 };
 
 /** One row of the slot grid — schemas.py: SlotRow. An empty slot is still a row. */
@@ -1063,6 +1074,10 @@ export type Acquisitions = {
   used: number;
   limit: number | null;
   matchup_id: number;
+  /** Task 30: `override` when a hand-set count replaces ESPN's. */
+  used_source?: "espn" | "override";
+  /** Task 30: planned (not yet made) pickups landing in this matchup. */
+  planned?: number;
 };
 
 /** schemas.py: TeamDayResponse. */
@@ -1078,10 +1093,160 @@ export type TeamDayResponse = {
   /** The display stats at least one line has, in print order. */
   stat_columns: string[];
   lineup_source: LineupSource;
+  /** Task 30: the earlier day a carried lineup comes from (`carried`, `plan_carried`). */
+  carried_from_sp?: number | null;
+  carried_from_date?: string | null;
   acquisitions: Acquisitions;
   slots: TeamSlotRow[];
   warnings: string[];
+  /** Task 30. The rest are Plan view only (empty in the Actual view). */
+  view?: DayView;
+  planned_drops?: PlannedDrop[];
+  plan_warnings?: PlanWarning[];
 };
+
+/* --- the waiver plan (task 30) ------------------------------------------------------- */
+
+export type DayView = "actual" | "plan";
+export type PlanMoveStatus = "planned" | "done" | "skipped";
+
+/** schemas.py: PlanPlayerRef. */
+export type PlanPlayerRef = {
+  id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  injury_status: string | null;
+};
+
+/** schemas.py: PlanFlag. A roster player in the Plan view. */
+export type PlanFlag = {
+  status: "actual" | "planned";
+  move_id: number | null;
+  /** A planned pickup's backups still in play. */
+  alternatives: PlanPlayerRef[];
+  /** ESPN shows a pending waiver claim of ours for one of the move's candidates. */
+  claim_pending: boolean;
+};
+
+/** schemas.py: PlannedDropOut. */
+export type PlannedDrop = {
+  player: PlanPlayerRef;
+  move_id: number;
+  /** An unsettled chained drop: who else it could turn out to be ("A (or B)"). */
+  alternatives: PlanPlayerRef[];
+};
+
+export type PlanWarningCode =
+  | "acq_limit"
+  | "on_waivers"
+  | "drop_not_rostered"
+  | "pickup_already_rostered"
+  | "double_pickup"
+  | "bad_chain"
+  | "chain_cycle"
+  | "backup_overlap"
+  | "no_game"
+  | "overdue"
+  | "different_drop";
+
+/** schemas.py: PlanWarningOut. Rules warn; they never block anything. */
+export type PlanWarning = {
+  code: PlanWarningCode;
+  severity: "warning" | "info";
+  message: string;
+  move_id: number | null;
+  matchup_id: number | null;
+  sp: number | null;
+  detail: Record<string, unknown>;
+};
+
+/** schemas.py: PlanDropOut. A named drop, or whoever another move picks up. */
+export type PlanDrop = {
+  player: PlanPlayerRef | null;
+  alternatives: PlanPlayerRef[];
+  from_move_id: number | null;
+  problem: "missing" | "later" | "skipped" | "cycle" | null;
+  /** `Jerami Grant`, or `Jerami Grant (or Bam Adebayo)`. */
+  display: string;
+};
+
+/** schemas.py: PlanMoveOut. */
+export type PlanMove = {
+  id: number;
+  sp: number;
+  date: string;
+  matchup_id: number | null;
+  sequence: number;
+  status: PlanMoveStatus;
+  /** The day it takes effect in the plan (today if overdue). Null unless planned. */
+  lands_sp: number | null;
+  overdue: boolean;
+  drop: PlanDrop;
+  candidates: { rank: number; player: PlanPlayerRef }[];
+  /** The resolved candidate, else the primary. */
+  pickup: PlanPlayerRef | null;
+  alternatives: PlanPlayerRef[];
+  resolved_player_id: number | null;
+  claim_pending: boolean;
+  espn_transaction_id: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** schemas.py: AcquisitionRow. */
+export type PlanAcquisitions = {
+  matchup_id: number;
+  label: string;
+  used: number;
+  used_source: "espn" | "override";
+  planned: number;
+  limit: number | null;
+  over: boolean;
+};
+
+/** schemas.py: PlanResponse. */
+export type PlanResponse = {
+  season: number;
+  today_sp: number;
+  /** Plan order: (sp, sequence, id). */
+  moves: PlanMove[];
+  warnings: PlanWarning[];
+  acquisitions: PlanAcquisitions[];
+};
+
+/** schemas.py: PlanMutationResponse. The whole plan, plus the move created or changed. */
+export type PlanMutationResponse = PlanResponse & { move_id: number | null };
+
+/** schemas.py: PlanDeleteResponse. */
+export type PlanDeleteResponse = PlanResponse & {
+  deleted_move_id: number;
+  repointed: number[];
+};
+
+/** schemas.py: PlanMoveCreate. Exactly one of the two drop references. */
+export type PlanMoveCreateBody = {
+  sp: number;
+  drop_player_id?: number | null;
+  drop_from_move_id?: number | null;
+  /** Rank order: the primary first, then the backups. */
+  candidate_ids: number[];
+  note?: string | null;
+  sequence?: number | null;
+};
+
+/** schemas.py: PlanMovePatch. Only the keys sent are touched. */
+export type PlanMovePatchBody = Partial<{
+  sp: number;
+  sequence: number;
+  drop_player_id: number | null;
+  drop_from_move_id: number | null;
+  candidate_ids: number[];
+  status: PlanMoveStatus;
+  resolved_player_id: number | null;
+  note: string | null;
+}>;
 
 export type LineupAssignment = {
   player_id: number;
@@ -1146,6 +1311,8 @@ export type FreeAgentRow = {
   stats: StatSummary | null;
   /** On our shared watchlist. */
   watched: boolean;
+  /** Task 30: every planned move he's a candidate in (rank 1 = the primary pickup). */
+  in_plan?: { move_id: number; sp: number; rank: number }[];
 };
 
 /** schemas.py: DayRef. */
@@ -1760,8 +1927,41 @@ export const api = {
    * My roster on one day in ESPN's slot grid, empty slots included. A 409 means no team has
    * been synced yet (`make sync`), which the page shows as a state rather than a failure.
    */
-  teamDay: (params: { sp?: number; basis?: TeamBasis } = {}) =>
-    request<TeamDayResponse>(`/team/day${query({ sp: params.sp, basis: params.basis })}`),
+  teamDay: (params: { sp?: number; basis?: TeamBasis; view?: DayView } = {}) =>
+    request<TeamDayResponse>(
+      `/team/day${query({ sp: params.sp, basis: params.basis, view: params.view })}`,
+    ),
+
+  /** The shared waiver plan: moves, warnings, and the acquisition math per matchup. */
+  plan: () => request<PlanResponse>("/team/plan"),
+
+  /** Plan a move. League rules only warn; a 422 is a malformed move (its `details` say why). */
+  createPlanMove: (body: PlanMoveCreateBody) => post<PlanMutationResponse>("/team/plan/moves", body),
+
+  /** Change any of a move's fields; sending one drop reference clears the other. */
+  updatePlanMove: (moveId: number, body: PlanMovePatchBody) =>
+    request<PlanMutationResponse>(`/team/plan/moves/${moveId}`, {
+      method: "PATCH",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Delete a move. A 409 lists `dependent_move_ids` (moves dropping this one's pickup);
+   * `repoint` turns each into a named drop first.
+   */
+  deletePlanMove: (moveId: number, repoint = false) =>
+    del<PlanDeleteResponse>(
+      `/team/plan/moves/${moveId}${query({ repoint: repoint ? "true" : undefined })}`,
+    ),
+
+  /** Replace ESPN's adds-used count for a matchup (`used: null` clears it). */
+  setAcquisitionOverride: (matchupId: number, used: number | null) =>
+    put<PlanMutationResponse>("/team/plan/acquisition-override", { matchup_id: matchupId, used }),
+
+  /** Set the Plan view's lineup (validated against the plan roster; never the Actual one). */
+  savePlanLineup: (sp: number, body: LineupEditBody) =>
+    put<LineupEditResponse>(`/team/plan/lineup/${sp}`, body),
 
   /**
    * Set my lineup by hand for day `sp` (through `body.through_sp`). Every rostered player

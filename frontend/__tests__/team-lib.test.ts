@@ -138,6 +138,13 @@ describe("badges", () => {
     expect(lineupSourceLabel("roster")).toBe("From roster");
   });
 
+  it("labels the Plan view's three lineup sources", () => {
+    expect(lineupSourceLabel("plan_edit")).toBe("Plan: edited here");
+    expect(lineupSourceLabel("plan_carried", "2026-10-22")).toBe("Plan: carried from Thu 10/22");
+    expect(lineupSourceLabel("plan_carried")).toBe("Plan: carried from an earlier day");
+    expect(lineupSourceLabel("from_actual")).toBe("Plan: from the actual lineup");
+  });
+
   it("shows an injury badge only for an unhealthy status", () => {
     expect(injuryBadge(null)).toBeNull();
     expect(injuryBadge("ACTIVE")).toBeNull();

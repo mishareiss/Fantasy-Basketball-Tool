@@ -250,7 +250,14 @@ def test_acquisitions_read_espn_counter_for_the_days_matchup(league, db, totals,
     db.flush()
 
     body = league.get("/team/day", params={"sp": 3}).json()
-    assert body["acquisitions"] == {"used": used, "limit": 7, "matchup_id": 1}
+    # Task 30 adds `used_source` and `planned` (no plan here, so ESPN's count and 0).
+    assert body["acquisitions"] == {
+        "used": used,
+        "limit": 7,
+        "matchup_id": 1,
+        "used_source": "espn",
+        "planned": 0,
+    }
 
 
 def test_acquisitions_follow_the_days_matchup(league, db):
@@ -258,7 +265,13 @@ def test_acquisitions_follow_the_days_matchup(league, db):
     team.matchup_acquisition_totals = {"1": 2, "2": 5}
     db.flush()
     body = league.get("/team/day", params={"sp": 7}).json()
-    assert body["acquisitions"] == {"used": 5, "limit": 7, "matchup_id": 2}
+    assert body["acquisitions"] == {
+        "used": 5,
+        "limit": 7,
+        "matchup_id": 2,
+        "used_source": "espn",
+        "planned": 0,
+    }
 
 
 @pytest.mark.parametrize("sp", [0, -1, 161])
@@ -638,8 +651,9 @@ def test_the_list_is_a_fixed_handful_of_queries(pool, db):
 
     assert body["total"] == 304
     # Was 8; task 29a adds exactly one: the watchlist, read once for every row's `watched` and
-    # the `watchlist=true` filter. The other eight are unchanged.
-    assert len(statements) <= 9, statements
+    # the `watchlist=true` filter. Task 30 adds exactly one more: the page's plan candidacies
+    # (`in_plan`), my team joined in rather than looked up. The other eight are unchanged.
+    assert len(statements) <= 10, statements
 
 
 # --- the watchlist --------------------------------------------------------------------------

@@ -1025,7 +1025,7 @@ def test_there_is_exactly_one_head_after_this_revision(migrated):
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [WATCHLIST]
+    assert ScriptDirectory.from_config(config).get_heads() == [WAIVER_PLAN]
 
 
 # --- the in-season team data (task 27) ------------------------------------------------------
@@ -1138,3 +1138,78 @@ def test_a_player_is_watched_once_per_season(migrated):
         _watch(connection, 2028, 1)
     with pytest.raises(IntegrityError), engine.begin() as connection:
         _watch(connection, 2027, 1)
+
+
+# --- the waiver plan (task 30) --------------------------------------------------------------
+
+WAIVER_PLAN = "e4b9a2c7d150"
+PLAN_TABLES = {"plan_move", "plan_candidate", "plan_lineup_assignment", "acquisition_override"}
+
+
+def _plan_move(connection, move_id: int, *, drop: str = "1", chained: str = "NULL") -> None:
+    connection.execute(
+        text(
+            "INSERT INTO plan_move (id, season, team_id, scoring_period_id, sequence, "
+            "drop_player_id, drop_from_move_id, status, drop_mismatch) "
+            f"VALUES ({move_id}, 2027, 8, 2, 0, {drop}, {chained}, 'planned', 0)"
+        )
+    )
+
+
+def test_the_waiver_plan_round_trip_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, WATCHLIST)
+    with engine.begin() as connection:
+        _seed_players(connection, (1, 2))
+
+    command.upgrade(config, WAIVER_PLAN)
+    assert _table_names(engine) >= PLAN_TABLES
+    with engine.begin() as connection:
+        _plan_move(connection, 1)
+        _plan_move(connection, 2, drop="NULL", chained="1")
+        connection.execute(
+            text("INSERT INTO plan_candidate (move_id, rank, player_id) VALUES (1, 1, 2)")
+        )
+        connection.execute(
+            text(
+                "INSERT INTO acquisition_override (season, team_id, matchup_id, used) "
+                "VALUES (2027, 8, 1, 3)"
+            )
+        )
+        # Timestamps default on the server.
+        assert connection.scalar(text("SELECT created_at FROM plan_move WHERE id = 1"))
+
+    command.downgrade(config, WATCHLIST)
+    assert not PLAN_TABLES & _table_names(engine)
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM player")) == 2
+
+    command.upgrade(config, WAIVER_PLAN)
+    assert _table_names(engine) >= PLAN_TABLES
+
+
+@pytest.mark.parametrize(("drop", "chained"), [("NULL", "NULL"), ("1", "1")])
+def test_a_move_has_exactly_one_drop_reference(migrated, drop, chained):
+    config, engine = migrated
+    command.upgrade(config, WAIVER_PLAN)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        _plan_move(connection, 1)
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _plan_move(connection, 2, drop=drop, chained=chained)
+
+
+def test_a_candidate_is_unique_by_rank_and_by_player_within_a_move(migrated):
+    config, engine = migrated
+    command.upgrade(config, WAIVER_PLAN)
+    with engine.begin() as connection:
+        _seed_players(connection, (1, 2, 3))
+        _plan_move(connection, 1)
+        connection.execute(
+            text("INSERT INTO plan_candidate (move_id, rank, player_id) VALUES (1, 1, 2)")
+        )
+    for values in ("(1, 1, 3)", "(1, 2, 2)"):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(f"INSERT INTO plan_candidate (move_id, rank, player_id) VALUES {values}")
+            )
