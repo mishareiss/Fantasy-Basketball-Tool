@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+
+import { DIALOG_HEADING, DIALOG_SECTION, PlayerDialog } from "@/components/PlayerDialog";
 
 import {
   ApiError,
@@ -44,8 +46,8 @@ const TILE =
   "flex flex-col items-center rounded-md bg-zinc-100 px-2 py-1.5 dark:bg-zinc-900";
 const TILE_LABEL = "text-[10px] font-medium tracking-wide text-zinc-500 uppercase";
 const TILE_VALUE = "font-mono text-sm tabular-nums text-zinc-900 dark:text-zinc-100";
-const SECTION = "flex flex-col gap-2";
-const HEADING = "text-[11px] font-semibold tracking-wide text-zinc-500 uppercase";
+const SECTION = DIALOG_SECTION;
+const HEADING = DIALOG_HEADING;
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (
@@ -236,10 +238,6 @@ export function PlayerDetail({
    * into it before the fetch starts.
    */
   const [settled, setSettled] = useState<Settled | null>(null);
-  const dialog = useRef<HTMLDivElement | null>(null);
-  // Where focus was when this opened, so closing puts it back on the row rather than at the
-  // top of a thousand-row table.
-  const opener = useRef<Element | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,98 +258,53 @@ export function PlayerDetail({
   const detail = fresh?.status === "ready" ? fresh.detail : null;
   const error = fresh?.status === "error" ? fresh.error : null;
 
-  useEffect(() => {
-    opener.current = document.activeElement;
-    dialog.current?.focus();
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      // Restoring focus is the half of "dismissable" that is easy to forget and the only half
-      // a keyboard notices.
-      (opener.current as HTMLElement | null)?.focus?.();
-    };
-  }, [onClose]);
-
   const heading = `player-detail-${playerId}`;
 
   return (
-    <div
-      // The backdrop. A click on it closes; a click inside the panel does not, which is what
-      // the `stopPropagation` on the panel below is for.
-      onClick={onClose}
-      data-detail-backdrop
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-900/40 p-4 pt-10 backdrop-blur-sm"
+    <PlayerDialog
+      headingId={heading}
+      title={detail?.name ?? name}
+      subtitle={
+        detail === null
+          ? "Reading his numbers…"
+          : `${positionList(detail.positions)} · ${whole(detail.age)} · ${detail.nba_team ?? MISSING}`
+      }
+      closeLabel={`Close ${name}`}
+      onClose={onClose}
     >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={heading}
-        tabIndex={-1}
-        onClick={(event) => event.stopPropagation()}
-        className="flex w-full max-w-2xl flex-col gap-5 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:border-zinc-800 dark:bg-zinc-950"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-0.5">
-            <h2
-              id={heading}
-              className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
-            >
-              {detail?.name ?? name}
-            </h2>
-            <p className="text-xs text-zinc-500">
-              {detail === null
-                ? "Reading his numbers…"
-                : `${positionList(detail.positions)} · ${whole(detail.age)} · ${detail.nba_team ?? MISSING}`}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${name}`}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:hover:bg-zinc-900"
-          >
-            Close
-          </button>
-        </div>
+      {error !== null ? (
+        // Local, and small: the board behind this is fine, so this is a sentence rather than
+        // the page's failure panel.
+        <p
+          role="status"
+          data-detail="error"
+          className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:bg-rose-500/10 dark:text-rose-200"
+        >
+          Couldn’t read his numbers{error.detail ? ` — ${error.detail}` : ""}. The board is
+          unaffected; close this and try again.
+        </p>
+      ) : detail === null ? (
+        <p role="status" aria-live="polite" data-detail="loading" className="text-sm text-zinc-500">
+          Reading his numbers…
+        </p>
+      ) : (
+        <>
+          {detail.last_season === null ? (
+            <section className={SECTION} data-detail="no-last-season">
+              <h3 className={HEADING}>Last season</h3>
+              <p className="text-xs text-zinc-500">
+                He has never completed a season we hold — a rookie, or a player ESPN has no
+                finished split for. Not a zero: there is no line to show, which is a
+                different thing from a bad one.
+              </p>
+            </section>
+          ) : (
+            <LastSeason season={detail.last_season} />
+          )}
 
-        {error !== null ? (
-          // Local, and small: the board behind this is fine, so this is a sentence rather than
-          // the page's failure panel.
-          <p
-            role="status"
-            data-detail="error"
-            className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:bg-rose-500/10 dark:text-rose-200"
-          >
-            Couldn’t read his numbers{error.detail ? ` — ${error.detail}` : ""}. The board is
-            unaffected; close this and try again.
-          </p>
-        ) : detail === null ? (
-          <p role="status" aria-live="polite" data-detail="loading" className="text-sm text-zinc-500">
-            Reading his numbers…
-          </p>
-        ) : (
-          <>
-            {detail.last_season === null ? (
-              <section className={SECTION} data-detail="no-last-season">
-                <h3 className={HEADING}>Last season</h3>
-                <p className="text-xs text-zinc-500">
-                  He has never completed a season we hold — a rookie, or a player ESPN has no
-                  finished split for. Not a zero: there is no line to show, which is a
-                  different thing from a bad one.
-                </p>
-              </section>
-            ) : (
-              <LastSeason season={detail.last_season} />
-            )}
-
-            <Market market={detail.market} lines={detail.market_lines} />
-          </>
-        )}
-      </div>
-    </div>
+          <Market market={detail.market} lines={detail.market_lines} />
+        </>
+      )}
+    </PlayerDialog>
   );
 }

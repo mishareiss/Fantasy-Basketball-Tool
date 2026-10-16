@@ -23,6 +23,7 @@ from app.db.models.team import (
     NbaGame,
     RosterEntry,
 )
+from app.db.models.watchlist import WatchlistEntry
 
 __all__ = [
     "DRAFT_MODES",
@@ -52,4 +53,5 @@ __all__ = [
     "RankingSet",
     "RosterEntry",
     "ScoringRule",
+    "WatchlistEntry",
 ]

@@ -32,6 +32,10 @@ from app.team.schemas import (
     TeamCalendarResponse,
     TeamDayResponse,
     TeamRef,
+    WatchlistEntryOut,
+    WatchlistPutRequest,
+    WatchlistRemoved,
+    WatchlistResponse,
 )
 from app.team.store import my_team
 from app.team.waivers import acquisition_settings
@@ -181,6 +185,23 @@ def _parse_days(raw: str | None, season: int) -> list[int]:
     return list(dict.fromkeys(days))
 
 
+def _parse_positions(raw: str | None) -> list[str]:
+    """`SF,PF` -> ["SF", "PF"]: any of them (OR). Empty or absent = every position. A name
+    that isn't one of `views.FILTER_POSITIONS` is a 422 rather than silently ignored, so a
+    typo can't quietly widen the list back to everyone."""
+    if raw is None:
+        return []
+    positions = list(dict.fromkeys(part.strip().upper() for part in raw.split(",") if part.strip()))
+    unknown = [name for name in positions if name not in views.FILTER_POSITIONS]
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"position must be a comma-separated list of {', '.join(views.FILTER_POSITIONS)}, "
+            f"not {', '.join(unknown)}",
+        )
+    return positions
+
+
 @router.get("/free-agents", response_model=FreeAgentsResponse)
 def free_agents(
     days: str | None = Query(None, description="Comma-separated scoring periods (default: today)"),
@@ -188,8 +209,11 @@ def free_agents(
         "none", description="none: no day filter; any: plays on one of `days`; all: on every one"
     ),
     basis: Basis = Query("projected"),
-    position: Literal["PG", "SG", "SF", "PF", "C"] | None = Query(None),
+    position: str | None = Query(
+        None, description="Comma-separated PG/SG/SF/PF/C: eligible at any of them (default: all)"
+    ),
     status_: Literal["all", "FREEAGENT", "WAIVERS"] = Query("all", alias="status"),
+    watchlist: bool = Query(False, description="Only players on the watchlist"),
     q: str | None = Query(None, description="Name contains (case-insensitive)"),
     sort: Literal["fpts", "name", "games"] = Query("fpts"),
     limit: int = Query(100, ge=1, le=500),
@@ -200,6 +224,7 @@ def free_agents(
     """Everyone on no roster (free agents and waivers), with their games on `days`."""
     season = _season()
     parsed = _parse_days(days, season)
+    positions = _parse_positions(position)
     with _domain_errors():
         return views.free_agents(
             db,
@@ -207,8 +232,9 @@ def free_agents(
             days=parsed,
             mode=mode,
             basis=basis,
-            position=position,
+            positions=positions,
             status=status_,
+            watchlist=watchlist,
             q=q,
             sort=sort,
             limit=limit,
@@ -227,6 +253,37 @@ def player_card(
     season = _season()
     with _domain_errors():
         return views.player_card(db, season, player_id, _default_period(season, from_sp))
+
+
+@router.get("/watchlist", response_model=WatchlistResponse)
+def get_watchlist(db: Session = Depends(get_db)) -> WatchlistResponse:
+    """Our shared watchlist, newest first, with who holds each player now."""
+    return views.watchlist(db, _season())
+
+
+@router.put("/watchlist/{player_id}", response_model=WatchlistEntryOut)
+def put_watchlist(
+    player_id: int = Path(..., description="Our canonical (ESPN) player id"),
+    body: WatchlistPutRequest | None = Body(None),
+    db: Session = Depends(get_db),
+) -> WatchlistEntryOut:
+    """Watch a player. Idempotent; a `note` in the body replaces his note, no body keeps it."""
+    season = _season()
+    set_note = body is not None and "note" in body.model_fields_set
+    with _domain_errors():
+        return views.watch(
+            db, season, player_id, _now(), note=body.note if body else None, set_note=set_note
+        )
+
+
+@router.delete("/watchlist/{player_id}", response_model=WatchlistRemoved)
+def delete_watchlist(
+    player_id: int = Path(..., description="Our canonical (ESPN) player id"),
+    db: Session = Depends(get_db),
+) -> WatchlistRemoved:
+    """Stop watching a player. Idempotent: someone not on the list is a 200 with
+    `removed: false`, not an error."""
+    return views.unwatch(db, _season(), player_id)
 
 
 @router.get("/calendar", response_model=TeamCalendarResponse)

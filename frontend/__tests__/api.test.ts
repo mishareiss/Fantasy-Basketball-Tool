@@ -416,6 +416,57 @@ describe("api.draftAvailability and api.updateDraftConfig", () => {
   });
 });
 
+describe("api.freeAgents and the watchlist calls", () => {
+  // Several calls per test, so each needs its own unread body.
+  beforeEach(() => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+  });
+
+  function params(): Record<string, string> {
+    return Object.fromEntries(new URL(requestedUrl()).searchParams);
+  }
+
+  it("sends the chosen positions as one comma list, and none as no param", async () => {
+    await api.freeAgents({ positions: ["SF", "PF"], days: [1, 3] });
+    expect(params()).toEqual({ position: "SF,PF", days: "1,3" });
+
+    fetchMock.mockClear();
+    await api.freeAgents({ positions: [] });
+    expect(params()).toEqual({});
+  });
+
+  it("sends watchlist=true only for the watchlist view", async () => {
+    await api.freeAgents({ watchlist: true });
+    expect(params()).toEqual({ watchlist: "true" });
+
+    fetchMock.mockClear();
+    await api.freeAgents({ watchlist: false });
+    expect(params()).toEqual({});
+  });
+
+  it("PUTs and DELETEs one player's watch", async () => {
+    await api.watchPlayer(42);
+    let [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(`${API_BASE_URL}/team/watchlist/42`);
+    expect(init?.method).toBe("PUT");
+
+    fetchMock.mockClear();
+    await api.watchPlayer(42, { note: "minutes up" });
+    [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({ note: "minutes up" });
+
+    fetchMock.mockClear();
+    await api.unwatchPlayer(42);
+    [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(`${API_BASE_URL}/team/watchlist/42`);
+    expect(init?.method).toBe("DELETE");
+
+    fetchMock.mockClear();
+    await api.watchlist();
+    expect(requestedUrl()).toBe(`${API_BASE_URL}/team/watchlist`);
+  });
+});
+
 describe("the import form", () => {
   const form = { ...EMPTY_FORM, source: "hashtag", text: "a,b\n1,2\n" };
 

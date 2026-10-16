@@ -39,11 +39,20 @@ def format_clock(moment: datetime) -> str:
     return f"{hour}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
 
 
+def format_matchup(info: GameInfo) -> str:
+    """The game cell's first line: `@ LAL` away, `vs LAL` home."""
+    return f"{'vs' if info.is_home else '@'} {info.opponent}"
+
+
+def format_time(info: GameInfo) -> str:
+    """The game cell's second line: `7:00 PM` Pacific, or `TBD` with no time set."""
+    return "TBD" if info.start_time_tbd else format_clock(info.starts_at)
+
+
 def format_game(info: GameInfo) -> str:
-    """ESPN's game column: `@ LAL 7:00 PM` away, `vs LAL 7:00 PM` home, `TBD` with no time."""
-    side = "vs" if info.is_home else "@"
-    when = "TBD" if info.start_time_tbd else format_clock(info.starts_at)
-    return f"{side} {info.opponent} {when}"
+    """ESPN's game column on one line: `@ LAL 7:00 PM` away, `vs LAL 7:00 PM` home,
+    `@ LAL TBD` with no time. The two halves are `format_matchup` and `format_time`."""
+    return f"{format_matchup(info)} {format_time(info)}"
 
 
 def format_clears_at(moment: datetime) -> str:

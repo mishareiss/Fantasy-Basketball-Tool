@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.team.display import GameInfo, format_clears_at, format_clock, format_game
+from app.team.display import (
+    GameInfo,
+    format_clears_at,
+    format_clock,
+    format_game,
+    format_matchup,
+    format_time,
+)
 from app.team.grid import (
     LineupCandidate,
     build_slot_grid,
@@ -59,6 +66,26 @@ def test_a_utc_morning_game_is_the_previous_pacific_evening():
 
 def test_tbd_games_have_no_time():
     assert format_game(_game(datetime(2026, 10, 22, 2, 0, tzinfo=UTC), tbd=True)) == "@ LAL TBD"
+
+
+@pytest.mark.parametrize(
+    ("starts_at", "home", "tbd", "matchup", "time"),
+    [
+        # Away, October: PDT (UTC-7).
+        (datetime(2026, 10, 22, 2, 0, tzinfo=UTC), False, False, "@ LAL", "7:00 PM"),
+        # Home.
+        (datetime(2026, 10, 22, 2, 0, tzinfo=UTC), True, False, "vs LAL", "7:00 PM"),
+        # No tip time yet.
+        (datetime(2026, 10, 22, 2, 0, tzinfo=UTC), False, True, "@ LAL", "TBD"),
+        # November: PST (UTC-8), so 03:00Z is 7:00 PM, not 8:00 PM.
+        (datetime(2026, 11, 5, 3, 0, tzinfo=UTC), True, False, "vs LAL", "7:00 PM"),
+    ],
+)
+def test_the_two_line_cell_halves(starts_at, home, tbd, matchup, time):
+    game = _game(starts_at, home=home, tbd=tbd)
+    assert (format_matchup(game), format_time(game)) == (matchup, time)
+    # The one-line string is exactly the two halves joined.
+    assert format_game(game) == f"{matchup} {time}"
 
 
 def test_clock_edges():

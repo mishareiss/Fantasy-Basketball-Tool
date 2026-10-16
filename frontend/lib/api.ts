@@ -985,16 +985,360 @@ export type DraftPlanParams = {
   seed?: number;
 };
 
+/* -------------------------------------------------------------------------------------- *
+ * The in-season Team tab — app/api/team.py + app/team/schemas.py (and POST /sync/lineup in
+ * app/api/sync.py)
+ *
+ * Dates are ISO `YYYY-MM-DD`, times ISO UTC, and every `display` string is already Pacific,
+ * written by the server: the page prints them rather than formatting a time itself.
+ * -------------------------------------------------------------------------------------- */
+
+/** What a stat line is priced over — schemas.py: Basis. */
+export const TEAM_BASES = ["projected", "season", "l7", "l15", "l30"] as const;
+export type TeamBasis = (typeof TEAM_BASES)[number];
+
+/** Where the day's lineup came from — schemas.py: LineupSource. */
+export type LineupSource = "espn" | "manual" | "carried" | "roster";
+
+/** A player on no roster is one of these — schemas.py: PoolStatus. */
+export type PoolStatus = "FREEAGENT" | "WAIVERS";
+
+/** The waiver list's day filter — app/api/team.py: `mode`. */
+export type DayFilterMode = "none" | "any" | "all";
+
+/** schemas.py: StatLine, which IS players.py's SeasonLine. */
+export type StatLine = SeasonLine;
+
+export type TeamRef = {
+  id: number;
+  name: string;
+  abbrev: string | null;
+};
+
+export type MatchupRef = {
+  id: number;
+  label: string;
+  start: string;
+  end: string;
+};
+
+/** One player's game on one day, from his side — schemas.py: GameOut. */
+export type GameInfo = {
+  game_id: number;
+  sp: number;
+  opponent_pro_team_id: number;
+  opponent: string;
+  is_home: boolean;
+  starts_at: string;
+  start_time_tbd: boolean;
+  /** `@ LAL 7:00 PM` / `vs LAL 7:00 PM` / `@ LAL TBD`, Pacific. */
+  display: string;
+  /** The same split for a two-line cell: `@ LAL` / `vs LAL` … */
+  display_matchup: string;
+  /** … over `7:00 PM` / `TBD`. */
+  display_time: string;
+};
+
+/** schemas.py: RosterPlayer. */
+export type TeamPlayer = {
+  id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  /** ESPN slot ids he may be put in (PG 0 … UT 11, BE 12, IR 13). */
+  eligible_slots: number[];
+  injury_status: string | null;
+  game: GameInfo | null;
+  stats: StatLine | null;
+};
+
+/** One row of the slot grid — schemas.py: SlotRow. An empty slot is still a row. */
+export type TeamSlotRow = {
+  slot_id: number;
+  slot: string;
+  player: TeamPlayer | null;
+};
+
+export type Acquisitions = {
+  used: number;
+  limit: number | null;
+  matchup_id: number;
+};
+
+/** schemas.py: TeamDayResponse. */
+export type TeamDayResponse = {
+  season: number;
+  sp: number;
+  date: string;
+  matchup: MatchupRef;
+  is_today: boolean;
+  team: TeamRef;
+  actuals_available: boolean;
+  basis: TeamBasis;
+  /** The display stats at least one line has, in print order. */
+  stat_columns: string[];
+  lineup_source: LineupSource;
+  acquisitions: Acquisitions;
+  slots: TeamSlotRow[];
+  warnings: string[];
+};
+
+export type LineupAssignment = {
+  player_id: number;
+  slot_id: number;
+};
+
+/** schemas.py: LineupEditRequest. Every rostered player exactly once. */
+export type LineupEditBody = {
+  assignments: LineupAssignment[];
+  /** Write the same lineup to every day from `sp` through this one (inclusive). */
+  through_sp?: number | null;
+};
+
+/** schemas.py: LineupEditResponse. */
+export type LineupEditResponse = TeamDayResponse & {
+  days_written: number;
+};
+
+/** schemas.py: SyncLineupResponse (app/api/sync.py). */
+export type SyncLineupResponse = {
+  team_id: number;
+  first_sp: number;
+  last_sp: number;
+  days: number;
+  assignments: number;
+};
+
+/** schemas.py: WaiverOut. */
+export type WaiverInfo = {
+  clears_at: string | null;
+  /** `clears Thu 10/22`, Pacific. Null when the clear time isn't known. */
+  clears_at_display: string | null;
+  clears_at_known: boolean;
+};
+
+/** schemas.py: StatSummary. */
+export type StatSummary = {
+  fantasy_ppg: number;
+  games: number | null;
+};
+
+/** schemas.py: DayGame. */
+export type DayGame = {
+  sp: number;
+  game: GameInfo | null;
+};
+
+/** schemas.py: FreeAgentRow. */
+export type FreeAgentRow = {
+  id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  eligible_slots: number[];
+  injury_status: string | null;
+  status: PoolStatus;
+  /** Null for a free agent; set for a player on waivers. */
+  waiver: WaiverInfo | null;
+  /** Aligned with the response's `days`. */
+  games: DayGame[];
+  games_in_days: number;
+  stats: StatSummary | null;
+  /** On our shared watchlist. */
+  watched: boolean;
+};
+
+/** schemas.py: DayRef. */
+export type DayRef = {
+  sp: number;
+  date: string;
+  matchup_id: number | null;
+};
+
+/** schemas.py: FreeAgentsResponse. */
+export type FreeAgentsResponse = {
+  season: number;
+  days: DayRef[];
+  mode: DayFilterMode;
+  basis: TeamBasis;
+  actuals_available: boolean;
+  /** Matching players before `limit` / `offset`. */
+  total: number;
+  players: FreeAgentRow[];
+};
+
+export type FreeAgentSort = "fpts" | "name" | "games";
+export type FreeAgentStatusFilter = "all" | PoolStatus;
+
+/** The query of GET /team/free-agents. Every one is optional; the backend has defaults. */
+export type FreeAgentsParams = {
+  days?: number[];
+  mode?: DayFilterMode;
+  basis?: TeamBasis;
+  /** Eligible at ANY of these. Empty or absent: every position. */
+  positions?: readonly Position[];
+  /** The backend still takes it; the Team tab no longer sends it (every row is available,
+      and a waiver row carries its own badge). */
+  status?: FreeAgentStatusFilter;
+  /** Only players on the watchlist. */
+  watchlist?: boolean;
+  q?: string;
+  sort?: FreeAgentSort;
+  limit?: number;
+  offset?: number;
+};
+
+/** schemas.py: OwnerTeam. */
+export type OwnerTeam = {
+  team_id: number;
+  name: string;
+};
+
+/** schemas.py: CardPlayer. */
+export type CardPlayer = {
+  id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  eligible_slots: number[];
+  injury_status: string | null;
+  owner: PoolStatus | OwnerTeam;
+};
+
+/** schemas.py: CardStats. */
+export type CardStats = {
+  projected: StatLine | null;
+  season: StatLine | null;
+  l7: StatLine | null;
+  l15: StatLine | null;
+  l30: StatLine | null;
+};
+
+/** schemas.py: ScheduleDay. */
+export type ScheduleDay = {
+  sp: number;
+  date: string;
+  weekday: string;
+  matchup_id: number | null;
+  matchup_label: string | null;
+  game: GameInfo | null;
+};
+
+/** schemas.py: MatchupGroup. */
+export type MatchupGroup = {
+  matchup_id: number;
+  label: string;
+  start: string;
+  end: string;
+  /** The scoring periods of the window that fall in this matchup. */
+  days: number[];
+  games: number;
+};
+
+/** schemas.py: PlayerCardResponse. */
+export type TeamPlayerCardResponse = {
+  season: number;
+  player: CardPlayer;
+  waiver: WaiverInfo | null;
+  /** On our shared watchlist (the card's star). */
+  watched: boolean;
+  actuals_available: boolean;
+  stat_columns: string[];
+  stats: CardStats;
+  schedule: ScheduleDay[];
+  by_matchup: MatchupGroup[];
+};
+
+/** schemas.py: WatchlistEntryOut. A rostered player stays on the list, with his owner. */
+export type WatchlistEntry = {
+  player_id: number;
+  name: string;
+  nba_team: string | null;
+  positions: string[];
+  injury_status: string | null;
+  owner: PoolStatus | OwnerTeam;
+  added_at: string;
+  note: string | null;
+};
+
+/** schemas.py: WatchlistResponse. Newest first. */
+export type WatchlistResponse = {
+  season: number;
+  entries: WatchlistEntry[];
+};
+
+/** schemas.py: WatchlistRemoved. */
+export type WatchlistRemoved = {
+  player_id: number;
+  /** False when he wasn't on the list: the delete is idempotent, not an error. */
+  removed: boolean;
+};
+
+/** schemas.py: CalendarMatchup. */
+export type CalendarMatchup = {
+  id: number;
+  label: string;
+  start: string;
+  end: string;
+  first_sp: number;
+  last_sp: number;
+};
+
+/** schemas.py: CalendarDay. */
+export type CalendarDay = {
+  sp: number;
+  date: string;
+  matchup_id: number | null;
+  /** How many of my rostered players have a game that day. */
+  my_games: number;
+};
+
+/** schemas.py: TeamCalendarResponse. */
+export type TeamCalendarResponse = {
+  season: number;
+  /** Null before tip-off and after the final. */
+  today_period: number | null;
+  effective_period: number;
+  final_period: number;
+  matchups: CalendarMatchup[];
+  days: CalendarDay[];
+};
+
+/** app/api/team.py: TeamStatusResponse. */
+export type TeamStatusResponse = {
+  season: number;
+  my_team: TeamRef | null;
+  today_period: number | null;
+  today_date: string;
+  current_matchup: MatchupRef;
+  games_synced: number;
+  roster_size: number;
+  lineup_days_stored: number;
+  actuals_available: boolean;
+  acquisition_limit: number | null;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
     /** FastAPI's `detail`, when the error body carried one. */
     readonly detail?: string,
+    /** FastAPI's `detail` when it was a LIST: every reason a write was refused (a rejected
+        lineup lists each one). Kept apart from `detail` so a list never changes what a page
+        that only reads `detail` shows. */
+    readonly details?: string[],
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** One entry of a list `detail`: a plain string (a refused lineup), or pydantic's `{msg}`. */
+function reason(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (item && typeof item === "object" && "msg" in item) return String((item as { msg: unknown }).msg);
+  return JSON.stringify(item);
 }
 
 /** Build a query string, dropping anything the caller left undefined or null. */
@@ -1043,11 +1387,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // FastAPI's `detail` is the only human-readable half of an error ("run `make sync`
     // first"), so it is worth carrying up rather than reporting a bare status code.
     let detail: string | undefined;
+    let details: string[] | undefined;
     try {
       const body: unknown = await response.json();
       if (body && typeof body === "object" && "detail" in body) {
         const value = (body as { detail: unknown }).detail;
         if (typeof value === "string") detail = value;
+        else if (Array.isArray(value)) details = value.map(reason);
       }
     } catch {
       // Non-JSON error body: the status code is all we get.
@@ -1058,7 +1404,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // error is still thrown — a page mid-fetch has to stop, not hang.
       reportUnauthorized();
     }
-    throw new ApiError(`${path} responded ${response.status}`, response.status, detail);
+    throw new ApiError(`${path} responded ${response.status}`, response.status, detail, details);
   }
 
   return (await response.json()) as T;
@@ -1401,4 +1747,64 @@ export const api = {
    */
   updateDraftConfig: (body: DraftConfigBody) =>
     put<DraftStateResponse>("/draft/config", body),
+
+  /* --- the in-season Team tab --------------------------------------------------------- */
+
+  /** What the Team tab has to work with: our team, today's period and matchup, the counts. */
+  teamStatus: () => request<TeamStatusResponse>("/team/status"),
+
+  /** Every fantasy day with its matchup and how many of mine play: the day picker's data. */
+  teamCalendar: () => request<TeamCalendarResponse>("/team/calendar"),
+
+  /**
+   * My roster on one day in ESPN's slot grid, empty slots included. A 409 means no team has
+   * been synced yet (`make sync`), which the page shows as a state rather than a failure.
+   */
+  teamDay: (params: { sp?: number; basis?: TeamBasis } = {}) =>
+    request<TeamDayResponse>(`/team/day${query({ sp: params.sp, basis: params.basis })}`),
+
+  /**
+   * Set my lineup by hand for day `sp` (through `body.through_sp`). Every rostered player
+   * exactly once; a refused lineup is a 422 whose `details` lists every reason.
+   */
+  saveLineup: (sp: number, body: LineupEditBody) =>
+    put<LineupEditResponse>(`/team/lineup/${sp}`, body),
+
+  /** Pull ESPN's lineup over the stored one for the days in range, manual edits included. */
+  syncLineup: (params: { first_sp?: number; last_sp?: number } = {}) =>
+    post<SyncLineupResponse>(
+      `/sync/lineup${query({ first_sp: params.first_sp, last_sp: params.last_sp })}`,
+      {},
+    ),
+
+  /** Everyone on no roster, with their games on `days`. */
+  freeAgents: (params: FreeAgentsParams = {}) =>
+    request<FreeAgentsResponse>(
+      `/team/free-agents${query({
+        days: params.days && params.days.length > 0 ? params.days.join(",") : undefined,
+        mode: params.mode,
+        basis: params.basis,
+        position: params.positions && params.positions.length > 0 ? params.positions.join(",") : undefined,
+        status: params.status,
+        watchlist: params.watchlist ? "true" : undefined,
+        q: params.q,
+        sort: params.sort,
+        limit: params.limit,
+        offset: params.offset,
+      })}`,
+    ),
+
+  /** One player's card: every basis, who holds him, and 7 days from `fromSp` by matchup. */
+  teamPlayer: (playerId: number, fromSp?: number) =>
+    request<TeamPlayerCardResponse>(`/team/player/${playerId}${query({ from_sp: fromSp })}`),
+
+  /** The shared watchlist, newest first, with who holds each player now. */
+  watchlist: () => request<WatchlistResponse>("/team/watchlist"),
+
+  /** Watch a player. Idempotent; no body keeps his note, `{ note }` replaces it. */
+  watchPlayer: (playerId: number, body?: { note: string | null }) =>
+    put<WatchlistEntry>(`/team/watchlist/${playerId}`, body ?? null),
+
+  /** Stop watching a player. Idempotent: not watched is `removed: false`, not an error. */
+  unwatchPlayer: (playerId: number) => del<WatchlistRemoved>(`/team/watchlist/${playerId}`),
 };

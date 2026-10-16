@@ -23,6 +23,7 @@ from app.db.models import (
     Player,
     Projection,
     RosterEntry,
+    WatchlistEntry,
 )
 from app.espn.league import PLACEHOLDER_PRO_TEAM_ID, WAIVERS_STATUS
 from app.espn.sync import (
@@ -43,7 +44,13 @@ from app.team.calendar import (
     period_index,
     today_period,
 )
-from app.team.display import GameInfo, format_clears_at, format_game
+from app.team.display import (
+    GameInfo,
+    format_clears_at,
+    format_game,
+    format_matchup,
+    format_time,
+)
 from app.team.grid import (
     DayFilterMode,
     LineupCandidate,
@@ -79,6 +86,9 @@ from app.team.schemas import (
     TeamDayResponse,
     TeamRef,
     WaiverOut,
+    WatchlistEntryOut,
+    WatchlistRemoved,
+    WatchlistResponse,
 )
 from app.team.store import league_settings_row, my_team
 from app.team.waivers import WaiverStatus, waiver_statuses
@@ -182,6 +192,8 @@ def game_out(info: GameInfo | None) -> GameOut | None:
         starts_at=info.starts_at,
         start_time_tbd=info.start_time_tbd,
         display=format_game(info),
+        display_matchup=format_matchup(info),
+        display_time=format_time(info),
     )
 
 
@@ -483,8 +495,9 @@ def free_agents(
     days: Sequence[int],
     mode: DayFilterMode = "none",
     basis: Basis = "projected",
-    position: str | None = None,
+    positions: Sequence[str] = (),
     status: str = "all",
+    watchlist: bool = False,
     q: str | None = None,
     sort: str = "fpts",
     limit: int = 100,
@@ -494,9 +507,13 @@ def free_agents(
     """Everyone we could add: FREEAGENT or WAIVERS per ESPN, and on no roster this season.
 
     The day filter: `any` keeps a player with a game on at least one of `days`, `all` one with
-    a game on every one of them, `none` everybody. A fixed handful of queries however big the
-    pool: the pool, the schedule, one basis of stat lines, whether actuals exist, and the
-    waiver batch for the page's waiver players.
+    a game on every one of them, `none` everybody. `positions` keeps a player eligible at ANY
+    of them (none = every position). `watchlist` keeps only watched players; every row says
+    whether it's watched either way.
+
+    A fixed handful of queries however big the pool: the pool, the watchlist, the schedule,
+    one basis of stat lines, whether actuals exist, and the waiver batch for the page's
+    waiver players.
     """
     if not days:
         raise PeriodOutOfRange("days must name at least one scoring period")
@@ -514,10 +531,13 @@ def free_agents(
             Player.pro_team_id.is_not(None), Player.pro_team_id != PLACEHOLDER_PRO_TEAM_ID
         )
     pool = list(db.scalars(query))
+    watched = watched_ids(db, season)
 
-    if position is not None:
-        filter_slot = POSITION_MAP[position]
-        pool = [player for player in pool if _plays(player, filter_slot)]
+    if watchlist:
+        pool = [player for player in pool if player.espn_player_id in watched]
+    if positions:
+        filter_slots = [POSITION_MAP[position] for position in positions]
+        pool = [player for player in pool if any(_plays(player, slot) for slot in filter_slots)]
     if q:
         needle = q.casefold()
         pool = [player for player in pool if needle in player.full_name.casefold()]
@@ -581,6 +601,7 @@ def free_agents(
                 ],
                 games_in_days=games_in_days(player),
                 stats=StatSummary(fantasy_ppg=line.fantasy_ppg, games=line.games) if line else None,
+                watched=pid in watched,
             )
         )
 
@@ -604,6 +625,13 @@ class PlayerNotFound(LookupError):
     pass
 
 
+def _owner(player: Player, team_id: int | None, team_name: str | None) -> str | OwnerTeam:
+    """Who holds a player: the fantasy team rostering him, else WAIVERS or FREEAGENT."""
+    if team_id is not None:
+        return OwnerTeam(team_id=team_id, name=team_name or f"Team {team_id}")
+    return WAIVERS_STATUS if player.roster_status == WAIVERS_STATUS else FREEAGENT_STATUS
+
+
 def player_card(db: Session, season: int, player_id: int, from_sp: int) -> PlayerCardResponse:
     """One player in full: every stat basis, who holds him, and his next seven days of games,
     grouped by the matchup each day falls in."""
@@ -622,14 +650,7 @@ def player_card(db: Session, season: int, player_id: int, from_sp: int) -> Playe
         )
         .where(RosterEntry.season == season, RosterEntry.player_id == player_id)
     ).first()
-    if holder is not None:
-        owner: str | OwnerTeam = OwnerTeam(
-            team_id=holder.team_id, name=holder.name or f"Team {holder.team_id}"
-        )
-    elif player.roster_status == WAIVERS_STATUS:
-        owner = WAIVERS_STATUS
-    else:
-        owner = FREEAGENT_STATUS
+    owner = _owner(player, holder.team_id if holder else None, holder.name if holder else None)
 
     waiver = None
     if player.roster_status == WAIVERS_STATUS and holder is None:
@@ -684,12 +705,97 @@ def player_card(db: Session, season: int, player_id: int, from_sp: int) -> Playe
             owner=owner,
         ),
         waiver=waiver,
+        watched=player_id in watched_ids(db, season),
         actuals_available=actuals_available(db, season),
         stat_columns=stat_columns(lines.values()),
         stats=CardStats(**lines),
         schedule=schedule,
         by_matchup=list(groups.values()),
     )
+
+
+# --- the watchlist --------------------------------------------------------------------------
+
+
+def watched_ids(db: Session, season: int) -> set[int]:
+    """Every player on this season's watchlist, in one query."""
+    return set(db.scalars(select(WatchlistEntry.player_id).where(WatchlistEntry.season == season)))
+
+
+def _holder_join():
+    return (
+        select(WatchlistEntry, Player, RosterEntry.team_id, FantasyTeam.name)
+        .join(Player, Player.espn_player_id == WatchlistEntry.player_id)
+        .outerjoin(
+            RosterEntry,
+            and_(
+                RosterEntry.season == WatchlistEntry.season,
+                RosterEntry.player_id == WatchlistEntry.player_id,
+            ),
+        )
+        .outerjoin(
+            FantasyTeam,
+            and_(
+                FantasyTeam.season == RosterEntry.season, FantasyTeam.team_id == RosterEntry.team_id
+            ),
+        )
+    )
+
+
+def _entry_out(entry: WatchlistEntry, player: Player, team_id, team_name) -> WatchlistEntryOut:
+    return WatchlistEntryOut(
+        player_id=player.espn_player_id,
+        name=player.full_name,
+        nba_team=player.nba_team,
+        positions=list(player.positions or []),
+        injury_status=player.injury_status,
+        owner=_owner(player, team_id, team_name),
+        added_at=entry.added_at,
+        note=entry.note,
+    )
+
+
+def watchlist(db: Session, season: int) -> WatchlistResponse:
+    """The shared watchlist, newest first, with each player's current owner. One query."""
+    rows = db.execute(
+        _holder_join()
+        .where(WatchlistEntry.season == season)
+        .order_by(WatchlistEntry.added_at.desc(), WatchlistEntry.id.desc())
+    ).tuples()
+    return WatchlistResponse(season=season, entries=[_entry_out(*row) for row in rows])
+
+
+def watch(
+    db: Session, season: int, player_id: int, now: datetime, *, note: str | None, set_note: bool
+) -> WatchlistEntryOut:
+    """Add a player to the watchlist. Idempotent: watching him again keeps the original
+    `added_at`, and touches the note only when `set_note`. Commits."""
+    if db.get(Player, player_id) is None:
+        raise PlayerNotFound(f"No player {player_id}")
+    entry = db.scalar(
+        select(WatchlistEntry).where(
+            WatchlistEntry.season == season, WatchlistEntry.player_id == player_id
+        )
+    )
+    if entry is None:
+        entry = WatchlistEntry(season=season, player_id=player_id, added_at=now, note=note)
+        db.add(entry)
+    elif set_note:
+        entry.note = note
+    db.commit()
+    row = db.execute(_holder_join().where(WatchlistEntry.id == entry.id)).tuples().one()
+    return _entry_out(*row)
+
+
+def unwatch(db: Session, season: int, player_id: int) -> WatchlistRemoved:
+    """Take a player off the watchlist. Idempotent: not watched is not an error. Commits."""
+    result = db.execute(
+        delete(WatchlistEntry).where(
+            WatchlistEntry.season == season, WatchlistEntry.player_id == player_id
+        )
+    )
+    db.commit()
+    return WatchlistRemoved(player_id=player_id, removed=bool(result.rowcount))
 
 
 # --- the calendar ---------------------------------------------------------------------------

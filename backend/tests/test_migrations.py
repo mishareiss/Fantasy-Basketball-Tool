@@ -1025,7 +1025,7 @@ def test_there_is_exactly_one_head_after_this_revision(migrated):
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [TEAM_DATA]
+    assert ScriptDirectory.from_config(config).get_heads() == [WATCHLIST]
 
 
 # --- the in-season team data (task 27) ------------------------------------------------------
@@ -1088,3 +1088,53 @@ def test_a_roster_entry_is_one_per_player_per_season(migrated):
                 "VALUES (2027, 4, 1, 12)"
             )
         )
+
+
+# --- the watchlist (task 29a) ---------------------------------------------------------------
+
+WATCHLIST = "d8b3e6f2a419"
+
+
+def _watch(connection, season: int, player_id: int) -> None:
+    connection.execute(
+        text(
+            "INSERT INTO watchlist_entry (season, player_id, added_at) "
+            f"VALUES ({season}, {player_id}, '2026-10-15')"
+        )
+    )
+
+
+def test_the_watchlist_round_trip_leaves_a_working_schema(migrated):
+    config, engine = migrated
+    command.upgrade(config, TEAM_DATA)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+
+    command.upgrade(config, WATCHLIST)
+    assert {"player_id", "season", "added_at", "note"} <= _columns(engine, "watchlist_entry")
+    assert {
+        constraint["name"]
+        for constraint in inspect(engine).get_unique_constraints("watchlist_entry")
+    } == {"uq_watchlist_entry_season_player"}
+    with engine.begin() as connection:
+        _watch(connection, 2027, 1)
+
+    command.downgrade(config, TEAM_DATA)
+    assert "watchlist_entry" not in _table_names(engine)
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT full_name FROM player")) == "Player 1"
+
+    command.upgrade(config, WATCHLIST)
+    assert "watchlist_entry" in _table_names(engine)
+
+
+def test_a_player_is_watched_once_per_season(migrated):
+    config, engine = migrated
+    command.upgrade(config, WATCHLIST)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        _watch(connection, 2027, 1)
+        # Another season is a separate entry.
+        _watch(connection, 2028, 1)
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        _watch(connection, 2027, 1)

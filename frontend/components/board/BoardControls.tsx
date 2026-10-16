@@ -92,11 +92,14 @@ export function Segment({
   active,
   onClick,
   title,
+  disabled = false,
   children,
 }: {
   active: boolean;
   onClick: () => void;
   title?: string;
+  /** Off by default, so every segment that predates it renders exactly as it did. */
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -105,7 +108,8 @@ export function Segment({
       aria-pressed={active}
       onClick={onClick}
       title={title}
-      className={`${SEGMENT_BASE} ${active ? SEGMENT_ON : SEGMENT_OFF} border-r border-zinc-300 last:border-r-0 dark:border-zinc-700`}
+      disabled={disabled}
+      className={`${SEGMENT_BASE} ${active ? SEGMENT_ON : SEGMENT_OFF} border-r border-zinc-300 last:border-r-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700`}
     >
       {children}
     </button>

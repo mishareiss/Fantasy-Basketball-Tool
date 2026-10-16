@@ -8,7 +8,7 @@ absent rather than 0.
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.players import SeasonLine
 
@@ -44,6 +44,9 @@ class GameOut(BaseModel):
     start_time_tbd: bool
     # `@ LAL 7:00 PM` / `vs LAL 7:00 PM` / `@ LAL TBD`, Pacific.
     display: str
+    # The same, split for a two-line cell: `@ LAL` / `vs LAL`, then `7:00 PM` / `TBD`.
+    display_matchup: str
+    display_time: str
 
 
 class RosterPlayer(BaseModel):
@@ -139,6 +142,8 @@ class FreeAgentRow(BaseModel):
     games: list[DayGame]
     games_in_days: int
     stats: StatSummary | None = None
+    # On our shared watchlist this season.
+    watched: bool = False
 
 
 class DayRef(BaseModel):
@@ -173,6 +178,36 @@ class CardPlayer(BaseModel):
     owner: PoolStatus | OwnerTeam
 
 
+class WatchlistEntryOut(BaseModel):
+    """A watched player, and who holds him now: a rostered one stays on the list."""
+
+    player_id: int
+    name: str
+    nba_team: str | None = None
+    positions: list[str] = []
+    injury_status: str | None = None
+    owner: PoolStatus | OwnerTeam
+    added_at: datetime
+    note: str | None = None
+
+
+class WatchlistResponse(BaseModel):
+    season: int
+    # Newest first.
+    entries: list[WatchlistEntryOut]
+
+
+class WatchlistRemoved(BaseModel):
+    player_id: int
+    # Whether there was an entry to remove. False is not an error: the delete is idempotent.
+    removed: bool
+
+
+class WatchlistPutRequest(BaseModel):
+    # Sent: replaces the note (null clears it). Left out: keeps whatever note is there.
+    note: str | None = Field(None, max_length=500)
+
+
 class CardStats(BaseModel):
     projected: StatLine | None = None
     season: StatLine | None = None
@@ -204,6 +239,8 @@ class PlayerCardResponse(BaseModel):
     season: int
     player: CardPlayer
     waiver: WaiverOut | None = None
+    # On our shared watchlist this season (the card's star).
+    watched: bool = False
     actuals_available: bool
     stat_columns: list[str]
     stats: CardStats

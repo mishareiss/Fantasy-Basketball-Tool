@@ -163,6 +163,10 @@ def test_a_player_with_a_game_and_one_without(league):
 
     assert simons["id"] == SIMONS
     assert simons["game"]["display"] == "@ NYK 4:00 PM"
+    assert (simons["game"]["display_matchup"], simons["game"]["display_time"]) == (
+        "@ NYK",
+        "4:00 PM",
+    )
     assert simons["game"]["is_home"] is False
     assert simons["game"]["starts_at"] == "2026-10-20T23:00:00Z"
     assert 0 in simons["eligible_slots"]
@@ -516,6 +520,9 @@ def test_games_are_aligned_to_the_days(pool):
         "@ ATL 4:30 PM",
         "vs CLE TBD",
     ]
+    assert [
+        (day["game"]["display_matchup"], day["game"]["display_time"]) for day in alpha["games"]
+    ] == [("vs GSW", "7:00 PM"), ("@ ATL", "4:30 PM"), ("vs CLE", "TBD")]
     assert alpha["games_in_days"] == 3
     delta = _fa(pool, days="1,2,3", q="delta")["players"][0]
     assert [day["game"] is not None for day in delta["games"]] == [False, True, False]
@@ -527,6 +534,12 @@ def test_games_are_aligned_to_the_days(pool):
         ({"position": "PG"}, [ALPHA]),
         ({"position": "PF"}, [BRAVO]),
         ({"position": "C"}, [CHARLIE]),
+        # A comma list is OR: eligible at any of them.
+        ({"position": "SF,PF"}, [BRAVO]),
+        ({"position": "PG,C"}, [ALPHA, CHARLIE]),
+        ({"position": "PG,SG"}, [ALPHA, DELTA]),
+        ({"position": "pg, c"}, [ALPHA, CHARLIE]),
+        ({"position": ""}, [ALPHA, BRAVO, CHARLIE, DELTA]),
         ({"status": "WAIVERS"}, [CHARLIE]),
         ({"status": "FREEAGENT"}, [ALPHA, BRAVO, DELTA]),
         ({"q": "WARR"}, [BRAVO]),
@@ -552,6 +565,13 @@ def test_pagination_reports_the_total(pool):
     assert _ids(body) == [BRAVO, CHARLIE]
     assert body["total"] == 4
     assert _fa(pool, limit=2, offset=10)["players"] == []
+
+
+@pytest.mark.parametrize("position", ["GUARD", "PG,XX", "UT"])
+def test_an_unknown_position_is_a_422_not_ignored(pool, position):
+    response = pool.get("/team/free-agents", params={"position": position})
+    assert response.status_code == 422
+    assert "PG, SG, SF, PF, C" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 501}, {"offset": -1}])
@@ -617,7 +637,110 @@ def test_the_list_is_a_fixed_handful_of_queries(pool, db):
         event.remove(engine, "before_cursor_execute", count)
 
     assert body["total"] == 304
-    assert len(statements) <= 8, statements
+    # Was 8; task 29a adds exactly one: the watchlist, read once for every row's `watched` and
+    # the `watchlist=true` filter. The other eight are unchanged.
+    assert len(statements) <= 9, statements
+
+
+# --- the watchlist --------------------------------------------------------------------------
+
+
+def _watchlist(api) -> list[dict]:
+    response = api.get("/team/watchlist")
+    assert response.status_code == 200, response.text
+    return response.json()["entries"]
+
+
+def test_the_watchlist_starts_empty(pool):
+    assert pool.get("/team/watchlist").json() == {"season": SEASON, "entries": []}
+    assert all(row["watched"] is False for row in _fa(pool)["players"])
+    assert _fa(pool, watchlist=True)["players"] == []
+
+
+def test_watching_is_idempotent_and_keeps_the_note_unless_sent(pool, monkeypatch):
+    first = pool.put(f"/team/watchlist/{BRAVO}", json={"note": "minutes up"})
+    assert first.status_code == 200, first.text
+    assert first.json() | {"added_at": None} == {
+        "player_id": BRAVO,
+        "name": "Bravo Warrior",
+        "nba_team": "GSW",
+        "positions": ["SF", "PF"],
+        "injury_status": None,
+        "owner": "FREEAGENT",
+        "added_at": None,
+        "note": "minutes up",
+    }
+
+    # Again, later, with no body: still one entry, same added_at, note kept.
+    monkeypatch.setattr(team_route, "_now", lambda: datetime(2026, 10, 30, tzinfo=UTC))
+    # The frontend's no-note call sends a JSON null body; same as no body at all.
+    again = pool.put(
+        f"/team/watchlist/{BRAVO}", content="null", headers={"Content-Type": "application/json"}
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["added_at"] == first.json()["added_at"]
+    assert again.json()["note"] == "minutes up"
+    assert len(_watchlist(pool)) == 1
+
+    # A sent note replaces it, and null clears it.
+    assert pool.put(f"/team/watchlist/{BRAVO}", json={"note": "starting"}).json()["note"] == (
+        "starting"
+    )
+    assert pool.put(f"/team/watchlist/{BRAVO}", json={"note": None}).json()["note"] is None
+
+
+def test_unwatching_is_idempotent(pool):
+    pool.put(f"/team/watchlist/{ALPHA}")
+    assert pool.delete(f"/team/watchlist/{ALPHA}").json() == {"player_id": ALPHA, "removed": True}
+    again = pool.delete(f"/team/watchlist/{ALPHA}")
+    assert (again.status_code, again.json()["removed"]) == (200, False)
+    assert pool.delete("/team/watchlist/12345").status_code == 200
+    assert _watchlist(pool) == []
+
+
+def test_watching_an_unknown_player_is_a_404(pool):
+    assert pool.put("/team/watchlist/12345").status_code == 404
+
+
+def test_the_watchlist_is_newest_first(pool, monkeypatch):
+    for day, pid in ((16, ALPHA), (17, CHARLIE)):
+        monkeypatch.setattr(team_route, "_now", lambda day=day: datetime(2026, 10, day, tzinfo=UTC))
+        pool.put(f"/team/watchlist/{pid}")
+    entries = _watchlist(pool)
+    assert [entry["player_id"] for entry in entries] == [CHARLIE, ALPHA]
+    assert entries[0]["owner"] == "WAIVERS"
+
+
+def test_free_agents_flag_and_filter_the_watched(pool):
+    pool.put(f"/team/watchlist/{CHARLIE}")
+    pool.put(f"/team/watchlist/{ALPHA}")
+
+    rows = {row["id"]: row["watched"] for row in _fa(pool)["players"]}
+    assert rows == {ALPHA: True, BRAVO: False, CHARLIE: True, DELTA: False}
+
+    watched = _fa(pool, watchlist=True)
+    assert _ids(watched) == [ALPHA, CHARLIE]
+    assert watched["total"] == 2
+    # It composes with the other filters.
+    assert _ids(_fa(pool, watchlist=True, position="C")) == [CHARLIE]
+
+
+def test_a_rostered_watched_player_leaves_free_agents_but_stays_watched(pool, db):
+    pool.put(f"/team/watchlist/{BRAVO}")
+    db.add(RosterEntry(season=SEASON, team_id=MY_TEAM_ID, player_id=BRAVO, lineup_slot_id=BE))
+    db.commit()
+
+    assert BRAVO not in _ids(_fa(pool))
+    assert _fa(pool, watchlist=True)["players"] == []
+    [entry] = _watchlist(pool)
+    assert entry["player_id"] == BRAVO
+    assert entry["owner"] == {"team_id": MY_TEAM_ID, "name": "Team 8"}
+
+
+def test_the_card_says_whether_he_is_watched(pool):
+    assert pool.get(f"/team/player/{ALPHA}").json()["watched"] is False
+    pool.put(f"/team/watchlist/{ALPHA}")
+    assert pool.get(f"/team/player/{ALPHA}").json()["watched"] is True
 
 
 # --- GET /team/player/{id} ------------------------------------------------------------------
@@ -654,6 +777,8 @@ def test_the_card_has_every_basis_and_a_seven_day_window(pool, db):
         "game": None,
     }
     assert body["schedule"][1]["game"]["display"] == "vs ATL 7:00 PM"
+    assert body["schedule"][1]["game"]["display_matchup"] == "vs ATL"
+    assert body["schedule"][1]["game"]["display_time"] == "7:00 PM"
     groups = body["by_matchup"]
     assert [(g["matchup_id"], g["days"], g["games"]) for g in groups] == [
         (1, [6], 0),
