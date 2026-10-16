@@ -2,6 +2,7 @@
 warning. No database. Day 1 of 2027 is Tue 10/20/2026, so sp 2 is Wed 10/21, sp 3 Thu 10/22.
 """
 
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, time
@@ -15,6 +16,8 @@ from app.team.plan import (
     PlanContext,
     acquisition_tallies,
     effective_pickup,
+    move_label,
+    move_labels,
     pickup_alternatives,
     plan_lineup,
     resolve_drop,
@@ -128,7 +131,10 @@ def test_an_overdue_move_lands_today_and_says_so():
     assert len(overdue) == 1
     assert overdue[0].severity == "info"
     assert overdue[0].sp == 5
-    assert overdue[0].message == "Move 1 was planned for Wed 10/21 and hasn't been made yet"
+    assert overdue[0].message == (
+        "The Wed 10/21 move (Jerami Grant → Alpha) hasn't been made yet, so the plan has it land "
+        "today"
+    )
 
 
 def test_done_and_skipped_moves_are_not_applied():
@@ -185,13 +191,19 @@ def test_a_backup_that_is_a_candidate_elsewhere_overlaps():
     _, found = run([move1, move3])
     overlaps = [w for w in found if w.code == "backup_overlap"]
     assert [(w.move_id, w.detail["other_move_id"]) for w in overlaps] == [(1, 3), (3, 1)]
-    assert overlaps[0].message == "Bam is a backup in move 1 and a backup in move 3"
+    assert overlaps[0].message == (
+        "Bam is a backup in the Wed 10/21 move (Jerami Grant → Alpha) and a backup in the "
+        "Sat 10/24 move (Xavier One → player 104)"
+    )
 
     # Resolved to B, B is move 1's pickup and still a backup in move 3.
     resolved = Move(1, 2, (A, B), drop_player_id=X3, resolved_player_id=B)
     _, found = run([resolved, move3])
     overlaps = [w for w in found if w.code == "backup_overlap"]
-    assert [w.message for w in overlaps] == ["Bam is a backup in move 3 and the pickup in move 1"]
+    assert [w.message for w in overlaps] == [
+        "Bam is a backup in the Sat 10/24 move (Xavier One → player 104) and the pickup in the "
+        "Wed 10/21 move (Jerami Grant → Bam)"
+    ]
 
 
 def test_a_nested_chain_resolves_transitively():
@@ -243,7 +255,11 @@ def test_a_loop_further_down_the_chain_does_not_spin_or_blame_this_move():
 @pytest.mark.parametrize(
     ("target", "reason", "message"),
     [
-        (Move(1, 6, (A,), drop_player_id=X3), "later", "which comes later (Sun 10/25)"),
+        (
+            Move(1, 6, (A,), drop_player_id=X3),
+            "later",
+            "whoever the Sun 10/25 move (Jerami Grant → Alpha) picks up, which comes later;",
+        ),
         (Move(1, 2, (A,), drop_player_id=X3, status=PLAN_SKIPPED), "skipped", "which is skipped"),
         (None, "missing", "which no longer exists"),
     ],
@@ -269,8 +285,8 @@ def test_dropping_a_player_already_dropped_still_applies_the_pickup():
     assert (warning.code, warning.move_id, warning.sp) == ("drop_not_rostered", 2, 3)
     assert warning.detail["reason"] == "dropped_earlier"
     assert warning.message == (
-        "Move 2 drops Jerami Grant on Thu 10/22, but he's already dropped by move 1; "
-        "the pickup still happens"
+        "The Thu 10/22 move (Jerami Grant → Bam) can't drop Jerami Grant: he's already dropped "
+        "by the Wed 10/21 move (Jerami Grant → Alpha); the pickup still happens"
     )
 
 
@@ -284,7 +300,10 @@ def test_a_double_pickup():
     sim, found = run([Move(1, 2, (A,), drop_player_id=X3), Move(2, 3, (A,), drop_player_id=X2)])
     assert list(sim.day(3).roster) == [X1, A]
     assert codes(found) == [("double_pickup", 2)]
-    assert found[0].message == "Moves 1 and 2 both pick up Alpha, with no drop of him in between"
+    assert found[0].message == (
+        "The Wed 10/21 move (Jerami Grant → Alpha) and the Thu 10/22 move (Xander Two → Alpha) "
+        "both pick up Alpha, with no drop of him in between"
+    )
 
 
 def test_picking_up_someone_dropped_in_between_is_not_a_double_pickup():
@@ -434,7 +453,9 @@ def test_no_game_on_the_move_day_is_an_info():
     _, found = run(moves, games={(2, A)})
     (info,) = found
     assert (info.code, info.severity, info.move_id) == ("no_game", "info", 2)
-    assert info.message == "Bam has no game on Thu 10/22 (move 2)"
+    assert info.message == (
+        "The Thu 10/22 move (Xander Two → Bam) picks up Bam, who has no game on Thu 10/22"
+    )
     # No schedule known: no infos at all.
     _, found = run(moves)
     assert found == []
@@ -454,7 +475,10 @@ def test_a_done_move_that_dropped_someone_else_is_an_info():
     _, found = run([move])
     (info,) = found
     assert (info.code, info.severity) == ("different_drop", "info")
-    assert info.message == "Move 1 was made on ESPN, but you dropped Xander Two, not Jerami Grant"
+    assert info.message == (
+        "The Wed 10/21 move (Jerami Grant → Alpha) was made on ESPN, but you dropped Xander Two, "
+        "not Jerami Grant"
+    )
 
 
 # --- the Plan lineup ------------------------------------------------------------------------
@@ -508,3 +532,106 @@ def test_a_deleted_move_reconciles_out_of_a_plan_edit():
     sim = simulate(ROSTER, [], 1, 6)
     # A is gone; X1 (no longer dropped) is back and, absent from the edit, on the bench.
     assert plan_lineup(sim.day(4), ACTUAL, edited, ELIGIBLE).placement == {X1: BE, X2: BE, X3: SG}
+
+
+# --- how messages name a move ---------------------------------------------------------------
+
+
+def _name(pid):
+    return "nobody" if pid is None else NAMES.get(pid, f"player {pid}")
+
+
+def _day(sp):
+    return plan.day_label(plan.period_date(SEASON, sp))
+
+
+def label(move, moves):
+    return move_label(move, {m.id: m for m in moves}, _name, _day)
+
+
+def test_a_named_drop_is_labelled_by_its_day_and_players():
+    move = Move(7, 2, (A, B), drop_player_id=X3)
+    assert label(move, [move]) == "the Wed 10/21 move (Jerami Grant → Alpha)"
+
+
+def test_a_chained_drop_is_labelled_by_whoever_it_resolves_to():
+    first = Move(1, 2, (A, B), drop_player_id=X3)
+    chained = Move(2, 4, (C_,), drop_from_move_id=1)
+    # Unresolved: the referenced move's primary.
+    assert label(chained, [first, chained]) == "the Fri 10/23 move (Alpha → Cole)"
+    resolved = Move(1, 2, (A, B), drop_player_id=X3, status=PLAN_DONE, resolved_player_id=B)
+    assert label(chained, [resolved, chained]) == "the Fri 10/23 move (Bam → Cole)"
+    # The move's own pickup follows its resolution too.
+    assert label(resolved, [resolved]) == "the Wed 10/21 move (Jerami Grant → Bam)"
+
+
+def test_a_broken_chain_is_an_unresolved_drop():
+    missing = Move(2, 4, (C_,), drop_from_move_id=99)
+    assert label(missing, [missing]) == "the Fri 10/23 move (an unresolved drop → Cole)"
+    skipped = Move(1, 2, (A,), drop_player_id=X3, status=PLAN_SKIPPED)
+    chained = Move(2, 4, (C_,), drop_from_move_id=1)
+    assert label(chained, [skipped, chained]) == "the Fri 10/23 move (an unresolved drop → Cole)"
+
+
+def test_identical_labels_get_a_suffix_in_plan_order():
+    moves = [
+        Move(9, 2, (A,), drop_player_id=X3, sequence=1),
+        Move(4, 2, (A,), drop_player_id=X3, sequence=0),
+        Move(5, 3, (A,), drop_player_id=X3),
+    ]
+    labels = move_labels(moves, {m.id: m for m in moves}, _name, _day)
+    assert labels == {
+        4: "the Wed 10/21 move (Jerami Grant → Alpha)",
+        9: "the Wed 10/21 move (Jerami Grant → Alpha) #2",
+        5: "the Thu 10/22 move (Jerami Grant → Alpha)",
+    }
+
+
+def test_no_warning_names_a_move_by_number():
+    """One plan that fires every warning that mentions a move: each message names the move by
+    its label, and none says "move 3" or "Moves 1 and 2"."""
+    moves = [
+        Move(1, 2, (A, B), drop_player_id=X3),  # overdue at today=3; B overlaps with move 5
+        Move(2, 3, (C_,), drop_player_id=X3),  # X3 already dropped by move 1
+        Move(3, 3, (X1,), drop_player_id=D),  # D never rostered; X1 already rostered
+        Move(4, 4, (A,), drop_player_id=X2),  # A picked up twice
+        Move(5, 4, (D, B), drop_from_move_id=6),  # chain to a later move
+        Move(6, 6, (C_,), drop_player_id=X1),
+        Move(7, 5, (D,), drop_from_move_id=8),  # a cycle
+        Move(8, 5, (B,), drop_from_move_id=7),
+        Move(10, 5, (D,), drop_from_move_id=99),  # a chain to a deleted move
+        Move(
+            11,
+            3,
+            (C_,),
+            drop_player_id=X2,
+            status=PLAN_DONE,
+            resolved_player_id=C_,
+            drop_mismatch=True,
+            detected_drop_player_id=X1,
+        ),
+    ]
+    _, found = run(moves, today=3, games=set())
+    mentioned = {
+        "drop_not_rostered",
+        "pickup_already_rostered",
+        "double_pickup",
+        "bad_chain",
+        "chain_cycle",
+        "backup_overlap",
+        "no_game",
+        "overdue",
+        "different_drop",
+    }
+    assert mentioned <= {w.code for w in found}
+    chained = ("bad_chain", "drop_not_rostered")
+    reasons = {w.detail.get("reason") for w in found if w.code in chained}
+    assert {"later", "missing", "dropped_earlier", "not_rostered"} <= reasons
+    for w in found:
+        assert not re.search(r"\b[Mm]oves? \d", w.message), w.message
+        if w.code in mentioned:
+            assert re.search(r"[Tt]he \w{3} \d+/\d+ move \(", w.message), w.message
+    # The ids are still there for the UI, outside the prose.
+    assert {w.move_id for w in found if w.code in mentioned} >= {1, 2, 3, 4, 5, 7, 11}
+    deleted = next(w for w in found if w.code == "bad_chain" and w.move_id == 10)
+    assert "whoever a deleted move picks up" in deleted.message

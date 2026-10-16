@@ -16,7 +16,7 @@ overdue, not gone. A drop that can't happen (he isn't on the plan roster) still 
 pickup through, with a warning, so a mistake is visible instead of silently swallowing a move.
 """
 
-from collections.abc import Iterable, Mapping, Sequence, Set
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Literal
@@ -422,6 +422,45 @@ def day_label(d: date) -> str:
     return f"{d:%a} {d.month}/{d.day}"
 
 
+def move_label(
+    move: Move,
+    moves_by_id: Mapping[int, Move],
+    name: Callable[[int | None], str],
+    day: Callable[[int], str],
+) -> str:
+    """How a message names a move: `the Wed 10/21 move (Rudy Gobert → Jerami Grant)`.
+
+    Never by id or list position: an id means nothing to a person, and a position changes
+    whenever moves are reordered or deleted. The day is the one the move was planned for. The
+    drop is who it resolves to (a chain: the referenced move's effective pickup; a broken
+    chain: "an unresolved drop"); the pickup is the effective pickup.
+    """
+    drop = resolve_drop(move, moves_by_id)
+    dropped = "an unresolved drop" if drop.problem else name(drop.player_id)
+    return f"the {day(move.sp)} move ({dropped} → {name(effective_pickup(move))})"
+
+
+def move_labels(
+    moves: Iterable[Move],
+    moves_by_id: Mapping[int, Move],
+    name: Callable[[int | None], str],
+    day: Callable[[int], str],
+) -> dict[int, str]:
+    """Every move's label, by id. Two moves that would read the same (same day, same players)
+    are told apart by ` #2`, ` #3` on the later ones, in `(sp, sequence, id)` order."""
+    out: dict[int, str] = {}
+    seen: dict[str, int] = {}
+    for move in sorted(moves, key=lambda m: m.order_key):
+        label = move_label(move, moves_by_id, name, day)
+        seen[label] = seen.get(label, 0) + 1
+        out[move.id] = label if seen[label] == 1 else f"{label} #{seen[label]}"
+    return out
+
+
+def _capitalized(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 @dataclass(frozen=True)
 class AcquisitionTally:
     matchup_id: int
@@ -498,6 +537,17 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
         matchup = matchup_for_period(ctx.season, sp)
         return matchup.id if matchup else None
 
+    labels = move_labels(moves, by_id, name, day)
+
+    def label(move_id: int | None) -> str:
+        """A move as prose; one that no longer exists can't be named any other way."""
+        if move_id is None or move_id not in labels:
+            return "a deleted move"
+        return labels[move_id]
+
+    def label_cap(move_id: int | None) -> str:
+        return _capitalized(label(move_id))
+
     out: list[PlanWarning] = []
 
     def add(
@@ -520,14 +570,14 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
         move = by_id[c.move_id]
         if c.code == DROP_NOT_ROSTERED:
             why = (
-                f"already dropped by move {c.other_move_id}"
+                f"already dropped by {label(c.other_move_id)}"
                 if c.reason == "dropped_earlier"
-                else "not on the roster"
+                else f"not on the roster on {day(c.sp)}"
             )
             add(
                 c.code,
                 "warning",
-                f"Move {move.id} drops {name(c.player_id)} on {day(c.sp)}, but he's {why}; "
+                f"{label_cap(move.id)} can't drop {name(c.player_id)}: he's {why}; "
                 "the pickup still happens",
                 move,
                 c.sp,
@@ -539,8 +589,8 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 c.code,
                 "warning",
-                f"Move {move.id} picks up {name(c.player_id)}, who is already on the roster "
-                f"on {day(c.sp)}",
+                f"{label_cap(move.id)} picks up {name(c.player_id)}, who is already on the roster "
+                "that day",
                 move,
                 c.sp,
                 player_id=c.player_id,
@@ -549,7 +599,8 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 c.code,
                 "warning",
-                f"Moves {c.other_move_id} and {move.id} both pick up {name(c.player_id)}, "
+                f"{label_cap(c.other_move_id)} and {label(move.id)} both pick up "
+                f"{name(c.player_id)}, "
                 "with no drop of him in between",
                 move,
                 c.sp,
@@ -561,12 +612,13 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             why = {
                 "missing": "which no longer exists",
                 "skipped": "which is skipped",
-                "later": f"which comes later ({day(target.sp)})" if target else "which comes later",
+                "later": "which comes later",
             }.get(c.reason or "missing", "which can't be resolved")
             add(
                 c.code,
                 "warning",
-                f"Move {move.id} drops whoever move {c.other_move_id} picks up, {why}; "
+                f"{label_cap(move.id)} drops whoever "
+                f"{label(c.other_move_id) if target else 'a deleted move'} picks up, {why}; "
                 "nobody is dropped",
                 move,
                 c.sp,
@@ -577,8 +629,8 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 c.code,
                 "warning",
-                f"Move {move.id}'s drop chain loops back to itself (through move "
-                f"{c.other_move_id}); nobody is dropped",
+                f"The drop chain of {label(move.id)} loops back to itself, through "
+                f"{label(c.other_move_id)}; nobody is dropped",
                 move,
                 c.sp,
                 other_move_id=c.other_move_id,
@@ -675,7 +727,8 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
                 add(
                     BACKUP_OVERLAP,
                     "warning",
-                    f"{name(backup)} is a backup in move {move.id} and {role} in move {other.id}",
+                    f"{name(backup)} is a backup in {label(move.id)} and {role} in "
+                    f"{label(other.id)}",
                     move,
                     landing_period(move, ctx.today_sp),
                     player_id=backup,
@@ -691,7 +744,7 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 NO_GAME,
                 "info",
-                f"{name(pickup)} has no game on {day(sp)} (move {move.id})",
+                f"{label_cap(move.id)} picks up {name(pickup)}, who has no game on {day(sp)}",
                 move,
                 sp,
                 player_id=pickup,
@@ -700,7 +753,7 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 OVERDUE,
                 "info",
-                f"Move {move.id} was planned for {day(move.sp)} and hasn't been made yet",
+                f"{label_cap(move.id)} hasn't been made yet, so the plan has it land today",
                 move,
                 sp,
                 planned_sp=move.sp,
@@ -713,7 +766,7 @@ def warnings(moves: Sequence[Move], sim: Simulation, ctx: PlanContext) -> list[P
             add(
                 DIFFERENT_DROP,
                 "info",
-                f"Move {move.id} was made on ESPN, but {what}, not {name(planned_drop)}",
+                f"{label_cap(move.id)} was made on ESPN, but {what}, not {name(planned_drop)}",
                 move,
                 move.sp,
                 planned_drop=planned_drop,

@@ -135,7 +135,8 @@ def test_a_different_drop_is_done_with_an_info_until_the_move_is_edited(pool, db
     assert [(w["severity"], w["message"]) for w in infos] == [
         (
             "info",
-            f"Move {move.id} was made on ESPN, but you dropped Tyrese Haliburton, not Rudy Gobert",
+            "The Wed 10/21 move (Rudy Gobert → Alpha Laker) was made on ESPN, but you dropped "
+            "Tyrese Haliburton, not Rudy Gobert",
         )
     ]
 
