@@ -6,14 +6,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
+  type DayView,
   type LineupAssignment,
+  type PlanMutationResponse,
+  type PlanResponse,
   type TeamBasis,
   type TeamCalendarResponse,
   type TeamDayResponse,
 } from "@/lib/api";
-import { clampDay, isTeamBasis, matchupOf, syncRange, teamHref } from "@/lib/team";
+import { composerPrefill, moveNumbers, type ComposerDraft, type ComposerEntry } from "@/lib/plan";
+import { clampDay, isDayView, isTeamBasis, matchupOf, syncRange, teamHref } from "@/lib/team";
 import { BasisToggle } from "./BasisToggle";
 import { DayPicker } from "./DayPicker";
+import { MoveComposer } from "./MoveComposer";
+import { DayPlanWarnings, DroppedTodayStrip } from "./PlanRosterExtras";
+import { PlanTab, type PlanNotice } from "./PlanTab";
+import { RightPanelTabs, rememberTab, rememberedTab, type RightTab } from "./RightPanelTabs";
 import { RosterHeader, RosterTable } from "./RosterTable";
 import { NoTeamSynced, TeamFailed, TeamLoading } from "./TeamStates";
 import { TeamPlayerCard } from "./TeamPlayerCard";
@@ -32,6 +40,12 @@ import { WaiverPanel } from "./WaiverPanel";
  * and the page ignores that answer except for its warnings: it re-reads `GET /team/day`, so
  * what is on screen is always the read path's view of what was stored, not the write's.
  *
+ * ACTUAL | PLAN (task 31). The roster's view is in the URL too (`?view=plan`). The Plan view
+ * reads `GET /team/day?view=plan` (the roster as if the plan had run) and saves slot moves to
+ * the plan's lineup, never the Actual one. The plan itself (`GET /team/plan`) is read only
+ * while something shows it: the Plan view, the Plan tab, or the move composer. After any plan
+ * write the page reads the plan, the day and the waiver list again.
+ *
  * A 409 IS A STATE. The Team API answers 409 until a league sync has stored a team marked as
  * ours, and the page says "run the sync" rather than showing a failure.
  */
@@ -49,11 +63,13 @@ export function TeamPage() {
   const searchParams = useSearchParams();
   const rawDay = Number(searchParams.get("day"));
   const rawBasis = searchParams.get("basis");
+  const rawView = searchParams.get("view");
 
   return (
     <TeamView
       initialDay={Number.isFinite(rawDay) && rawDay > 0 ? rawDay : null}
       initialBasis={isTeamBasis(rawBasis) ? rawBasis : "projected"}
+      initialView={isDayView(rawView) ? rawView : "actual"}
       onUrlChange={(href) => router.replace(href, { scroll: false })}
     />
   );
@@ -62,16 +78,19 @@ export function TeamPage() {
 export function TeamView({
   initialDay,
   initialBasis,
+  initialView = "actual",
   onUrlChange,
 }: {
   initialDay: number | null;
   initialBasis: TeamBasis;
+  initialView?: DayView;
   onUrlChange: (href: string) => void;
 }) {
   const [calendar, setCalendar] = useState<TeamCalendarResponse | null>(null);
   const [calendarError, setCalendarError] = useState<ApiError | null>(null);
   const [chosenDay, setChosenDay] = useState<number | null>(initialDay);
   const [basis, setBasis] = useState<TeamBasis>(initialBasis);
+  const [view, setView] = useState<DayView>(initialView);
   const [version, setVersion] = useState(0);
   const [settled, setSettled] = useState<DaySettled | null>(null);
 
@@ -90,6 +109,16 @@ export function TeamView({
   const [waiverStart, setWaiverStart] = useState<{ matchupId: number; day: number } | null>(
     null,
   );
+  // The waiver panel's chosen days, as it last reported them: the composer's default day.
+  const [waiverDays, setWaiverDays] = useState<number[] | null>(null);
+
+  const [rightTab, setRightTab] = useState<RightTab>(rememberedTab);
+  const [plan, setPlan] = useState<PlanResponse | null>(null);
+  const [planError, setPlanError] = useState<ApiError | null>(null);
+  const [planVersion, setPlanVersion] = useState(0);
+  const [notice, setNotice] = useState<PlanNotice | null>(null);
+  // The open composer, keyed so a second open starts from its own prefill.
+  const [composer, setComposer] = useState<{ key: number; draft: ComposerDraft } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,14 +145,14 @@ export function TeamView({
     setWaiverStart({ matchupId: matchup.id, day: sp });
   }
 
-  const dayKey = sp === null ? null : `${sp}|${basis}|${version}`;
+  const dayKey = sp === null ? null : `${sp}|${basis}|${view}|${version}`;
   const pending = useRef(0);
 
   useEffect(() => {
     if (dayKey === null || sp === null) return;
     const ticket = (pending.current += 1);
-    api
-      .teamDay({ sp, basis })
+    // The Actual read is exactly task 29a's call; only the Plan view adds `view`.
+    (view === "plan" ? api.teamDay({ sp, basis, view }) : api.teamDay({ sp, basis }))
       .then((day) => {
         if (ticket === pending.current) setSettled({ key: dayKey, status: "ready", day });
       })
@@ -131,7 +160,28 @@ export function TeamView({
         if (ticket === pending.current)
           setSettled({ key: dayKey, status: "error", error: asApiError(caught) });
       });
-  }, [dayKey, sp, basis]);
+  }, [dayKey, sp, basis, view]);
+
+  // The plan, while something on screen shows it, and again after every plan write (even
+  // when the write closed the only thing showing it: the composer).
+  const needPlan = rightTab === "plan" || view === "plan" || composer !== null || planVersion > 0;
+  useEffect(() => {
+    if (!needPlan) return;
+    let cancelled = false;
+    api
+      .plan()
+      .then((answer) => {
+        if (cancelled) return;
+        setPlan(answer);
+        setPlanError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setPlanError(asApiError(caught));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needPlan, planVersion]);
 
   // The last good day stays on screen (dimmed) while the next one loads.
   const [shown, setShown] = useState<TeamDayResponse | null>(null);
@@ -143,13 +193,55 @@ export function TeamView({
     setChosenDay(next);
     setErrors(null);
     setNotes([]);
-    onUrlChange(teamHref(next, basis));
+    onUrlChange(teamHref(next, basis, view));
   }
 
   function changeBasis(next: TeamBasis) {
     setBasis(next);
-    onUrlChange(teamHref(sp, next));
+    onUrlChange(teamHref(sp, next, view));
   }
+
+  function changeView(next: DayView) {
+    setView(next);
+    setErrors(null);
+    setNotes([]);
+    onUrlChange(teamHref(sp, basis, next));
+  }
+
+  function changeTab(next: RightTab) {
+    setRightTab(next);
+    rememberTab(next);
+  }
+
+  /** After any plan write: the plan, the day (in the current view) and the waiver list. */
+  const planChanged = useCallback(() => {
+    setPlanVersion((v) => v + 1);
+    setVersion((v) => v + 1);
+    setWatchVersion((v) => v + 1);
+  }, []);
+
+  function openComposer(entry: ComposerEntry) {
+    const today = plan?.today_sp ?? calendar?.effective_period ?? 1;
+    const chips = waiverDays ?? (waiverStart ? [waiverStart.day] : []);
+    const draft = composerPrefill(entry, { waiverDay: chips[0] ?? null, today });
+    setComposer((current) => ({ key: (current?.key ?? 0) + 1, draft }));
+  }
+
+  const closeComposer = useCallback(() => setComposer(null), []);
+
+  const composerSaved = useCallback(
+    (answer: PlanMutationResponse) => {
+      setComposer(null);
+      const number = answer.move_id === null ? undefined : moveNumbers(answer.moves).get(answer.move_id);
+      setNotice({
+        moveId: answer.move_id,
+        text: number ? `Saved move ${number}.` : "Saved.",
+        warnings: answer.warnings.filter((w) => w.move_id !== null && w.move_id === answer.move_id),
+      });
+      planChanged();
+    },
+    [planChanged],
+  );
 
   async function save(assignments: LineupAssignment[]) {
     if (sp === null) return;
@@ -157,10 +249,10 @@ export function TeamView({
     setErrors(null);
     setNotes([]);
     try {
-      const answer = await api.saveLineup(sp, {
-        assignments,
-        through_sp: through && matchup ? matchup.last_sp : null,
-      });
+      const body = { assignments, through_sp: through && matchup ? matchup.last_sp : null };
+      // The Plan view's moves go to the plan's lineup and never touch the Actual one.
+      const answer =
+        view === "plan" ? await api.savePlanLineup(sp, body) : await api.saveLineup(sp, body);
       setNotes(answer.warnings);
       setVersion((v) => v + 1);
     } catch (caught: unknown) {
@@ -214,7 +306,13 @@ export function TeamView({
             <TeamLoading label="Reading the roster…" />
           ) : (
             <>
-              <RosterHeader day={day} syncing={syncing} onSync={syncFromEspn} />
+              <RosterHeader
+                day={day}
+                syncing={syncing}
+                onSync={syncFromEspn}
+                view={view}
+                onViewChange={changeView}
+              />
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <BasisToggle
                   label="Stats"
@@ -262,28 +360,67 @@ export function TeamView({
                 </ul>
               ) : null}
 
+              {view === "plan" ? <DayPlanWarnings warnings={day.plan_warnings ?? []} /> : null}
+
               <div className={dayLoading || saving ? "opacity-60" : ""} aria-busy={dayLoading || saving}>
                 <RosterTable
                   day={day}
                   busy={saving || syncing || dayLoading}
                   onOpenPlayer={(player) => setCard({ ...player, fromSp: day.sp })}
                   onMove={save}
+                  view={view}
+                  moves={plan?.moves ?? []}
+                  onPlanDrop={(player) => openComposer({ kind: "roster-drop", player, sp: day.sp })}
                 />
               </div>
+
+              {view === "plan" ? <DroppedTodayStrip drops={day.planned_drops ?? []} /> : null}
             </>
           )}
         </section>
 
         {waiverStart ? (
-          <WaiverPanel
-            calendar={calendar}
-            initialMatchupId={waiverStart.matchupId}
-            initialDay={waiverStart.day}
-            refreshToken={watchVersion}
-            onOpenPlayer={(player, fromSp) => setCard({ ...player, fromSp })}
+          <RightPanelTabs
+            tab={rightTab}
+            onChange={changeTab}
+            planCount={plan ? plan.moves.length : null}
+            waivers={
+              <WaiverPanel
+                calendar={calendar}
+                initialMatchupId={waiverStart.matchupId}
+                initialDay={waiverStart.day}
+                refreshToken={watchVersion}
+                onOpenPlayer={(player, fromSp) => setCard({ ...player, fromSp })}
+                onPlan={(row) => openComposer({ kind: "waiver", player: row })}
+                onDaysChange={setWaiverDays}
+              />
+            }
+            plan={
+              <PlanTab
+                plan={plan}
+                error={planError}
+                calendar={calendar}
+                notice={notice}
+                onDismissNotice={() => setNotice(null)}
+                onAdd={() => openComposer({ kind: "add" })}
+                onEdit={(move) => openComposer({ kind: "edit", move })}
+                onChanged={planChanged}
+              />
+            }
           />
         ) : null}
       </div>
+
+      {composer ? (
+        <MoveComposer
+          key={composer.key}
+          calendar={calendar}
+          initial={composer.draft}
+          moves={plan?.moves ?? []}
+          onClose={closeComposer}
+          onSaved={composerSaved}
+        />
+      ) : null}
 
       {card ? (
         <TeamPlayerCard

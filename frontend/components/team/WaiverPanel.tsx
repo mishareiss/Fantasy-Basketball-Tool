@@ -17,6 +17,7 @@ import {
   type TeamCalendarResponse,
 } from "@/lib/api";
 import { decimal } from "@/lib/format";
+import { inPlanLabel } from "@/lib/plan";
 import {
   dayLabel,
   groupDaysByMatchup,
@@ -55,6 +56,11 @@ import { WatchStar } from "./WatchStar";
  * co-managers (it lives in the database). A star toggles a row optimistically, then the list is
  * read again (the house rule: refetch after a write); a failed write puts the star back and
  * says why. The card's star does the same and tells the page, which bumps `refreshToken`.
+ *
+ * THE PLAN (task 31): a row that is a candidate in a planned move carries `In plan · Wed`
+ * (`· backup` when he isn't the primary), and every row has `+ Plan`, which opens the move
+ * composer with him as the primary pickup. The page owns the composer; this panel only says
+ * who, and tells the page which days are chosen (the composer's default day is the first).
  *
  * The mode, basis and positions are remembered per browser (localStorage, guarded: a private
  * window or a blocked store just means the defaults). Nothing else is.
@@ -137,6 +143,8 @@ export function WaiverPanel({
   initialDay,
   refreshToken = 0,
   onOpenPlayer,
+  onPlan,
+  onDaysChange,
 }: {
   calendar: TeamCalendarResponse;
   initialMatchupId: number;
@@ -144,9 +152,19 @@ export function WaiverPanel({
   /** Bumped by the page when the watchlist changed elsewhere (the card's star): read again. */
   refreshToken?: number;
   onOpenPlayer: (player: { id: number; name: string }, fromSp: number | null) => void;
+  /** `+ Plan` on a row: open the move composer with him as the primary pickup. */
+  onPlan?: (row: FreeAgentRow) => void;
+  /** The chosen days, whenever they change (the composer's default day is the first). */
+  onDaysChange?: (days: number[]) => void;
 }) {
   const [matchupId, setMatchupId] = useState(initialMatchupId);
-  const [days, setDays] = useState<number[]>([initialDay]);
+  const [days, setDaysState] = useState<number[]>([initialDay]);
+
+  function setDays(next: number[] | ((current: number[]) => number[])) {
+    const value = typeof next === "function" ? next(days) : next;
+    setDaysState(value);
+    onDaysChange?.(value);
+  }
   const [{ mode, basis, positions }, setRemembered] = useState<Remembered>(remembered);
   const [view, setView] = useState<View>("all");
   const [search, setSearch] = useState("");
@@ -563,8 +581,10 @@ export function WaiverPanel({
                     row={row}
                     watched={stars[row.id] ?? row.watched}
                     columnDays={columnDays.map((d) => d.sp)}
+                    inPlan={inPlanLabel(row, calendar)}
                     onOpen={() => onOpenPlayer({ id: row.id, name: row.name }, fromSp)}
                     onToggleWatch={() => toggleWatch(row)}
+                    onPlan={onPlan ? () => onPlan(row) : undefined}
                   />
                 ))
               )}
@@ -587,14 +607,18 @@ function WaiverRow({
   row,
   watched,
   columnDays,
+  inPlan,
   onOpen,
   onToggleWatch,
+  onPlan,
 }: {
   row: FreeAgentRow;
   watched: boolean;
   columnDays: number[];
+  inPlan: string | null;
   onOpen: () => void;
   onToggleWatch: () => void;
+  onPlan?: () => void;
 }) {
   const games = new Map(row.games.map((g) => [g.sp, g.game]));
   return (
@@ -608,7 +632,23 @@ function WaiverRow({
                 {waiverBadge(row.waiver ?? { clears_at_display: null, clears_at_known: false })}
               </Badge>
             ) : null}
+            {inPlan ? (
+              <Badge tone="sky" data-in-plan="true">
+                {inPlan}
+              </Badge>
+            ) : null}
           </PlayerCell>
+          {onPlan ? (
+            <button
+              type="button"
+              aria-label={`Plan a pickup of ${row.name}`}
+              title="Plan a move with him as the pickup"
+              onClick={onPlan}
+              className="ml-auto shrink-0 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            >
+              + Plan
+            </button>
+          ) : null}
         </div>
       </td>
       {columnDays.map((sp) => {

@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/draft/DraftStates";
-import type { LineupAssignment, TeamDayResponse, TeamSlotRow } from "@/lib/api";
+import type { DayView, LineupAssignment, PlanMove, TeamDayResponse, TeamSlotRow } from "@/lib/api";
 import { decimal } from "@/lib/format";
 import { buildMove, legalTargets, lineupSourceLabel } from "@/lib/team";
+import { AcquisitionMeter } from "./AcquisitionMeter";
 import { GameCell } from "./GameCell";
+import { PlannedTag } from "./PlanRosterExtras";
 import { PlayerCell } from "./PlayerCell";
 import { Badge } from "./TeamStates";
+import { ViewToggle } from "./ViewToggle";
 
 /**
  * My roster on one day, in ESPN's slot grid, and the ESPN-style move.
@@ -21,6 +24,11 @@ import { Badge } from "./TeamStates";
  * he's eligible for, or a player who could take his slot in a swap; the bench always), and a
  * click on one sends the WHOLE lineup (`lib/team.ts: buildMove`). Nothing on screen changes
  * until the server has the lineup and the page has read the day back: no optimistic grid.
+ *
+ * THE PLAN VIEW (`view="plan"`) is the same grid and the same move, over the plan roster: the
+ * page saves its moves to the plan's lineup instead (`PUT /team/plan/lineup/{sp}`), never the
+ * Actual one. A planned pickup's row is tinted and tagged "Planned · <day>" (words as well as
+ * colour), and every real player gets a `Drop…` action that opens the move composer.
  */
 
 const TH = "px-1.5 py-1.5 text-[10px] font-semibold tracking-wide text-zinc-500 uppercase";
@@ -31,27 +39,28 @@ export function RosterHeader({
   day,
   syncing,
   onSync,
+  view = "actual",
+  onViewChange,
 }: {
   day: TeamDayResponse;
   syncing: boolean;
   onSync: () => void;
+  view?: DayView;
+  onViewChange?: (view: DayView) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const manual = day.lineup_source === "manual";
-  const { used, limit } = day.acquisitions;
+  const manual = day.lineup_source === "manual" || day.lineup_source === "plan_edit";
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-roster-header>
       <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{day.team.name}</h2>
       <Badge tone={manual ? "amber" : "zinc"} data-lineup-source={day.lineup_source}>
-        {lineupSourceLabel(day.lineup_source)}
+        {lineupSourceLabel(day.lineup_source, day.carried_from_date)}
       </Badge>
-      <span className="text-xs text-zinc-500 tabular-nums" data-acquisitions>
-        Acquisitions {used} / {limit ?? "—"} this matchup
-      </span>
-      {/* Task 31's Actual | Plan toggle goes here. */}
+      <AcquisitionMeter acquisitions={day.acquisitions} compact={view === "actual"} />
+      {onViewChange ? <ViewToggle view={view} onChange={onViewChange} /> : null}
       <div className="ml-auto flex items-center gap-2">
-        {confirming ? (
+        {view === "plan" ? null : confirming ? (
           <div
             data-sync-confirm
             className="flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
@@ -92,11 +101,19 @@ export function RosterTable({
   busy,
   onOpenPlayer,
   onMove,
+  view = "actual",
+  moves = [],
+  onPlanDrop,
 }: {
   day: TeamDayResponse;
   busy: boolean;
   onOpenPlayer: (player: { id: number; name: string }) => void;
   onMove: (assignments: LineupAssignment[]) => void;
+  view?: DayView;
+  /** The plan's moves, for a planned pickup's day. Plan view only. */
+  moves?: readonly PlanMove[];
+  /** `Drop…` on a real player's row. Plan view only. */
+  onPlanDrop?: (player: { id: number; name: string }) => void;
 }) {
   // The row being moved, tagged with its day so a move never survives a change of day.
   const [moving, setMoving] = useState<{ sp: number; index: number } | null>(null);
@@ -166,6 +183,12 @@ export function RosterTable({
               }
               onHere={() => moveTo(index)}
               onOpenPlayer={onOpenPlayer}
+              planMove={
+                view === "plan" && row.player?.plan?.status === "planned"
+                  ? (moves.find((m) => m.id === row.player?.plan?.move_id) ?? null)
+                  : undefined
+              }
+              onPlanDrop={view === "plan" ? onPlanDrop : undefined}
             />
           ))}
         </tbody>
@@ -184,6 +207,8 @@ function SlotRowView({
   onMove,
   onHere,
   onOpenPlayer,
+  planMove,
+  onPlanDrop,
 }: {
   row: TeamSlotRow;
   columns: string[];
@@ -194,14 +219,20 @@ function SlotRowView({
   onMove: () => void;
   onHere: () => void;
   onOpenPlayer: (player: { id: number; name: string }) => void;
+  /** Set (null when the plan isn't read yet) for a planned pickup; undefined otherwise. */
+  planMove?: PlanMove | null;
+  onPlanDrop?: (player: { id: number; name: string }) => void;
 }) {
   const player = row.player;
   const noGame = player !== null && player.game === null;
+  const planned = player?.plan?.status === "planned";
   const tone = isMover
     ? "bg-amber-50 dark:bg-amber-500/10"
     : isTarget
       ? "bg-sky-50 dark:bg-sky-500/10"
-      : "";
+      : planned
+        ? "bg-sky-50/60 shadow-[inset_3px_0_0_0_var(--color-sky-500)] dark:bg-sky-500/5"
+        : "";
 
   let action: React.ReactNode = null;
   if (isTarget) {
@@ -235,6 +266,18 @@ function SlotRowView({
       </button>
     );
   }
+  const dropAction =
+    onPlanDrop && player && !planned && !moveMode ? (
+      <button
+        type="button"
+        aria-label={`Plan a drop of ${player.name}`}
+        disabled={busy}
+        onClick={() => onPlanDrop({ id: player.id, name: player.name })}
+        className="rounded border border-zinc-300 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+      >
+        Drop…
+      </button>
+    ) : null;
 
   return (
     <tr
@@ -242,10 +285,20 @@ function SlotRowView({
       data-slot-player={player?.id ?? ""}
       data-no-game={noGame ? "true" : undefined}
       data-target={isTarget ? "true" : undefined}
+      data-planned={planned ? "true" : undefined}
       className={`border-b border-zinc-100 dark:border-zinc-900 ${tone}`}
     >
       <td className={`${TD} w-10 font-mono text-xs font-semibold text-zinc-500`}>{row.slot}</td>
-      <td className={`${TD} w-12`}>{action}</td>
+      <td className={`${TD} w-12`}>
+        {dropAction ? (
+          <span className="flex items-center gap-1">
+            {action}
+            {dropAction}
+          </span>
+        ) : (
+          action
+        )}
+      </td>
       {player === null ? (
         <td className={`${TD} text-xs text-zinc-400 italic`} colSpan={3 + columns.length}>
           Empty
@@ -257,6 +310,9 @@ function SlotRowView({
               player={player}
               onOpen={() => onOpenPlayer({ id: player.id, name: player.name })}
             />
+            {planned && player.plan && planMove !== undefined ? (
+              <PlannedTag flag={player.plan} move={planMove} />
+            ) : null}
           </td>
           <td
             className={`${TD} w-16 text-xs text-zinc-700 dark:text-zinc-300 ${noGame ? "opacity-45" : ""}`}

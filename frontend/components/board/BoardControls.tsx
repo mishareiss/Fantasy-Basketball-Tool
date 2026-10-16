@@ -93,11 +93,14 @@ export function Segment({
   onClick,
   title,
   disabled = false,
+  name,
   children,
 }: {
   active: boolean;
   onClick: () => void;
   title?: string;
+  /** An accessible name, when the visible text alone would clash with another control's. */
+  name?: string;
   /** Off by default, so every segment that predates it renders exactly as it did. */
   disabled?: boolean;
   children: React.ReactNode;
@@ -109,6 +112,7 @@ export function Segment({
       onClick={onClick}
       title={title}
       disabled={disabled}
+      aria-label={name}
       className={`${SEGMENT_BASE} ${active ? SEGMENT_ON : SEGMENT_OFF} border-r border-zinc-300 last:border-r-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700`}
     >
       {children}

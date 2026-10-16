@@ -1495,6 +1495,9 @@ export class ApiError extends Error {
         lineup lists each one). Kept apart from `detail` so a list never changes what a page
         that only reads `detail` shows. */
     readonly details?: string[],
+    /** FastAPI's `detail` when it was an OBJECT (a plan delete's 409 names the moves that
+        depend on it). Its `message`, when it has one, is also `detail`. */
+    readonly data?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -1555,12 +1558,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // first"), so it is worth carrying up rather than reporting a bare status code.
     let detail: string | undefined;
     let details: string[] | undefined;
+    let data: Record<string, unknown> | undefined;
     try {
       const body: unknown = await response.json();
       if (body && typeof body === "object" && "detail" in body) {
         const value = (body as { detail: unknown }).detail;
         if (typeof value === "string") detail = value;
         else if (Array.isArray(value)) details = value.map(reason);
+        else if (value && typeof value === "object") {
+          data = value as Record<string, unknown>;
+          if (typeof data.message === "string") detail = data.message;
+        }
       }
     } catch {
       // Non-JSON error body: the status code is all we get.
@@ -1571,7 +1579,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // error is still thrown — a page mid-fetch has to stop, not hang.
       reportUnauthorized();
     }
-    throw new ApiError(`${path} responded ${response.status}`, response.status, detail, details);
+    throw new ApiError(`${path} responded ${response.status}`, response.status, detail, details, data);
   }
 
   return (await response.json()) as T;

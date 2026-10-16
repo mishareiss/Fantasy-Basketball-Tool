@@ -17,6 +17,7 @@
 import type {
   CalendarDay,
   CalendarMatchup,
+  DayView,
   LineupAssignment,
   LineupSource,
   TeamBasis,
@@ -287,11 +288,16 @@ export function isTeamBasis(value: string | null | undefined): value is TeamBasi
   );
 }
 
-/** `/team?day=2&basis=l7`, leaving out what is default. */
-export function teamHref(day: number | null, basis: TeamBasis): string {
+export function isDayView(value: string | null | undefined): value is DayView {
+  return value === "actual" || value === "plan";
+}
+
+/** `/team?day=2&basis=l7&view=plan`, leaving out what is default. */
+export function teamHref(day: number | null, basis: TeamBasis, view: DayView = "actual"): string {
   const params = new URLSearchParams();
   if (day !== null) params.set("day", String(day));
   if (basis !== "projected") params.set("basis", basis);
+  if (view !== "actual") params.set("view", view);
   const encoded = params.toString();
   return encoded ? `/team?${encoded}` : "/team";
 }

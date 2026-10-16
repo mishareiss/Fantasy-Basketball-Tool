@@ -6,6 +6,12 @@ import type {
   FreeAgentsResponse,
   GameInfo,
   LineupSource,
+  PlanAcquisitions,
+  PlanDrop,
+  PlanMove,
+  PlanPlayerRef,
+  PlanResponse,
+  PlanWarning,
   TeamCalendarResponse,
   TeamDayResponse,
   TeamPlayer,
@@ -267,4 +273,68 @@ export function playerCard(id = 1, name = "Luka Doncic"): TeamPlayerCardResponse
       { matchup_id: 2, label: "Matchup 2", start: isoFor(7), end: isoFor(13), days: [7, 8, 9, 10, 11], games: 0 },
     ],
   };
+}
+
+/* --- the waiver plan (task 31) ----------------------------------------------------- */
+
+export function ref(id: number, name: string): PlanPlayerRef {
+  return { id, name, nba_team: "MIA", positions: ["PF"], injury_status: null };
+}
+
+export const GOBERT = ref(3, "No Game Center");
+export const GRANT = ref(201, "Jerami Grant");
+export const GREEN = ref(202, "Draymond Green");
+export const WHITMORE = ref(203, "Cam Whitmore");
+
+/** A planned move on `sp`, dropping a named player, with candidates in rank order. */
+export function planMove(
+  overrides: Partial<PlanMove> & Pick<PlanMove, "id" | "sp"> & { pickups?: PlanPlayerRef[] },
+): PlanMove {
+  const { pickups = [GRANT], ...rest } = overrides;
+  const sp = rest.sp;
+  return {
+    date: isoFor(sp),
+    matchup_id: matchupIdFor(sp),
+    sequence: 0,
+    status: "planned",
+    lands_sp: sp,
+    overdue: false,
+    drop: { player: GOBERT, alternatives: [], from_move_id: null, problem: null, display: GOBERT.name },
+    candidates: pickups.map((player, index) => ({ rank: index + 1, player })),
+    pickup: pickups[0] ?? null,
+    alternatives: pickups.slice(1),
+    resolved_player_id: null,
+    claim_pending: false,
+    espn_transaction_id: null,
+    note: null,
+    created_at: "2026-10-16T00:00:00Z",
+    updated_at: "2026-10-16T00:00:00Z",
+    ...rest,
+  };
+}
+
+/** A chained drop: whoever move `fromId` picks up. */
+export function chainedDrop(fromId: number, display: string, alternatives: PlanPlayerRef[] = []): PlanDrop {
+  return { player: null, alternatives, from_move_id: fromId, problem: null, display };
+}
+
+export function acquisitionRow(matchupId: number, overrides: Partial<PlanAcquisitions> = {}): PlanAcquisitions {
+  return {
+    matchup_id: matchupId,
+    label: `Matchup ${matchupId}`,
+    used: 0,
+    used_source: "espn",
+    planned: 0,
+    limit: 7,
+    over: false,
+    ...overrides,
+  };
+}
+
+export function planResponse(overrides: Partial<PlanResponse> = {}): PlanResponse {
+  return { season: 2027, today_sp: 1, moves: [], warnings: [], acquisitions: [acquisitionRow(1)], ...overrides };
+}
+
+export function warning(overrides: Partial<PlanWarning> & Pick<PlanWarning, "code" | "message">): PlanWarning {
+  return { severity: "warning", move_id: null, matchup_id: null, sp: null, detail: {}, ...overrides };
 }
