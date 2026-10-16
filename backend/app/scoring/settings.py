@@ -19,6 +19,37 @@ class ScoringCoefficient:
 
 
 @dataclass(frozen=True)
+class AcquisitionSettings:
+    """The waiver and add rules from `mSettings.settings.acquisitionSettings`.
+
+    `raw` is ESPN's object as sent, and it is what gets stored. The two fields are the numbers
+    the Team tab actually uses. Note what is NOT modelled: `waiverProcessDays` says SUNDAY, but
+    our league's waivers process nightly, so a weekly process day would be wrong.
+    """
+
+    # Adds allowed per matchup. None when ESPN sets no limit (it uses a negative number).
+    matchup_acquisition_limit: int | None = None
+    # How long a dropped player sits on waivers, and how long a player has to be held before a
+    # drop sends him there at all. None when ESPN didn't say.
+    waiver_hours: int | None = None
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any] | None) -> "AcquisitionSettings":
+        """Parse ESPN's object (or the copy we stored). Tolerates None and missing keys."""
+        raw = raw if isinstance(raw, dict) else {}
+        limit = raw.get("matchupAcquisitionLimit")
+        hours = raw.get("waiverHours")
+        return cls(
+            matchup_acquisition_limit=(
+                int(limit) if isinstance(limit, int | float) and limit >= 0 else None
+            ),
+            waiver_hours=int(hours) if isinstance(hours, int | float) and hours >= 0 else None,
+            raw=dict(raw),
+        )
+
+
+@dataclass(frozen=True)
 class LeagueScoringSettings:
     """Everything we keep from `mSettings`."""
 
@@ -27,6 +58,9 @@ class LeagueScoringSettings:
     team_count: int | None = None
     roster_slots: dict[str, int] = field(default_factory=dict)
     coefficients: tuple[ScoringCoefficient, ...] = ()
+    # The add/waiver rules. Nothing to do with scoring; parsed here because they arrive in the
+    # same payload and are stored on the same row.
+    acquisition: AcquisitionSettings = field(default_factory=AcquisitionSettings)
 
     def as_points_map(self) -> dict[str, float]:
         """`{stat_name: points}` — the shape that's easiest to eyeball."""
@@ -86,4 +120,5 @@ def parse_league_settings(payload: dict[str, Any]) -> LeagueScoringSettings:
         # Slots ESPN reports as zero aren't part of our roster; drop them for readability.
         roster_slots={_slot_name(k): int(v) for k, v in slot_counts.items() if int(v) > 0},
         coefficients=parse_scoring_items(items),
+        acquisition=AcquisitionSettings.from_raw(settings.get("acquisitionSettings")),
     )

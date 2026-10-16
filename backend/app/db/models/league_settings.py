@@ -31,6 +31,11 @@ class LeagueSettings(Base):
     # ESPN's lineupSlotCounts, keyed by slot name ('PG', 'UT', 'BE', ...) rather than slot id.
     roster_slots: Mapped[dict | None] = mapped_column(JSON)
 
+    # ESPN's `acquisitionSettings`, stored raw (matchupAcquisitionLimit, waiverHours, ...). Read
+    # through `app.scoring.settings.AcquisitionSettings.from_raw`. Note its `waiverProcessDays`
+    # is not how our league behaves: waivers actually process nightly.
+    acquisition_settings: Mapped[dict | None] = mapped_column(JSON)
+
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

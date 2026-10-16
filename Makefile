@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-ages import fixtures nba-fixtures test test-live test-nba lint fmt
+.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-lineup sync-ages import fixtures nba-fixtures test test-live test-nba lint fmt
 
 # Load the local .env (gitignored) and pass it to every recipe, so the frontend gets
 # NEXT_PUBLIC_API_BASE_URL and docker compose gets the POSTGRES_* values.
@@ -32,8 +32,15 @@ migrate: ## Apply all migrations (alembic upgrade head)
 revision: ## Autogenerate a migration: make revision m="add players"
 	cd backend && uv run alembic revision --autogenerate -m "$(m)"
 
-sync: ## Pull scoring settings + player pool from ESPN into the DB (idempotent)
+sync: ## Pull settings, players, projections, schedule, teams, rosters, transactions from ESPN
 	cd backend && uv run python -m scripts.sync_league
+
+# Overwrites the stored lineup (manual edits included) for every day it covers. `make sync`
+# never touches lineups. Default: today through the end of the next matchup.
+#   make sync-lineup FIRST=1 LAST=13
+sync-lineup: ## Pull our team's ESPN lineup day by day (FIRST= LAST= scoring periods, optional)
+	cd backend && uv run python -m scripts.sync_lineup \
+		$(if $(FIRST),--first "$(FIRST)",) $(if $(LAST),--last "$(LAST)",)
 
 sync-ages: ## Match nba.com's roster to our players and fill in birthdates + ages (idempotent)
 	cd backend && uv run python -m scripts.sync_ages

@@ -35,6 +35,14 @@ FULL_SEASON_SPLIT_ID = 0
 
 GAMES_PLAYED = "GP"
 
+# The current season's actual splits: the full season so far and the last 7/15/30 days, by
+# ESPN's `statSplitTypeId`. Each is its own `Projection.kind` (app.espn.sync), which is what
+# keeps every one of them off the draft board.
+CURRENT_SEASON_SPLIT_ID = 0
+LAST_7_SPLIT_ID = 1
+LAST_15_SPLIT_ID = 2
+LAST_30_SPLIT_ID = 3
+
 # ESPN stat ids that are genuine counts — the only ones a points league can multiply by a
 # coefficient. A split also carries derived stats under the same ids (19-22 shooting
 # percentages, 26-36 per-game and ratio figures, 44 FT rate); none are scored in our league
@@ -179,6 +187,48 @@ def select_actual_split(player: dict[str, Any], season: int) -> dict[str, Any] |
     rather than that he was absent.
     """
     return _select_split(player, season - 1, ACTUAL_SOURCE_ID)
+
+
+def select_current_split(
+    player: dict[str, Any], season: int, split_type_id: int
+) -> dict[str, Any] | None:
+    """This season's ACTUAL split of one window, or None. Exact season, no fallback.
+
+    Deliberately not `_select_split`: falling back to the newest season is right for a
+    projection out of season and wrong here, where it would label last season's line as this
+    season's. Before a player's first game ESPN sends the split with empty `stats`, which reads
+    as None too.
+    """
+    for split in player.get("stats") or []:
+        if (
+            isinstance(split, dict)
+            and split.get("statSourceId") == ACTUAL_SOURCE_ID
+            and split.get("statSplitTypeId") == split_type_id
+            and split.get("seasonId") == season
+            and split.get("stats")
+        ):
+            return split
+    return None
+
+
+def parse_current_actuals(
+    entries: list[dict[str, Any]], season: int, split_type_id: int
+) -> list[ProjectionSplit]:
+    """The whole pool's current-season actuals for one window (season / last 7 / 15 / 30).
+
+    A split whose games-played is missing or zero is skipped: there is no per-game number in
+    it, and a row would read as "played and scored nothing".
+    """
+
+    def parse(entry: dict[str, Any], wanted: int) -> ProjectionSplit | None:
+        split = _parse_entry(
+            entry, wanted, lambda player, s: select_current_split(player, s, split_type_id)
+        )
+        if split is None or not split.projected_games:
+            return None
+        return split
+
+    return _parse_pool(entries, season, parse)
 
 
 def _parse_entry(

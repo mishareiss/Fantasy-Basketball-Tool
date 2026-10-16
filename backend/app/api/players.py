@@ -28,7 +28,12 @@ from app.ages import NBA_SOURCE, compute_age
 from app.config import get_settings
 from app.db.models import AdpEntry, MarketLine, Player, PlayerAlias, Projection
 from app.db.session import get_db
-from app.espn.sync import ACTUAL_SEASON_KIND, ESPN_SOURCE, SEASON_PROJECTION_KIND
+from app.espn.sync import (
+    ACTUAL_SEASON_KIND,
+    CURRENT_ACTUAL_KINDS,
+    ESPN_SOURCE,
+    SEASON_PROJECTION_KIND,
+)
 from app.ingest.market_line import MARKET_PROJECTION_KIND, MARKET_SOURCE
 from app.matching import MANUAL_SOURCE, record_alias
 from app.valuation import (
@@ -463,12 +468,16 @@ def _best_per_game(db: Session) -> dict[int, float]:
     Scoped by "is there a market line stored under this source name" rather than by the
     literal string 'market', because the source is an import option: a second book imported as
     `--source draftkings` is just as partial, and the honest test is what the rows came from.
+
+    This season's actual lines (`CURRENT_ACTUAL_KINDS`) are out too: a hot week is not a
+    projection, and they arrived after this worklist was defined.
     """
     market_sources = select(MarketLine.source).distinct()
     best: dict[int, float] = {}
     for player_id, per_game in db.execute(
         select(Projection.player_id, Projection.fantasy_points_per_game).where(
-            Projection.source.not_in(market_sources)
+            Projection.source.not_in(market_sources),
+            Projection.kind.not_in(tuple(CURRENT_ACTUAL_KINDS)),
         )
     ):
         best[player_id] = max(best.get(player_id, 0.0), per_game)

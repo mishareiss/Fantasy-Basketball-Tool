@@ -1,0 +1,127 @@
+{
+  "teams": [
+    {
+      "abbrev": "T1",
+      "id": 1,
+      "name": "Team 1",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000001}",
+        "{00000000-0000-4000-8000-000000000002}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 0,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T2",
+      "id": 2,
+      "name": "Team 2",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000003}",
+        "{00000000-0000-4000-8000-000000000004}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 0,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T4",
+      "id": 4,
+      "name": "Team 4",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000005}",
+        "{00000000-0000-4000-8000-000000000006}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 6,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T5",
+      "id": 5,
+      "name": "Team 5",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000007}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 0,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T6",
+      "id": 6,
+      "name": "Team 6",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000008}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 1,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T7",
+      "id": 7,
+      "name": "Team 7",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000009}",
+        "{00000000-0000-4000-8000-000000000010}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 0,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T8",
+      "id": 8,
+      "name": "Team 8",
+      "owners": [
+        "{11111111-2222-4333-8444-555555555555}",
+        "{00000000-0000-4000-8000-000000000011}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 1,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T9",
+      "id": 9,
+      "name": "Team 9",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000012}",
+        "{00000000-0000-4000-8000-000000000013}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 1,
+        "matchupAcquisitionTotals": {}
+      }
+    },
+    {
+      "abbrev": "T10",
+      "id": 10,
+      "name": "Team 10",
+      "owners": [
+        "{00000000-0000-4000-8000-000000000014}"
+      ],
+      "transactionCounter": {
+        "acquisitions": 0,
+        "drops": 0,
+        "matchupAcquisitionTotals": {}
+      }
+    }
+  ]
+}

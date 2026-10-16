@@ -149,3 +149,20 @@ def test_normalise_stat_line_renames_ids_to_stat_names():
         "AST": 5.0,
         "REB": 8.0,
     }
+
+
+def test_parses_the_acquisition_rules_beside_the_scoring(msettings_payload):
+    acquisition = parse_league_settings(msettings_payload).acquisition
+
+    assert acquisition.matchup_acquisition_limit == 7
+    assert acquisition.waiver_hours == 24
+    assert acquisition.raw["acquisitionType"] == "WAIVERS_TRADITIONAL"
+
+
+def test_acquisition_rules_tolerate_absence_and_no_limit():
+    from app.scoring import AcquisitionSettings
+
+    assert AcquisitionSettings.from_raw(None) == AcquisitionSettings()
+    unlimited = AcquisitionSettings.from_raw({"matchupAcquisitionLimit": -1, "waiverHours": 48})
+    assert unlimited.matchup_acquisition_limit is None
+    assert unlimited.waiver_hours == 48

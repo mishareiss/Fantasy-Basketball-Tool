@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -10,8 +11,11 @@ from sqlalchemy.orm import Session
 from app.ages import NbaApiError, sync_ages
 from app.db.session import get_db
 from app.espn import sync_league
-from app.espn.client import ESPNCredentialsError, ESPNRequestError
+from app.espn.client import ESPNClient, ESPNCredentialsError, ESPNRequestError
+from app.espn.lineups import pull_lineups
 from app.scoring.settings import ESPNSettingsError
+from app.team.calendar import UnknownSeasonError
+from app.team.store import my_team
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -59,6 +63,37 @@ class SyncLeagueResponse(BaseModel):
     adp_updated: int
     adp_unchanged: int
 
+    # This season's actual lines by kind (actual_current / actual_last_7 / _15 / _30), each
+    # {seen, created, updated, unchanged, removed}; and whether any season-so-far row exists.
+    current_actuals: dict[str, dict[str, int]] = {}
+    actuals_available: bool = False
+
+    # The NBA schedule, and how many games' Eastern dates disagree with their scoring period.
+    games_seen: int = 0
+    games_created: int = 0
+    games_updated: int = 0
+    games_unchanged: int = 0
+    games_removed: int = 0
+    schedule_date_mismatches: int = 0
+    schedule_mismatched_games: list[str] = []
+
+    teams_seen: int = 0
+    my_team_id: int | None = None
+    my_team_warning: str | None = None
+    my_team_matchup_acquisition_totals: dict[str, Any] | None = None
+
+    roster_entries: int = 0
+    roster_entries_skipped: int = 0
+    roster_scoring_period: int | None = None
+
+    transactions_seen: int = 0
+    transactions_created: int = 0
+    transactions_updated: int = 0
+    transactions_unchanged: int = 0
+
+    # Keys of any WAIVERS entry in the pool, for spotting a real clear-time field.
+    waiver_entry_keys: dict[str, list[str]] | None = None
+
     roster_slots: dict[str, int]
     points_by_stat: dict[str, float]
 
@@ -75,6 +110,59 @@ def sync_league_now(db: Session = Depends(get_db)) -> SyncLeagueResponse:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"ESPN sync failed: {exc}") from exc
 
     return SyncLeagueResponse(**asdict(summary))
+
+
+def get_espn_client() -> ESPNClient:
+    """The ESPN client for one request; a dependency so tests can hand in a stub."""
+    try:
+        return ESPNClient.from_settings()
+    except ESPNCredentialsError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+
+class SyncLineupResponse(BaseModel):
+    """What one lineup pull stored: the team, the days covered, and how many rows."""
+
+    team_id: int
+    first_sp: int
+    last_sp: int
+    days: int
+    assignments: int
+
+
+@router.post("/lineup", response_model=SyncLineupResponse)
+def sync_lineup_now(
+    db: Session = Depends(get_db),
+    client: ESPNClient = Depends(get_espn_client),
+    first_sp: int | None = Query(None, ge=1, description="First scoring period (default: today)"),
+    last_sp: int | None = Query(
+        None, ge=1, description="Last scoring period (default: end of next matchup)"
+    ),
+) -> SyncLineupResponse:
+    """Pull our team's ESPN lineup for each day in range and store it.
+
+    OVERWRITES every stored lineup row in those days, manual edits included. That is the
+    point of the button. `POST /sync/league` never touches lineups.
+    """
+    team = my_team(db, client.season)
+    if team is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"No team is marked as ours for season {client.season}. Run the league sync "
+            "(make sync) first, or set ESPN_MY_TEAM_ID.",
+        )
+    try:
+        pulled = pull_lineups(db, client, team.team_id, first_sp, last_sp)
+    except ESPNCredentialsError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except ESPNRequestError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"ESPN lineup pull failed: {exc}") from exc
+    except UnknownSeasonError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+    return SyncLineupResponse(**asdict(pulled))
 
 
 class SyncAgesResponse(BaseModel):

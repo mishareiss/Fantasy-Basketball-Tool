@@ -1025,4 +1025,66 @@ def test_there_is_exactly_one_head_after_this_revision(migrated):
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [NAMES]
+    assert ScriptDirectory.from_config(config).get_heads() == [TEAM_DATA]
+
+
+# --- the in-season team data (task 27) ------------------------------------------------------
+
+TEAM_DATA = "c2d8e4f61a97"
+TEAM_TABLES = {"nba_game", "fantasy_team", "roster_entry", "lineup_assignment", "espn_transaction"}
+
+
+def _columns(engine, table: str) -> set[str]:
+    return {column["name"] for column in inspect(engine).get_columns(table)}
+
+
+def test_the_team_data_round_trip_leaves_a_working_schema(migrated):
+    """Upgrade, downgrade, upgrade again: the tables and both new columns come and go cleanly."""
+    config, engine = migrated
+    command.upgrade(config, NAMES)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+
+    command.upgrade(config, TEAM_DATA)
+    assert set(inspect(engine).get_table_names()) >= TEAM_TABLES
+    assert "eligible_slots" in _columns(engine, "player")
+    assert "acquisition_settings" in _columns(engine, "league_settings")
+    with engine.begin() as connection:
+        # The existing player is untouched and simply has no slots yet.
+        assert connection.scalar(text("SELECT eligible_slots FROM player")) is None
+        connection.execute(
+            text(
+                "INSERT INTO roster_entry (season, team_id, player_id, lineup_slot_id) "
+                "VALUES (2027, 8, 1, 12)"
+            )
+        )
+
+    command.downgrade(config, NAMES)
+    assert not TEAM_TABLES & set(inspect(engine).get_table_names())
+    assert "eligible_slots" not in _columns(engine, "player")
+    assert "acquisition_settings" not in _columns(engine, "league_settings")
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT full_name FROM player")) == "Player 1"
+
+    command.upgrade(config, TEAM_DATA)
+    assert set(inspect(engine).get_table_names()) >= TEAM_TABLES
+
+
+def test_a_roster_entry_is_one_per_player_per_season(migrated):
+    config, engine = migrated
+    command.upgrade(config, TEAM_DATA)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        connection.execute(
+            text(
+                "INSERT INTO roster_entry (season, team_id, player_id, lineup_slot_id) "
+                "VALUES (2027, 8, 1, 12)"
+            )
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO roster_entry (season, team_id, player_id, lineup_slot_id) "
+                "VALUES (2027, 4, 1, 12)"
+            )
+        )

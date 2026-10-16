@@ -11,6 +11,7 @@ from app.scoring.engine import (
 )
 from app.scoring.projections import PerGameBasis, ScoredProjection, score_projection
 from app.scoring.settings import (
+    AcquisitionSettings,
     ESPNSettingsError,
     LeagueScoringSettings,
     ScoringCoefficient,
@@ -22,6 +23,7 @@ from app.scoring.stats import STAT_ID_TO_NAME, STAT_NAME_TO_ID, stat_label, stat
 __all__ = [
     "STAT_ID_TO_NAME",
     "STAT_NAME_TO_ID",
+    "AcquisitionSettings",
     "ESPNSettingsError",
     "LeagueScoringSettings",
     "PerGameBasis",

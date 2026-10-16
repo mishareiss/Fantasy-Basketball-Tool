@@ -4,13 +4,18 @@ Run them deliberately with `uv run pytest -m live`. They're the canary for ESPN 
 endpoint or our cookies expiring — the two failure modes the recorded fixtures can't see.
 """
 
+from datetime import date
+
 import pytest
 
+from app.config import Settings
 from app.espn.client import ESPNClient, credentials_available
+from app.espn.league import parse_pro_schedule, parse_rosters, parse_teams, resolve_my_team
 from app.espn.ownership import parse_ownership
 from app.espn.statsplits import parse_projections
 from app.scoring import ScoringEngine, parse_league_settings
 from app.scoring.projections import score_projection
+from app.team.calendar import eastern_date
 
 pytestmark = [
     pytest.mark.live,
@@ -89,3 +94,22 @@ def test_espn_api_league_loads_with_our_cookies(client):
 
     assert league.settings.name
     assert len(league.teams) > 0
+
+
+def test_the_in_season_views_resolve_our_team_and_date_the_schedule():
+    """Schedule, mTeam and mRoster, live. Built from a fresh `Settings()` read of `.env`: the
+    suite pins a fake league id session-wide, and the real one is what this test is about."""
+    live = ESPNClient.from_settings(Settings())
+
+    teams = parse_teams(live.fetch_teams())
+    resolution = resolve_my_team(teams, swid=live.credentials.swid, override=None)
+    assert len(teams) == 9
+    assert resolution.team_id == 8, resolution.warning
+
+    games = parse_pro_schedule(live.fetch_pro_schedule())
+    opening = [game for game in games if game.scoring_period_id == 1]
+    assert opening, "ESPN's schedule has no period-1 games"
+    assert {eastern_date(game.starts_at) for game in opening} == {date(2026, 10, 20)}
+
+    rosters = parse_rosters(live.fetch_rosters())
+    assert {record.team_id for record in rosters} == {team.team_id for team in teams}

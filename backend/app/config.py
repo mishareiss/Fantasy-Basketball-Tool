@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     espn_league_id: int | None = None
     espn_season: int | None = None
 
+    # Which fantasy team is ours. Unset is the normal case: the sync then finds the team whose
+    # owners include the SWID above. Set it only if that guess is wrong or the cookies belong
+    # to someone who doesn't own a team (ESPN_MY_TEAM_ID=8).
+    espn_my_team_id: int | None = None
+
+    # The timezone whose midnight a dropped player clears waivers at. Our league runs on
+    # Pacific: a player held more than `waiverHours` and then dropped clears at the first
+    # Pacific midnight after drop + waiverHours (app.team.waivers).
+    waiver_clear_tz: str = "America/Los_Angeles"
+
     # The date ages are computed as of. Ages must be reproducible: computing them from
     # `date.today()` would silently change a player's stored age (and therefore his dynasty
     # value) between two runs a month apart, and would be wrong on draft day for anyone with a

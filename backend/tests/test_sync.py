@@ -20,6 +20,7 @@ from app.espn.sync import (
     sync_scoring_settings,
 )
 from app.scoring import ScoringEngine, load_scoring_engine, parse_league_settings
+from tests.conftest import PRESEASON_NOW
 
 LEAGUE_ID = 999999
 SEASON = 2027
@@ -419,24 +420,15 @@ def test_actuals_keep_their_own_counters_and_re_running_changes_nothing(
     assert again.actuals_unchanged == summary.actuals_created
 
 
-def test_the_full_sync_stores_both_splits_from_one_fetch(
-    db, msettings_payload, player_pool_payload
-):
+def test_the_full_sync_stores_both_splits_from_one_fetch(db, fake_espn, player_pool_payload):
     """`sync_league` itself, against a stubbed client — the wiring, not the parsers."""
+    client = fake_espn()
 
-    class FakeClient:
-        league_id = LEAGUE_ID
-        season = SEASON
+    summary = sync_league(db, client, now=PRESEASON_NOW)
 
-        def fetch_settings_view(self):
-            return msettings_payload
-
-        def fetch_player_pool_pages(self):
-            return player_pool_payload
-
-    summary = sync_league(db, FakeClient())
-
+    assert [view for view, _ in client.calls].count("kona_player_info") == 1
     assert summary.projections_created == len(parse_projections(player_pool_payload, SEASON))
     assert summary.actuals_created == len(parse_actuals(player_pool_payload, SEASON))
     kinds = set(db.scalars(select(Projection.kind).distinct()))
+    # The recorded pool is pre-season: no 2027 games, so no current-season actual rows.
     assert kinds == {"projected_season", ACTUAL_SEASON_KIND}

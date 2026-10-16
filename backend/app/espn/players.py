@@ -30,6 +30,8 @@ class PlayerRecord:
     pro_team_id: int | None = None
     primary_position: str | None = None
     positions: list[str] = field(default_factory=list)
+    # ESPN's raw eligible-slot ids, kept as sent: the lineup UI needs the slot ids themselves.
+    eligible_slots: list[int] = field(default_factory=list)
     roster_status: str | None = None
     espn_fantasy_team_id: int | None = None
     injury_status: str | None = None
@@ -42,6 +44,15 @@ def _positions(eligible_slots: list[int] | None) -> list[str]:
     """Atomic positions from ESPN's eligible-slot ids, in PG->C order."""
     names = {POSITION_MAP.get(slot_id, "") for slot_id in (eligible_slots or [])}
     return [position for position in ATOMIC_POSITIONS if position in names]
+
+
+def _eligible_slots(eligible_slots: list[int] | None) -> list[int]:
+    """ESPN's slot ids as ints, de-duplicated, in ESPN's own order."""
+    out: list[int] = []
+    for slot_id in eligible_slots or []:
+        if isinstance(slot_id, int) and not isinstance(slot_id, bool) and slot_id not in out:
+            out.append(slot_id)
+    return out
 
 
 def _primary_position(default_position_id: int | None) -> str | None:
@@ -108,6 +119,7 @@ def parse_player_entry(entry: dict[str, Any]) -> PlayerRecord | None:
         pro_team_id=pro_team_id,
         primary_position=_primary_position(player.get("defaultPositionId")),
         positions=_positions(player.get("eligibleSlots")),
+        eligible_slots=_eligible_slots(player.get("eligibleSlots")),
         roster_status=entry.get("status"),
         # ESPN uses team 0 for "nobody"; store None so "rostered" is a simple NOT NULL check.
         espn_fantasy_team_id=on_team_id or None,

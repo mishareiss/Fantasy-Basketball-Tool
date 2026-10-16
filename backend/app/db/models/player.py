@@ -30,6 +30,10 @@ class Player(Base):
     # Default position plus every atomic position ESPN says they're eligible at (PG/SG/SF/PF/C).
     primary_position: Mapped[str | None] = mapped_column(String(8))
     positions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # ESPN's raw `eligibleSlots` ids (POSITION_MAP: PG 0 ... C 4, G 5, F 6, UT 11, BE 12, IR 13),
+    # for keeping lineup moves position-legal. `positions` is the readable subset of these.
+    # NULL until the first sync that knows about it.
+    eligible_slots: Mapped[list[int] | None] = mapped_column(JSON)
 
     # FREEAGENT / WAIVERS / ONTEAM in our league, and the fantasy team holding them if rostered.
     roster_status: Mapped[str | None] = mapped_column(String(16))

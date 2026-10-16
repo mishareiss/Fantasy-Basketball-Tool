@@ -59,11 +59,45 @@ def main() -> int:
         f"={summary.actuals_unchanged} unchanged, "
         f"{summary.actuals_missing} players had none)"
     )
+    for kind, counts in summary.current_actuals.items():
+        print(
+            f"  this season, {kind}: {counts['seen']} priced "
+            f"(+{counts['created']} new, ~{counts['updated']} changed, "
+            f"={counts['unchanged']} unchanged, -{counts['removed']} removed)"
+        )
+    print(f"  this season's actuals available: {summary.actuals_available}")
     print(
         f"  espn adp: {summary.adp_seen} seen "
         f"(+{summary.adp_created} new, ~{summary.adp_updated} changed, "
         f"={summary.adp_unchanged} unchanged)"
     )
+    print(
+        f"  nba schedule: {summary.games_seen} games "
+        f"(+{summary.games_created} new, ~{summary.games_updated} changed, "
+        f"={summary.games_unchanged} unchanged, -{summary.games_removed} removed), "
+        f"{summary.schedule_date_mismatches} date mismatches"
+    )
+    for line in summary.schedule_mismatched_games:
+        print(f"    {line}")
+    print(f"  fantasy teams: {summary.teams_seen}   my team: {summary.my_team_id}")
+    if summary.my_team_warning:
+        print(f"    WARNING: {summary.my_team_warning}")
+    print(f"    my matchupAcquisitionTotals: {summary.my_team_matchup_acquisition_totals}")
+    print(
+        f"  rosters: {summary.roster_entries} entries at period {summary.roster_scoring_period}"
+        + (
+            f" ({summary.roster_entries_skipped} unknown players skipped)"
+            if summary.roster_entries_skipped
+            else ""
+        )
+    )
+    print(
+        f"  transactions: {summary.transactions_seen} seen "
+        f"(+{summary.transactions_created} new, ~{summary.transactions_updated} changed, "
+        f"={summary.transactions_unchanged} unchanged)"
+    )
+    if summary.waiver_entry_keys:
+        print(f"  WAIVERS entries seen; keys: {summary.waiver_entry_keys}")
     return 0
 
 

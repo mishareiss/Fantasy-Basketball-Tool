@@ -241,3 +241,45 @@ class ESPNClient:
             offset += page_size
 
         return entries
+
+    def fetch_pro_schedule(self) -> dict[str, Any]:
+        """The whole NBA schedule for the season: `settings.proTeams[].proGamesByScoringPeriod`.
+
+        Season-level, not league-level: the schedule is the same for every league.
+        """
+        payload = self.fetch_view("proTeamSchedules_wl", season_scoped=True)
+        if not isinstance(payload, dict) or "settings" not in payload:
+            raise ESPNRequestError("proTeamSchedules_wl response did not contain `settings`")
+        return payload
+
+    def fetch_teams(self) -> dict[str, Any]:
+        """Raw `?view=mTeam`: every fantasy team, its owners and its transaction counter."""
+        payload = self.fetch_view("mTeam")
+        if not isinstance(payload, dict) or "teams" not in payload:
+            raise ESPNRequestError("mTeam response did not contain `teams`")
+        return payload
+
+    def fetch_rosters(
+        self, scoring_period_id: int | None = None, *, team_id: int | None = None
+    ) -> dict[str, Any]:
+        """Raw `?view=mRoster`: rosters and lineups as of one scoring period.
+
+        Every team in one request by default; `team_id` narrows it to one. A future period
+        returns the lineup ESPN has stored for that day, which can differ from today's.
+        """
+        params: dict[str, Any] = {}
+        if scoring_period_id is not None:
+            params["scoringPeriodId"] = scoring_period_id
+        if team_id is not None:
+            params["forTeamId"] = team_id
+        payload = self.fetch_view("mRoster", params=params)
+        if not isinstance(payload, dict) or "teams" not in payload:
+            raise ESPNRequestError("mRoster response did not contain `teams`")
+        return payload
+
+    def fetch_transactions(self) -> dict[str, Any]:
+        """Raw `?view=mTransactions2`: the season's whole transaction log, draft included."""
+        payload = self.fetch_view("mTransactions2")
+        if not isinstance(payload, dict) or "transactions" not in payload:
+            raise ESPNRequestError("mTransactions2 response did not contain `transactions`")
+        return payload

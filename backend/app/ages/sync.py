@@ -32,6 +32,7 @@ from app.ages.nba_source import (
 )
 from app.config import get_settings
 from app.db.models import Player, PlayerAlias, Projection
+from app.espn.sync import CURRENT_ACTUAL_KINDS
 from app.matching import (
     METHOD_ALIAS,
     METHOD_AMBIGUOUS,
@@ -266,8 +267,11 @@ def _fill_coverage(db: Session, summary: AgeSyncSummary) -> None:
     """The numbers that say whether the board is complete, plus the manual-alias worklist."""
     aliased = set(db.scalars(select(PlayerAlias.player_id).where(PlayerAlias.source == NBA_SOURCE)))
     value: dict[int, float] = {}
+    # This season's actual lines stay out of "how valuable is he": a hot week is not value.
     for player_id, per_game in db.execute(
-        select(Projection.player_id, Projection.fantasy_points_per_game)
+        select(Projection.player_id, Projection.fantasy_points_per_game).where(
+            Projection.kind.not_in(tuple(CURRENT_ACTUAL_KINDS))
+        )
     ):
         value[player_id] = max(value.get(player_id, 0.0), per_game)
 

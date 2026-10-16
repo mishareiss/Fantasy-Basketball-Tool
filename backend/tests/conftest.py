@@ -5,8 +5,9 @@ The suite is deliberately offline: parsing and scoring run against recorded ESPN
 cookies or a running Postgres, so `make test` works on a cold checkout.
 """
 
+import copy
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from app.db.models import (
     RankingEntry,
     RankingSet,
 )
+from app.espn.client import ESPNCredentials
 from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
 from app.espn.statsplits import parse_actuals, parse_projections
@@ -90,6 +92,24 @@ DRAFT_PARAMS = {
 # `test_auth` sets it deliberately, per test, and puts it back.
 AUTH_PARAMS: dict[str, object] = {"app_access_token": None}
 
+# The in-season settings, pinned for the same reason again: an ESPN_MY_TEAM_ID in somebody's
+# `.env` would override the SWID match every my-team test is about, and the waiver clock has
+# to be Pacific for the expected clear times below to mean anything.
+TEAM_PARAMS: dict[str, object] = {
+    "espn_my_team_id": None,
+    "waiver_clear_tz": "America/Los_Angeles",
+}
+
+# The SWID the recorded owner lists carry for OUR team (scripts/record_fixtures.FAKE_MY_SWID).
+# A constant, not a pinned setting: the live tests read the real SWID from `.env`, and pinning
+# a fake one session-wide would 401 them.
+FAKE_SWID = "{11111111-2222-4333-8444-555555555555}"
+# Which team that is, in the recorded league.
+MY_TEAM_ID = 8
+
+# A moment before the season, the same day the in-season fixtures were recorded on.
+PRESEASON_NOW = datetime(2026, 10, 15, 19, 0, tzinfo=UTC)
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -105,10 +125,12 @@ def pinned_settings():
     And the dynasty curve, for the same reason again: it is what orders the dynasty board —
     as the tier parameters are what cuts it up, and as the DRAFT_* values are what decide
     which pick numbers are mine and how the simulated room drafts. And APP_ACCESS_TOKEN, which
-    is the bluntest of the lot: set locally, it would 401 every endpoint test here.
+    is the bluntest of the lot: set locally, it would 401 every endpoint test here. And the
+    in-season pair (ESPN_MY_TEAM_ID, WAIVER_CLEAR_TZ): which team is ours and whose midnight a
+    waiver clears at.
     """
     settings = get_settings()
-    pinned = DYNASTY_CURVE | TIER_PARAMS | DRAFT_PARAMS | AUTH_PARAMS
+    pinned = DYNASTY_CURVE | TIER_PARAMS | DRAFT_PARAMS | AUTH_PARAMS | TEAM_PARAMS
     original = (settings.age_as_of, settings.espn_season, settings.espn_league_id)
     original_pinned = {field: getattr(settings, field) for field in pinned}
     settings.age_as_of = AGE_AS_OF
@@ -136,6 +158,162 @@ def msettings_payload() -> dict[str, Any]:
 def player_pool_payload() -> list[dict[str, Any]]:
     """A sanitized slice of our real `kona_player_info` response."""
     return load_fixture("espn_player_pool.json")
+
+
+@pytest.fixture(scope="session")
+def pro_schedule_payload() -> dict[str, Any]:
+    """Six pro teams over days 1-3, the placeholder team 0, and one game marked TBD by hand."""
+    return load_fixture("espn_pro_schedule.json")
+
+
+@pytest.fixture(scope="session")
+def mteam_payload() -> dict[str, Any]:
+    """Our nine fantasy teams, names and owner SWIDs replaced. Team 8 is owned by FAKE_SWID."""
+    return load_fixture("espn_mteam.json")
+
+
+@pytest.fixture(scope="session")
+def mroster_payload() -> dict[str, Any]:
+    """Every team's roster and lineup on day 1 (pre-season: ESPN's current period)."""
+    return load_fixture("espn_mroster.json")
+
+
+@pytest.fixture(scope="session")
+def mroster_day_8_payload() -> dict[str, Any]:
+    """Team 8 on day 8, where ESPN had stored a different lineup from day 1's."""
+    return load_fixture("espn_mroster_day_8.json")
+
+
+@pytest.fixture(scope="session")
+def transactions_payload() -> dict[str, Any]:
+    """A trimmed `mTransactions2`: adds, drops, waivers (PENDING, EXECUTED, FAILED), a little
+    lineup noise and two DRAFT rows that must be skipped."""
+    return load_fixture("espn_transactions.json")
+
+
+@pytest.fixture(scope="session")
+def inseason_pool_payload() -> list[dict[str, Any]]:
+    """Five hand-made pool entries with THIS season's splits filled in (2027).
+
+    SGA has every window (season, L7, L15, L30); Wembanyama has season and L30 only; Jokic has
+    last season and nothing yet this season; Giannis has a 2027 season line with GP 0; Edwards
+    is on WAIVERS with a season line. Lines are last season's per-game rates times the games.
+    """
+    return load_fixture("espn_player_pool_inseason.json")
+
+
+def roster_pool_entries(mroster: dict[str, Any]) -> list[dict[str, Any]]:
+    """An `mRoster` response's players, shaped like `kona_player_info` entries.
+
+    What the live pool says about a rostered player (ONTEAM, on that team), so the roster
+    fixtures' players can be synced as Player rows before their roster entries reference them.
+    """
+    return [
+        {
+            "id": entry["playerId"],
+            "status": "ONTEAM",
+            "onTeamId": team["id"],
+            "player": entry["playerPoolEntry"]["player"],
+        }
+        for team in mroster["teams"]
+        for entry in team["roster"]["entries"]
+    ]
+
+
+class FakeESPNClient:
+    """`ESPNClient`'s surface, answered from the recorded fixtures. Records every call."""
+
+    def __init__(
+        self,
+        *,
+        msettings: dict[str, Any],
+        pool: list[dict[str, Any]],
+        schedule: dict[str, Any],
+        teams: dict[str, Any],
+        rosters: dict[str, Any],
+        transactions: dict[str, Any],
+        rosters_by_day: dict[int, dict[str, Any]] | None = None,
+        swid: str = FAKE_SWID,
+    ) -> None:
+        self.league_id = LEAGUE_ID
+        self.season = SEASON
+        self.credentials = ESPNCredentials(
+            league_id=LEAGUE_ID, season=SEASON, espn_s2="fake-s2", swid=swid
+        )
+        self.msettings, self.pool, self.schedule = msettings, pool, schedule
+        self.teams, self.rosters, self.transactions = teams, rosters, transactions
+        self.rosters_by_day = rosters_by_day or {}
+        self.calls: list[tuple[str, Any]] = []
+
+    def fetch_settings_view(self) -> dict[str, Any]:
+        self.calls.append(("mSettings", None))
+        return self.msettings
+
+    def fetch_player_pool_pages(self) -> list[dict[str, Any]]:
+        self.calls.append(("kona_player_info", None))
+        return self.pool
+
+    def fetch_pro_schedule(self) -> dict[str, Any]:
+        self.calls.append(("proTeamSchedules_wl", None))
+        return self.schedule
+
+    def fetch_teams(self) -> dict[str, Any]:
+        self.calls.append(("mTeam", None))
+        return self.teams
+
+    def fetch_rosters(
+        self, scoring_period_id: int | None = None, *, team_id: int | None = None
+    ) -> dict[str, Any]:
+        """A recorded day if there is one for this team, else day 1's rosters relabelled."""
+        self.calls.append(("mRoster", (scoring_period_id, team_id)))
+        recorded = self.rosters_by_day.get(scoring_period_id)
+        if (
+            recorded is not None
+            and team_id is not None
+            and any(team["id"] == team_id for team in recorded["teams"])
+        ):
+            return copy.deepcopy(recorded)
+        payload = copy.deepcopy(self.rosters)
+        payload["scoringPeriodId"] = scoring_period_id or payload.get("scoringPeriodId")
+        if team_id is not None:
+            payload["teams"] = [team for team in payload["teams"] if team["id"] == team_id]
+        return payload
+
+    def fetch_transactions(self) -> dict[str, Any]:
+        self.calls.append(("mTransactions2", None))
+        return self.transactions
+
+
+@pytest.fixture
+def fake_espn(
+    msettings_payload,
+    player_pool_payload,
+    pro_schedule_payload,
+    mteam_payload,
+    mroster_payload,
+    mroster_day_8_payload,
+    transactions_payload,
+):
+    """A factory for `FakeESPNClient`s over the recorded league; keyword args override a view.
+
+    The default pool is the recorded one plus every rostered player, so a full sync knows every
+    player a roster entry points at, as the live pool (which lists all ONTEAM players) does.
+    """
+
+    def make(**overrides: Any) -> FakeESPNClient:
+        views: dict[str, Any] = {
+            "msettings": msettings_payload,
+            "pool": player_pool_payload + roster_pool_entries(mroster_payload),
+            "schedule": pro_schedule_payload,
+            "teams": mteam_payload,
+            "rosters": mroster_payload,
+            "transactions": transactions_payload,
+            "rosters_by_day": {8: mroster_day_8_payload},
+        }
+        views.update(overrides)
+        return FakeESPNClient(**views)
+
+    return make
 
 
 @pytest.fixture(scope="session")

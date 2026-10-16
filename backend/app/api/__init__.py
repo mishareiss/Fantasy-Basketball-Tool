@@ -12,6 +12,7 @@ from app.api import (
     players,
     rankings,
     sync,
+    team,
     valuation,
 )
 from app.auth import require_access_token
@@ -30,3 +31,4 @@ api_router.include_router(consensus.router)
 api_router.include_router(market.router)
 api_router.include_router(master.router)
 api_router.include_router(draft.router)
+api_router.include_router(team.router)

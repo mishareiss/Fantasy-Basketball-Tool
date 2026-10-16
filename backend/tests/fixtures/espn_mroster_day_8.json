@@ -1,0 +1,640 @@
+{
+  "scoringPeriodId": 8,
+  "teams": [
+    {
+      "id": 8,
+      "roster": {
+        "entries": [
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 0,
+            "playerId": 3945274,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  5,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Luka",
+                "fullName": "Luka Doncic",
+                "id": 3945274,
+                "injured": false,
+                "injuryStatus": "DAY_TO_DAY",
+                "lastName": "Doncic",
+                "proTeamId": 13
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 1,
+            "playerId": 4396993,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Tyrese",
+                "fullName": "Tyrese Haliburton",
+                "id": 4396993,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Haliburton",
+                "proTeamId": 11
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 2,
+            "playerId": 4683021,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 3,
+                "eligibleSlots": [
+                  2,
+                  3,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Deni",
+                "fullName": "Deni Avdija",
+                "id": 4683021,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Avdija",
+                "proTeamId": 22
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 3936299,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  5,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Jamal",
+                "fullName": "Jamal Murray",
+                "id": 3936299,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Murray",
+                "proTeamId": 7
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 4433287,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 3,
+                "eligibleSlots": [
+                  1,
+                  2,
+                  5,
+                  6,
+                  7,
+                  8,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Brandon",
+                "fullName": "Brandon Miller",
+                "id": 4433287,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Miller",
+                "proTeamId": 30
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 4,
+            "playerId": 5105565,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 5,
+                "eligibleSlots": [
+                  4,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Donovan",
+                "fullName": "Donovan Clingan",
+                "id": 5105565,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Clingan",
+                "proTeamId": 22
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 3907497,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 2,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Dejounte",
+                "fullName": "Dejounte Murray",
+                "id": 3907497,
+                "injured": false,
+                "injuryStatus": "DAY_TO_DAY",
+                "lastName": "Murray",
+                "proTeamId": 3
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 4396907,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  5,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Darius",
+                "fullName": "Darius Garland",
+                "id": 4396907,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Garland",
+                "proTeamId": 12
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 11,
+            "playerId": 4065733,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 2,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Ty",
+                "fullName": "Ty Jerome",
+                "id": 4065733,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Jerome",
+                "proTeamId": 29
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 11,
+            "playerId": 4431671,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 3,
+                "eligibleSlots": [
+                  2,
+                  3,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Jaden",
+                "fullName": "Jaden McDaniels",
+                "id": 4431671,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "McDaniels",
+                "proTeamId": 16
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 3032976,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 5,
+                "eligibleSlots": [
+                  4,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Rudy",
+                "fullName": "Rudy Gobert",
+                "id": 3032976,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Gobert",
+                "proTeamId": 16
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 3,
+            "playerId": 4251,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 3,
+                "eligibleSlots": [
+                  2,
+                  3,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Paul",
+                "fullName": "Paul George",
+                "id": 4251,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "George",
+                "proTeamId": 2
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 5093267,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 4,
+                "eligibleSlots": [
+                  3,
+                  6,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Collin",
+                "fullName": "Collin Murray-Boyles",
+                "id": 5093267,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Murray-Boyles",
+                "proTeamId": 28
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 4900671,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Ajay",
+                "fullName": "Ajay Mitchell",
+                "id": 4900671,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Mitchell",
+                "proTeamId": 25
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 4712849,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 1,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Anthony",
+                "fullName": "Anthony Black",
+                "id": 4712849,
+                "injured": false,
+                "injuryStatus": "DAY_TO_DAY",
+                "lastName": "Black",
+                "proTeamId": 19
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 5149077,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 2,
+                "eligibleSlots": [
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13,
+                  0
+                ],
+                "firstName": "Kingston",
+                "fullName": "Kingston Flemings",
+                "id": 5149077,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Flemings",
+                "proTeamId": 1
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 5174983,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 5,
+                "eligibleSlots": [
+                  4,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13,
+                  15
+                ],
+                "firstName": "Aday",
+                "fullName": "Aday Mara",
+                "id": 5174983,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Mara",
+                "proTeamId": 25
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 13,
+            "playerId": 4701232,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 5,
+                "eligibleSlots": [
+                  4,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Mark",
+                "fullName": "Mark Williams",
+                "id": 4701232,
+                "injured": true,
+                "injuryStatus": "OUT",
+                "lastName": "Williams",
+                "proTeamId": 21
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 13,
+            "playerId": 5101845,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 4,
+                "eligibleSlots": [
+                  3,
+                  4,
+                  6,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Jayden",
+                "fullName": "Jayden Quaintance",
+                "id": 5101845,
+                "injured": true,
+                "injuryStatus": "OUT",
+                "lastName": "Quaintance",
+                "proTeamId": 24
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 4351851,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 2,
+                "eligibleSlots": [
+                  0,
+                  1,
+                  5,
+                  7,
+                  8,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Anfernee",
+                "fullName": "Anfernee Simons",
+                "id": 4351851,
+                "injured": false,
+                "injuryStatus": "DAY_TO_DAY",
+                "lastName": "Simons",
+                "proTeamId": 20
+              }
+            },
+            "status": "NORMAL"
+          },
+          {
+            "acquisitionDate": null,
+            "acquisitionType": null,
+            "injuryStatus": "NORMAL",
+            "lineupSlotId": 12,
+            "playerId": 3157465,
+            "playerPoolEntry": {
+              "player": {
+                "defaultPositionId": 3,
+                "eligibleSlots": [
+                  1,
+                  2,
+                  5,
+                  6,
+                  7,
+                  8,
+                  10,
+                  11,
+                  12,
+                  13
+                ],
+                "firstName": "Duncan",
+                "fullName": "Duncan Robinson",
+                "id": 3157465,
+                "injured": false,
+                "injuryStatus": "ACTIVE",
+                "lastName": "Robinson",
+                "proTeamId": 8
+              }
+            },
+            "status": "NORMAL"
+          }
+        ]
+      }
+    }
+  ]
+}

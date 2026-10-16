@@ -94,3 +94,18 @@ def test_deduplicates_players_across_pages(player_pool_payload):
     doubled = player_pool_payload + player_pool_payload
 
     assert len(parse_player_pool(doubled)) == len(parse_player_pool(player_pool_payload))
+
+
+def test_keeps_the_raw_eligible_slots_beside_the_positions():
+    record = parse_player_entry(ROSTERED_ENTRY)
+
+    assert record.eligible_slots == [0, 1, 5, 8, 11, 12, 13]
+    assert record.positions == ["PG", "SG"]
+
+
+def test_eligible_slots_tolerate_junk_and_repeats():
+    entry = {
+        **ROSTERED_ENTRY,
+        "player": {**ROSTERED_ENTRY["player"], "eligibleSlots": [0, 0, "x", 12]},
+    }
+    assert parse_player_entry(entry).eligible_slots == [0, 12]
