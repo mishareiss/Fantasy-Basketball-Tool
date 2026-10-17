@@ -9,6 +9,7 @@ from typing import Annotated, Any
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.projections.impute import ImputeParams
 from app.valuation import HORIZON_DYNASTY, DynastyCurve, TierParams
 
 # backend/app/config.py -> backend/app -> backend -> repo root
@@ -175,6 +176,26 @@ class Settings(BaseSettings):
     # 2 to pick 17) in names — long enough that the list still has somebody on it after the room
     # takes a round, short enough to read while a clock is running. `?size=` overrides it.
     draft_plan_size: int = 15
+
+    # --- Projection completeness -------------------------------------------------------------
+    # ESPN's projections carry no DD, TD, OREB, DREB or PF, all of which our league scores. The
+    # sync fills them in from each player's last season (app.projections.impute) before
+    # pricing the projection. IMPUTE_ESPN_PROJECTIONS=false stores ESPN's line exactly as sent,
+    # which is the way to compare the two boards. The other three are the imputation's dials;
+    # their defaults are `app.projections.impute`'s module constants (a test pins the match).
+    impute_espn_projections: bool = True
+    # Each double category's sd as a multiple of sqrt(mean); fitted, see IMPUTE_SD_K.
+    impute_sd_k: float = 1.34
+    # Pseudo-games of the model in the DD/TD blend: his own rate gets GP / (GP + this).
+    impute_prior_gp: float = 20.0
+    # Fewer games last season than this and his position's OREB share / foul rate is used.
+    impute_min_gp: float = 15.0
+
+    def impute_params(self) -> ImputeParams:
+        """The active imputation dials, built from the IMPUTE_* settings (per call)."""
+        return ImputeParams(
+            sd_k=self.impute_sd_k, prior_gp=self.impute_prior_gp, min_gp=self.impute_min_gp
+        )
 
     # Future projection / odds sources
     balldontlie_api_key: str | None = None

@@ -220,6 +220,10 @@ def test_actual_bases_with_seeded_rows(league, db):
         "fantasy_ppg": 55.0,
         "fantasy_total": 165.0,
         "per_game": {"PTS": 30.0, "DD": 1.0},
+        # Actual bases carry no projection provenance.
+        "projection_source": None,
+        "projection_season": None,
+        "imputed": [],
     }
     assert season["stat_columns"] == ["PTS", "DD"]
     assert line(season, SIMONS) is None
@@ -604,7 +608,12 @@ def test_waiver_players_show_when_they_clear(pool):
         "clears_at_known": True,
     }
     assert rows[ALPHA]["waiver"] is None
-    assert rows[ALPHA]["stats"] == {"fantasy_ppg": 30.0, "games": 10.0}
+    assert rows[ALPHA]["stats"] == {
+        "fantasy_ppg": 30.0,
+        "games": 10.0,
+        "projection_source": "espn",
+        "projection_season": SEASON,
+    }
 
 
 def test_actual_basis_rows(pool, db):
@@ -613,7 +622,12 @@ def test_actual_basis_rows(pool, db):
     body = _fa(pool, basis="season")
     assert body["actuals_available"] is True
     assert _ids(body) == [BRAVO, ALPHA, CHARLIE, DELTA]
-    assert body["players"][0]["stats"] == {"fantasy_ppg": 33.0, "games": 2.0}
+    assert body["players"][0]["stats"] == {
+        "fantasy_ppg": 33.0,
+        "games": 2.0,
+        "projection_source": None,
+        "projection_season": None,
+    }
     assert body["players"][1]["stats"] is None
 
 
@@ -776,6 +790,10 @@ def test_the_card_has_every_basis_and_a_seven_day_window(pool, db):
         "fantasy_ppg": 28.0,
         "fantasy_total": 56.0,
         "per_game": {"PTS": 20.0, "MIN": 31.0},
+        # Actual bases carry no projection provenance.
+        "projection_source": None,
+        "projection_season": None,
+        "imputed": [],
     }
     assert body["stats"]["l7"] is None and body["stats"]["l30"] is None
     assert body["stat_columns"] == ["MIN", "PTS", "REB"]

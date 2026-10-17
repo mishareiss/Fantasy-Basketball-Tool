@@ -12,8 +12,9 @@ import {
   type WaiverInfo,
 } from "@/lib/api";
 import { MISSING, decimal, positions as positionList, whole } from "@/lib/format";
-import { injuryBadge, matchupRange, monthDay, waiverBadge } from "@/lib/team";
+import { imputedNote, injuryBadge, matchupRange, monthDay, waiverBadge } from "@/lib/team";
 import { GameCell } from "./GameCell";
+import { ProjectionTag } from "./ProjectionTag";
 import { WatchStar } from "./WatchStar";
 
 /**
@@ -69,6 +70,7 @@ function StatsTable({ card }: { card: TeamPlayerCardResponse }) {
     { key: "l30", label: "L30", line: card.stats.l30, empty: "No games yet" },
   ];
   const columns = card.stat_columns;
+  const note = imputedNote(card.stats.projected?.imputed);
 
   return (
     <div className="overflow-x-auto">
@@ -108,19 +110,38 @@ function StatsTable({ card }: { card: TeamPlayerCardResponse }) {
                 </td>
               ) : (
                 <>
-                  {columns.map((column) => (
-                    <td key={column} className={NUM}>
-                      {decimal(line.per_game[column], 1)}
-                    </td>
-                  ))}
+                  {columns.map((column) => {
+                    const estimated = line.imputed?.includes(column) ?? false;
+                    return (
+                      <td key={column} className={NUM} data-estimated={estimated || undefined}>
+                        {decimal(line.per_game[column], 1)}
+                        {estimated ? (
+                          <span
+                            className="ml-0.5 font-sans text-[9px] text-zinc-400"
+                            title="Estimated: ESPN doesn't project this stat"
+                          >
+                            est.
+                          </span>
+                        ) : null}
+                      </td>
+                    );
+                  })}
                   <td className={NUM}>{whole(line.games)}</td>
-                  <td className={`${NUM} font-semibold`}>{decimal(line.fantasy_ppg, 1)}</td>
+                  <td className={`${NUM} font-semibold`} data-card-fpts>
+                    <ProjectionTag source={line.projection_source} season={line.projection_season} />
+                    {decimal(line.fantasy_ppg, 1)}
+                  </td>
                 </>
               )}
             </tr>
           ))}
         </tbody>
       </table>
+      {note ? (
+        <p className="mt-1 text-[11px] text-zinc-500" data-imputed-note>
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }

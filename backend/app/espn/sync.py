@@ -5,7 +5,8 @@ than a duplicate. That matters because sync is going to run on a schedule and on
 """
 
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,6 +46,7 @@ from app.espn.statsplits import (
     parse_current_actuals,
     parse_projections,
 )
+from app.projections.impute import ImputeParams, LastSeason, impute_line, league_baselines
 from app.scoring.engine import ScoringEngine
 from app.scoring.projections import score_projection
 from app.scoring.settings import LeagueScoringSettings, parse_league_settings
@@ -384,6 +386,7 @@ def sync_projections(
             "fantasy_points_per_game": scored.fantasy_points_per_game,
             "per_game_basis": scored.per_game_basis,
             "source_fantasy_points_total": split.espn_applied_total,
+            "imputed_stats": split.imputed or None,
         }
 
         row = existing.get((split.espn_player_id, split.season))
@@ -410,6 +413,73 @@ def sync_projections(
             summary.projections_unchanged += 1
 
     db.flush()
+
+
+def _last_season(split: ProjectionSplit) -> LastSeason | None:
+    """An actual split as the imputation reads it: per-game stats and games played."""
+    if not split.projected_games or not split.average_stats:
+        return None
+    return LastSeason(per_game=split.average_stats, games=split.projected_games)
+
+
+def impute_projections(
+    projections: list[ProjectionSplit],
+    actuals: list[ProjectionSplit],
+    positions: Mapping[int, str | None],
+    params: ImputeParams,
+) -> list[ProjectionSplit]:
+    """Each projected split with the stats ESPN doesn't project filled in (DD, TD, OREB, DREB,
+    PF), from the player's own last season and his position's (`app.projections.impute`).
+
+    Season totals are the imputed per-game rate x projected games; with no games count the
+    per-game line is completed and the totals are left as sent. `espn_applied_total` is ESPN's
+    and stays untouched, so the gap between it and our total is the imputation's worth.
+    """
+    history = {split.espn_player_id: _last_season(split) for split in actuals}
+    baselines = league_baselines(
+        (positions.get(pid), last) for pid, last in history.items() if last is not None
+    )
+    out: list[ProjectionSplit] = []
+    for split in projections:
+        pid = split.espn_player_id
+        line = impute_line(
+            split.average_stats,
+            last_season=history.get(pid),
+            position=positions.get(pid),
+            baselines=baselines,
+            params=params,
+        )
+        if not line.imputed:
+            out.append(split)
+            continue
+        stats = dict(split.stats)
+        filled = {name: line.per_game[name] for name in line.imputed}
+        games = split.projected_games
+        if games:
+            stats.update({name: value * games for name, value in filled.items()})
+        out.append(
+            replace(
+                split,
+                stats=stats,
+                average_stats={**split.average_stats, **filled},
+                imputed=dict(sorted(line.imputed.items())),
+            )
+        )
+    return out
+
+
+def espn_projection_splits(
+    entries: list[dict[str, Any]], season: int, records: list[PlayerRecord]
+) -> list[ProjectionSplit]:
+    """The pool's projected splits as the sync stores them: imputed, unless switched off."""
+    splits = parse_projections(entries, season)
+    settings = get_settings()
+    if not settings.impute_espn_projections:
+        return splits
+    positions = {record.espn_player_id: record.primary_position for record in records}
+    return impute_projections(
+        splits, parse_actuals(entries, season), positions, settings.impute_params()
+    )
 
 
 def sync_actuals(
@@ -821,12 +891,14 @@ def sync_league(
         parsed=parsed,
         summary=summary,
     )
-    sync_players(db, parse_player_pool(entries), summary)
+    records = parse_player_pool(entries)
+    sync_players(db, records, summary)
 
     # Score against the rules we just stored, so a mid-season scoring change is reflected in
     # the same sync that picked it up.
     engine = ScoringEngine(settings_row.scoring_rules)
-    sync_projections(db, parse_projections(entries, client.season), engine, summary)
+    # ESPN's projections lack DD/TD/OREB/DREB/PF; they are imputed before pricing.
+    sync_projections(db, espn_projection_splits(entries, client.season, records), engine, summary)
     # The same payload's OTHER full-season split: what actually happened last year, priced
     # under the same engine. Stored under its own `kind`, so it sits beside the projection
     # rather than anywhere near the board's ranking.

@@ -10,6 +10,7 @@ import { AcquisitionMeter } from "./AcquisitionMeter";
 import { GameCell } from "./GameCell";
 import { LeavingTag, PlannedTag } from "./PlanRosterExtras";
 import { PlayerCell } from "./PlayerCell";
+import { ProjectionTag } from "./ProjectionTag";
 import { Badge } from "./TeamStates";
 import { ViewToggle } from "./ViewToggle";
 
@@ -367,6 +368,10 @@ function SlotRowView({
             className={`${NUM} font-semibold text-zinc-900 dark:text-zinc-100 ${noGame ? "opacity-45" : ""}`}
             data-fpts
           >
+            <ProjectionTag
+              source={player.stats?.projection_source}
+              season={player.stats?.projection_season}
+            />
             {decimal(player.stats?.fantasy_ppg, 1)}
           </td>
         </>

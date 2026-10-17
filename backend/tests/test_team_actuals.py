@@ -9,10 +9,10 @@ from sqlalchemy import select
 
 from app.db.models import Projection
 from app.db.session import get_db
+from app.espn.players import parse_player_pool
 from app.espn.statsplits import (
     parse_actuals,
     parse_current_actuals,
-    parse_projections,
     select_current_split,
 )
 from app.espn.sync import (
@@ -24,6 +24,7 @@ from app.espn.sync import (
     CURRENT_ACTUAL_KINDS,
     SEASON_PROJECTION_KIND,
     SyncSummary,
+    espn_projection_splits,
     sync_actuals,
     sync_current_actuals,
     sync_league,
@@ -154,6 +155,7 @@ def _snapshot(db, kind: str) -> dict[tuple[int, int], tuple]:
         "fantasy_points_per_game",
         "per_game_basis",
         "source_fantasy_points_total",
+        "imputed_stats",
     )
     return {
         (row.player_id, row.season): tuple(getattr(row, c) for c in columns)
@@ -164,11 +166,16 @@ def _snapshot(db, kind: str) -> dict[tuple[int, int], tuple]:
 def test_projections_and_last_season_are_unchanged_by_the_full_sync(
     db, synced, msettings_payload, player_pool_payload, fake_espn
 ):
-    """Row for row: what the projection + last-season writers stored before this task, against
-    what the full `sync_league` stores now, in a second database."""
+    """Row for row: what the projection + last-season writers store, against what the full
+    `sync_league` stores now, in a second database.
+
+    The projection writer is fed the IMPUTED splits (task 34) over the same pool the fake
+    client serves, since the position baselines are computed from the whole pool."""
     engine = load_scoring_engine(db, LEAGUE_ID, SEASON)
     summary = SyncSummary(league_id=LEAGUE_ID, season=SEASON)
-    sync_projections(db, parse_projections(player_pool_payload, SEASON), engine, summary)
+    pool = fake_espn().pool
+    splits = espn_projection_splits(pool, SEASON, parse_player_pool(pool))
+    sync_projections(db, splits, engine, summary)
     sync_actuals(db, parse_actuals(player_pool_payload, SEASON), engine, summary)
     db.commit()
     before = {kind: _snapshot(db, kind) for kind in (SEASON_PROJECTION_KIND, ACTUAL_SEASON_KIND)}

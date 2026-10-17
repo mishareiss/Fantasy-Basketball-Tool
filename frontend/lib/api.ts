@@ -1015,8 +1015,22 @@ export type PoolStatus = "FREEAGENT" | "WAIVERS";
 /** The waiver list's day filter — app/api/team.py: `mode`. */
 export type DayFilterMode = "none" | "any" | "all";
 
-/** schemas.py: StatLine, which IS players.py's SeasonLine. */
-export type StatLine = SeasonLine;
+/**
+ * Where a `projected` line came from — schemas.py: ProjectionSource. ESPN's projection for
+ * this season; last season's actual line, standing in because ESPN hasn't projected him this
+ * season; or an older season's projection when there is no usable actual either.
+ */
+export type ProjectionSource = "espn" | "last_season_actual" | "stale_projection";
+
+/** schemas.py: StatLine — players.py's SeasonLine plus where a `projected` line came from. */
+export type StatLine = SeasonLine & {
+  /** Set on `projected` lines; null on the actual bases. */
+  projection_source?: ProjectionSource | null;
+  /** The season the projected line is for. */
+  projection_season?: number | null;
+  /** Stats in `per_game` WE estimated because the source doesn't project them (DD, TD, ...). */
+  imputed?: string[];
+};
 
 export type TeamRef = {
   id: number;
@@ -1352,6 +1366,9 @@ export type WaiverInfo = {
 export type StatSummary = {
   fantasy_ppg: number;
   games: number | null;
+  /** As on StatLine: where a `projected` number came from. Null on the actual bases. */
+  projection_source?: ProjectionSource | null;
+  projection_season?: number | null;
 };
 
 /** schemas.py: DayGame. */

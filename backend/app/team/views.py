@@ -15,6 +15,7 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.players import _newest_by_player, _per_game
+from app.config import get_settings
 from app.db.models import (
     LINEUP_SOURCE_MANUAL,
     PLAN_PLANNED,
@@ -35,6 +36,7 @@ from app.espn.sync import (
     ACTUAL_LAST_7_KIND,
     ACTUAL_LAST_15_KIND,
     ACTUAL_LAST_30_KIND,
+    ACTUAL_SEASON_KIND,
     ESPN_SOURCE,
     SEASON_PROJECTION_KIND,
 )
@@ -85,6 +87,7 @@ from app.team.schemas import (
     OwnerTeam,
     PlanFlag,
     PlayerCardResponse,
+    ProjectionSource,
     RosterPlayer,
     ScheduleDay,
     SlotRow,
@@ -205,14 +208,42 @@ def game_out(info: GameInfo | None) -> GameOut | None:
     )
 
 
-def _line(row: Projection) -> StatLine:
+def _line(row: Projection, source: ProjectionSource | None = None) -> StatLine:
     return StatLine(
         season=row.season,
         games=row.projected_games,
         fantasy_ppg=row.fantasy_points_per_game,
         fantasy_total=row.fantasy_points_total,
         per_game=_per_game(row),
+        projection_source=source,
+        projection_season=row.season if source is not None else None,
+        imputed=sorted(row.imputed_stats or {}) if source != "last_season_actual" else [],
     )
+
+
+def projected_lines(db: Session, season: int, player_ids: list[int]) -> dict[int, StatLine]:
+    """Each player's `projected` line, never silently a stale one.
+
+    ESPN's projection for `season` when it has one (`espn`). A newest projection from an
+    older season is stale — ESPN hasn't projected him this season — and loses to last
+    season's ACTUAL line, priced under our scoring, when he played enough of it
+    (`last_season_actual`); otherwise the stale projection stands, labelled as one.
+    """
+    rows = _newest_by_player(db, player_ids, source=ESPN_SOURCE, kind=SEASON_PROJECTION_KIND)
+    stale = [pid for pid, row in rows.items() if row.season < season]
+    actuals = _newest_by_player(db, stale, source=ESPN_SOURCE, kind=ACTUAL_SEASON_KIND)
+    min_gp = get_settings().impute_min_gp
+    out: dict[int, StatLine] = {}
+    for pid, row in rows.items():
+        if row.season >= season:
+            out[pid] = _line(row, "espn")
+            continue
+        actual = actuals.get(pid)
+        if actual is not None and (actual.projected_games or 0) >= min_gp:
+            out[pid] = _line(actual, "last_season_actual")
+        else:
+            out[pid] = _line(row, "stale_projection")
+    return out
 
 
 def stat_lines(
@@ -220,15 +251,15 @@ def stat_lines(
 ) -> dict[int, StatLine]:
     """`{player_id: StatLine}` under one basis, in one query. No row -> not in the dict.
 
-    `projected` is ESPN's season projection, newest season held. The actual bases are this
-    season's stored splits and nothing older: last season's line is not "season so far".
+    `projected` is ESPN's season projection, falling back as `projected_lines` says when it
+    is stale. The actual bases are this season's stored splits and nothing older: last
+    season's line is not "season so far".
     """
     wanted = list(set(player_ids))
     if not wanted:
         return {}
     if basis == "projected":
-        rows = _newest_by_player(db, wanted, source=ESPN_SOURCE, kind=SEASON_PROJECTION_KIND)
-        return {pid: _line(row) for pid, row in rows.items()}
+        return projected_lines(db, season, wanted)
     kind = ACTUAL_BASIS_KINDS[basis]
     return {
         row.player_id: _line(row)
@@ -754,7 +785,14 @@ def free_agents(
                     for sp, game in zip(days, by_player[pid], strict=True)
                 ],
                 games_in_days=games_in_days(player),
-                stats=StatSummary(fantasy_ppg=line.fantasy_ppg, games=line.games) if line else None,
+                stats=StatSummary(
+                    fantasy_ppg=line.fantasy_ppg,
+                    games=line.games,
+                    projection_source=line.projection_source,
+                    projection_season=line.projection_season,
+                )
+                if line
+                else None,
                 watched=pid in watched,
                 in_plan=in_plan.get(pid, []),
             )

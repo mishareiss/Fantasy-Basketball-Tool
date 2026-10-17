@@ -32,6 +32,7 @@ import {
 import { BasisToggle } from "./BasisToggle";
 import { GameCell } from "./GameCell";
 import { PlayerCell } from "./PlayerCell";
+import { ProjectionTag } from "./ProjectionTag";
 import { Badge } from "./TeamStates";
 import { WatchStar } from "./WatchStar";
 
@@ -666,7 +667,14 @@ function WaiverRow({
       <td className="px-2 py-1.5 text-right font-mono text-xs tabular-nums" data-games-in-days>
         {row.games_in_days}
       </td>
-      <td className="px-2 py-1.5 text-right font-mono text-xs font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+      <td
+        className="px-2 py-1.5 text-right font-mono text-xs font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+        data-fa-fpts
+      >
+        <ProjectionTag
+          source={row.stats?.projection_source}
+          season={row.stats?.projection_season}
+        />
         {decimal(row.stats?.fantasy_ppg, 1)}
       </td>
     </tr>

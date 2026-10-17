@@ -27,9 +27,10 @@ from app.db.models import (
 from app.espn.client import ESPNCredentials
 from app.espn.ownership import parse_ownership
 from app.espn.players import parse_player_pool
-from app.espn.statsplits import parse_actuals, parse_projections
+from app.espn.statsplits import parse_actuals
 from app.espn.sync import (
     SyncSummary,
+    espn_projection_splits,
     sync_actuals,
     sync_adp,
     sync_players,
@@ -495,10 +496,12 @@ def synced(db, msettings_payload, player_pool_payload) -> SyncSummary:
         parsed=parse_league_settings(msettings_payload),
         summary=summary,
     )
-    sync_players(db, parse_player_pool(player_pool_payload), summary)
+    records = parse_player_pool(player_pool_payload)
+    sync_players(db, records, summary)
+    # The same splits `sync_league` stores: ESPN's, with DD/TD/OREB/DREB/PF imputed.
     sync_projections(
         db,
-        parse_projections(player_pool_payload, SEASON),
+        espn_projection_splits(player_pool_payload, SEASON, records),
         ScoringEngine(settings_row.scoring_rules),
         summary,
     )

@@ -1,8 +1,8 @@
 """The Team tab's wire shapes. Times are ISO UTC; every `display` string is Pacific.
 
-A stat line is players.py's `SeasonLine`, reused rather than re-invented: the same season /
+A stat line is players.py's `SeasonLine`, extended rather than re-invented: the same season /
 games / fantasy points / per-game map, with the same rule that a stat nobody published is
-absent rather than 0.
+absent rather than 0, plus where a `projected` line really came from.
 """
 
 from datetime import date, datetime
@@ -24,7 +24,20 @@ PlanMoveStatus = Literal["planned", "done", "skipped"]
 PlanMoveTiming = Literal["after_tipoff", "before_games"]
 PoolStatus = Literal["FREEAGENT", "WAIVERS"]
 
-StatLine = SeasonLine
+# Where a `projected` line came from: ESPN's projection for this season; last season's
+# actual line, standing in because ESPN hasn't projected him this season; or an older season's
+# projection, when there is no usable actual either.
+ProjectionSource = Literal["espn", "last_season_actual", "stale_projection"]
+
+
+class StatLine(SeasonLine):
+    # Set on `projected` lines only; null on the actual bases.
+    projection_source: ProjectionSource | None = None
+    # The season the projected line is FOR (equals `season`; named so the UI can't confuse it
+    # with the season being played).
+    projection_season: int | None = None
+    # Stats in `per_game` WE estimated because the source doesn't project them (DD, TD, ...).
+    imputed: list[str] = []
 
 
 class TeamRef(BaseModel):
@@ -224,6 +237,9 @@ class StatSummary(BaseModel):
 
     fantasy_ppg: float
     games: float | None = None
+    # As on `StatLine`: where a `projected` number came from. Null on the actual bases.
+    projection_source: ProjectionSource | None = None
+    projection_season: int | None = None
 
 
 class DayGame(BaseModel):

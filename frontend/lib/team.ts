@@ -21,6 +21,7 @@ import type {
   DayView,
   LineupAssignment,
   LineupSource,
+  ProjectionSource,
   TeamBasis,
   TeamSlotRow,
 } from "@/lib/api";
@@ -319,4 +320,44 @@ export function teamHref(day: number | null, basis: TeamBasis, view: DayView = "
   if (view !== "actual") params.set("view", view);
   const encoded = params.toString();
   return encoded ? `/team?${encoded}` : "/team";
+}
+
+/** 2026 -> "25-26": a season as a fan writes it, short. */
+export function shortSeason(season: number): string {
+  return `${String(season - 1).slice(-2)}-${String(season).slice(-2)}`;
+}
+
+/**
+ * The tag beside FPTS/G when a `projected` number isn't this season's ESPN projection, with
+ * its tooltip. Null for ESPN's own (and for the actual bases, which carry no source).
+ */
+export function projectionTag(
+  source: ProjectionSource | null | undefined,
+  season: number | null | undefined,
+): { label: string; title: string } | null {
+  if (source === "last_season_actual" && season != null) {
+    return {
+      label: `${shortSeason(season)} actual`,
+      title: `ESPN hasn't projected him this season: this is what he actually scored per game in ${shortSeason(season)}.`,
+    };
+  }
+  if (source === "stale_projection") {
+    const which = season != null ? `ESPN's ${shortSeason(season)} projection` : "an old projection";
+    return {
+      label: "stale proj",
+      title: `ESPN hasn't projected him this season and he has no usable last season: this is ${which}.`,
+    };
+  }
+  return null;
+}
+
+/** The stats a projection's imputation note names, in the order it names them. */
+const IMPUTED_ORDER = ["DD", "TD", "OREB", "DREB", "PF"];
+
+/** "DD/TD/OREB/DREB/PF estimated: ESPN doesn't project them", or null when nothing was. */
+export function imputedNote(imputed: readonly string[] | undefined): string | null {
+  if (!imputed || imputed.length === 0) return null;
+  const known = IMPUTED_ORDER.filter((name) => imputed.includes(name));
+  const rest = imputed.filter((name) => !IMPUTED_ORDER.includes(name)).sort();
+  return `${[...known, ...rest].join("/")} estimated: ESPN doesn't project them`;
 }

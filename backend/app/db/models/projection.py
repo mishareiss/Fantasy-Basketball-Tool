@@ -52,6 +52,12 @@ class Projection(Base):
 
     projected_games: Mapped[float | None] = mapped_column(Float)
 
+    # Stats WE filled in because the source doesn't project them, and how: `{stat: method}`
+    # (app.projections.impute). Their values are in `raw_stats` / `per_game_stats` beside the
+    # source's own. Null when nothing was imputed — every non-ESPN row, and every row synced
+    # with IMPUTE_ESPN_PROJECTIONS off.
+    imputed_stats: Mapped[dict | None] = mapped_column(JSON)
+
     fantasy_points_total: Mapped[float] = mapped_column(Float, nullable=False)
     fantasy_points_per_game: Mapped[float] = mapped_column(Float, nullable=False)
     # 'projected_games' | 'per_game_stats' | 'unavailable' — see app.scoring.projections.

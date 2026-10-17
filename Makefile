@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-lineup sync-ages import fixtures nba-fixtures test test-live test-nba lint fmt
+.PHONY: help setup db-up db-down db-logs backend frontend migrate revision sync sync-lineup sync-ages impute-report impute-calibrate import fixtures nba-fixtures test test-live test-nba lint fmt
 
 # Load the local .env (gitignored) and pass it to every recipe, so the frontend gets
 # NEXT_PUBLIC_API_BASE_URL and docker compose gets the POSTGRES_* values.
@@ -44,6 +44,12 @@ sync-lineup: ## Pull our team's ESPN lineup day by day (FIRST= LAST= scoring per
 
 sync-ages: ## Match nba.com's roster to our players and fill in birthdates + ages (idempotent)
 	cd backend && uv run python -m scripts.sync_ages
+
+impute-report: ## Before/after of imputing DD/TD/OREB/PF into ESPN projections (read-only)
+	cd backend && uv run python -m scripts.impute_report
+
+impute-calibrate: ## Refit IMPUTE_SD_K on the stored last-season actuals (read-only)
+	cd backend && uv run python -m scripts.impute_report --calibrate
 
 # Dry run by default (prints what it *would* write); add COMMIT=1 to store it.
 #   make import KIND=adp SOURCE=hashtag SEASON=2027 FILE=~/Downloads/adp.csv

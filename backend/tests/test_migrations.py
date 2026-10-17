@@ -1025,7 +1025,7 @@ def test_there_is_exactly_one_head_after_this_revision(migrated):
 
     config, _ = migrated
 
-    assert ScriptDirectory.from_config(config).get_heads() == [MOVE_TIMING]
+    assert ScriptDirectory.from_config(config).get_heads() == [IMPUTED_STATS]
 
 
 # --- the in-season team data (task 27) ------------------------------------------------------
@@ -1260,3 +1260,44 @@ def test_the_move_timing_round_trip_leaves_a_working_schema(migrated):
         assert connection.scalar(text("SELECT timing FROM plan_move WHERE id = 1")) == (
             "before_games"
         )
+
+
+# --- imputed projection stats (task 34) -----------------------------------------------------
+
+IMPUTED_STATS = "a3c7e9d2b416"
+
+
+def _projection(connection, player_id: int) -> None:
+    connection.execute(
+        text(
+            "INSERT INTO projection (player_id, source, kind, season, raw_stats, "
+            "fantasy_points_total, fantasy_points_per_game, per_game_basis, as_of) "
+            "VALUES (:p, 'espn', 'projected_season', 2027, '{}', 100.0, 2.0, "
+            "'projected_games', CURRENT_TIMESTAMP)"
+        ),
+        {"p": player_id},
+    )
+
+
+def test_the_imputed_stats_round_trip_leaves_a_working_schema(migrated):
+    """Existing projections come through with no record (null), and the column comes and goes."""
+    config, engine = migrated
+    command.upgrade(config, MOVE_TIMING)
+    with engine.begin() as connection:
+        _seed_players(connection, (1,))
+        _projection(connection, 1)
+
+    command.upgrade(config, IMPUTED_STATS)
+    assert "imputed_stats" in _columns(engine, "projection")
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT imputed_stats FROM projection")) is None
+        connection.execute(text("""UPDATE projection SET imputed_stats = '{"DD": "blend"}'"""))
+
+    command.downgrade(config, MOVE_TIMING)
+    assert "imputed_stats" not in _columns(engine, "projection")
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM projection")) == 1
+
+    command.upgrade(config, IMPUTED_STATS)
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT imputed_stats FROM projection")) is None

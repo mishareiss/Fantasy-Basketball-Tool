@@ -58,6 +58,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # parameter "redefines" the imported fixture name. That is how pytest injects it, not a bug.
 "tests/test_api_team_plan.py" = ["F811"]
 "tests/test_team_plan_detect.py" = ["F811"]
+"tests/test_team_projection_source.py" = ["F811"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency-injection markers are meant to sit in argument defaults.

@@ -106,6 +106,10 @@ class ProjectionSplit:
     espn_applied_total: float | None = None
     espn_applied_average: float | None = None
 
+    # Stats WE filled in, `{stat: method}`, set by `app.espn.sync.impute_projections`. Their
+    # values are already in `stats` / `average_stats`. Empty for an un-imputed split.
+    imputed: dict[str, str] = field(default_factory=dict)
+
 
 def _as_float(value: Any) -> float | None:
     """Floats and ints only. ESPN sends null for stats it has no number for, and null != 0."""
