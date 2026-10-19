@@ -9,6 +9,7 @@ import {
   calendar,
   freeAgentsFor,
   playerCard,
+  startsFor,
   teamDay,
 } from "./teamFixtures";
 
@@ -27,6 +28,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       ...actual.api,
       teamCalendar: vi.fn(),
       teamDay: vi.fn(),
+      teamStarts: vi.fn(),
       saveLineup: vi.fn(),
       autoFillLineup: vi.fn(),
       autoFillPlanLineup: vi.fn(),
@@ -77,6 +79,9 @@ beforeEach(() => {
   freeAgents.mockImplementation(async (params = {}) => freeAgentsFor(params));
   teamPlayer.mockImplementation(async (id) => playerCard(id));
   getWatchlist.mockResolvedValue({ season: 2027, entries: [] });
+  vi.mocked(api.teamStarts).mockImplementation(async ({ matchupId, view } = {}) =>
+    startsFor(matchupId, view),
+  );
 });
 
 afterEach(() => {

@@ -12,6 +12,9 @@ import type {
   PlanPlayerRef,
   PlanResponse,
   PlanWarning,
+  StartsDay,
+  StartsResponse,
+  StartsTotals,
   TeamCalendarResponse,
   TeamDayResponse,
   TeamPlayer,
@@ -99,6 +102,7 @@ function player(overrides: Partial<TeamPlayer> & Pick<TeamPlayer, "id" | "name">
 export const LUKA = player({
   id: 1,
   name: "Luka Doncic",
+  matchup_games_left: 3,
   positions: ["PG", "SG"],
   eligible_slots: [0, 1, 5, 11, 12, 13],
 });
@@ -340,4 +344,84 @@ export function planResponse(overrides: Partial<PlanResponse> = {}): PlanRespons
 
 export function warning(overrides: Partial<PlanWarning> & Pick<PlanWarning, "code" | "message">): PlanWarning {
   return { severity: "warning", move_id: null, matchup_id: null, sp: null, detail: {}, ...overrides };
+}
+
+/* --- starts (task 35) --------------------------------------------------------------- */
+
+type DayNumbers = [filled: number, possible: number, proj: number, asSet: number];
+
+/** Matchup 1's days in the Actual view: day 3 has 3 open and 1 benched, day 5 2 benched. */
+const ACTUAL_STARTS: Record<number, DayNumbers> = {
+  1: [5, 5, 250, 250],
+  2: [7, 7, 420.4, 400],
+  3: [3, 4, 180, 140],
+  4: [7, 7, 430, 430],
+  5: [4, 6, 330, 245],
+  6: [7, 7, 530, 530],
+};
+/** The plan adds a pickup who fills one of day 3's open starts. */
+const PLAN_STARTS: Record<number, DayNumbers> = { ...ACTUAL_STARTS, 3: [4, 5, 260, 220] };
+
+function startsDay(sp: number, [filled, possible, proj, asSet]: DayNumbers): StartsDay {
+  const date = isoFor(sp);
+  return {
+    sp,
+    date,
+    weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${date}T00:00:00Z`).getUTCDay()]!,
+    past: false,
+    slots: 7,
+    filled,
+    possible,
+    empty: 7 - possible,
+    left_on_bench: possible - filled,
+    benched_with_games: sp === 2 ? [{ id: 5, name: "Bench Wing" }] : [],
+    projected_points: proj,
+    projected_points_as_set: asSet,
+  };
+}
+
+function totalsOf(days: StartsDay[]): StartsTotals {
+  const sum = (pick: (d: StartsDay) => number) => days.reduce((n, d) => n + pick(d), 0);
+  return {
+    days: days.length,
+    max: sum((d) => d.slots),
+    filled: sum((d) => d.filled),
+    possible: sum((d) => d.possible),
+    empty: sum((d) => d.empty),
+    left_on_bench: sum((d) => d.left_on_bench),
+    projected_points: sum((d) => d.projected_points),
+    projected_points_as_set: sum((d) => d.projected_points_as_set),
+  };
+}
+
+/**
+ * `GET /team/starts` for a matchup and view. Matchup 1 has the numbers above (Actual: 33/42,
+ * 6 open, 3 benched, Proj 2,140 (as set 1,995)); other matchups are 7/7 every day.
+ */
+export function startsFor(matchupId = 1, view: "actual" | "plan" = "actual"): StartsResponse {
+  const matchup = MATCHUPS.find((m) => m.id === matchupId)!;
+  const sps = Array.from({ length: matchup.last_sp - matchup.first_sp + 1 }, (_, i) => matchup.first_sp + i);
+  const pick = (table: Record<number, DayNumbers>) =>
+    sps.map((sp) => startsDay(sp, matchupId === 1 ? table[sp]! : [7, 7, 400, 400]));
+  const actual = pick(ACTUAL_STARTS);
+  const days = view === "plan" ? pick(PLAN_STARTS) : actual;
+  const totals = totalsOf(days);
+  const actualTotals = totalsOf(actual);
+  return {
+    season: 2027,
+    matchup: { id: matchup.id, label: matchup.label, start: matchup.start, end: matchup.end },
+    view,
+    days,
+    totals,
+    actual_totals: view === "plan" ? actualTotals : null,
+    vs_actual:
+      view === "plan"
+        ? {
+            filled: totals.filled - actualTotals.filled,
+            possible: totals.possible - actualTotals.possible,
+            projected_points: totals.projected_points - actualTotals.projected_points,
+            projected_points_as_set: totals.projected_points_as_set - actualTotals.projected_points_as_set,
+          }
+        : null,
+  };
 }

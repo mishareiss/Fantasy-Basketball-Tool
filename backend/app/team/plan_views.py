@@ -427,11 +427,22 @@ def _plan_day(
     db: Session, season: int, sp: int, bundle: PlanBundle
 ) -> tuple[dict[int, Player], dict[int, int], str, int | None]:
     """The Plan view's players (slot-fill order) and placement on day `sp`, with its source."""
-    day = bundle.sim.day(sp)
     team_id = bundle.team.team_id
     actual, _, _ = actual_placement(db, season, team_id, sp, bundle.roster)
+    return plan_day_placement(bundle, sp, actual, _plan_rows(db, season, team_id, sp))
+
+
+def plan_day_placement(
+    bundle: PlanBundle,
+    sp: int,
+    actual: Mapping[int, int],
+    plan_rows_by_day: Mapping[int, Mapping[int, int]],
+) -> tuple[dict[int, Player], dict[int, int], str, int | None]:
+    """`_plan_day` from rows already loaded: the day's resolved Actual placement and the Plan
+    view's stored rows (any range covering `sp`'s governing day). No queries."""
+    day = bundle.sim.day(sp)
     eligible = {pid: list(p.eligible_slots or []) for pid, p in bundle.players.items()}
-    lineup = plan_lineup(day, actual, _plan_rows(db, season, team_id, sp), eligible)
+    lineup = plan_lineup(day, actual, plan_rows_by_day, eligible)
     players = {pid: bundle.players[pid] for pid in day.roster if pid in bundle.players}
     ordered = dict(
         sorted(players.items(), key=lambda item: (item[1].full_name, item[1].espn_player_id))
@@ -494,6 +505,7 @@ def _plan_day_response(
             planned=tally.planned,
         ),
         plan_flags=flags,
+        on_roster=lambda day_sp, pid: pid in bundle.sim.day(day_sp).roster,
         view="plan",
         planned_drops=[
             PlannedDropOut(

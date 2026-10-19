@@ -10,6 +10,7 @@ import {
   type LineupAssignment,
   type PlanMutationResponse,
   type PlanResponse,
+  type StartsResponse,
   type TeamBasis,
   type TeamCalendarResponse,
   type TeamDayResponse,
@@ -31,6 +32,7 @@ import { DayPlanWarnings, DroppedTodayStrip, JoiningTonightStrip } from "./PlanR
 import { PlanTab, type PlanNotice } from "./PlanTab";
 import { RightPanelTabs, rememberTab, rememberedTab, type RightTab } from "./RightPanelTabs";
 import { RosterHeader, RosterTable } from "./RosterTable";
+import { StartsSummary } from "./StartsSummary";
 import { NoTeamSynced, TeamFailed, TeamLoading } from "./TeamStates";
 import { TeamPlayerCard } from "./TeamPlayerCard";
 import { WaiverPanel } from "./WaiverPanel";
@@ -53,6 +55,12 @@ import { WaiverPanel } from "./WaiverPanel";
  * the plan's lineup, never the Actual one. The plan itself (`GET /team/plan`) is read only
  * while something shows it: the Plan view, the Plan tab, or the move composer. After any plan
  * write the page reads the plan, the day and the waiver list again.
+ *
+ * STARTS (task 35). `GET /team/starts` for the roster's matchup, in the roster's view, feeds
+ * the strip's `filled/7` and the summary bar above the roster. It's read again whenever the
+ * day read is (any write bumps `version`), and only when the matchup or view changes
+ * otherwise: moving between days of one matchup costs nothing. A failed read just leaves the
+ * strip on its game counts.
  *
  * A 409 IS A STATE. The Team API answers 409 until a league sync has stored a team marked as
  * ours, and the page says "run the sync" rather than showing a failure.
@@ -172,6 +180,28 @@ export function TeamView({
           setSettled({ key: dayKey, status: "error", error: asApiError(caught) });
       });
   }, [dayKey, sp, basis, view]);
+
+  const matchupId = matchup?.id ?? null;
+  const startsKey = matchupId === null ? null : `${matchupId}|${view}|${version}`;
+  const [starts, setStarts] = useState<StartsResponse | null>(null);
+  useEffect(() => {
+    if (startsKey === null || matchupId === null) return;
+    let cancelled = false;
+    api
+      .teamStarts({ matchupId, view })
+      .then((answer) => {
+        if (!cancelled) setStarts(answer);
+      })
+      .catch(() => {
+        // The strip falls back to its game counts; the roster doesn't depend on this read.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [startsKey, matchupId, view]);
+  // The last read for this matchup and view stays up while a write's re-read is in flight.
+  const shownStarts =
+    starts && starts.matchup.id === matchupId && starts.view === view ? starts : null;
 
   // The plan, while something on screen shows it, and again after every plan write (even
   // when the write closed the only thing showing it: the composer).
@@ -331,7 +361,7 @@ export function TeamView({
 
   return (
     <div className="flex flex-col gap-4">
-      <DayPicker calendar={calendar} sp={sp} onChange={goTo} />
+      <DayPicker calendar={calendar} sp={sp} onChange={goTo} starts={shownStarts} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
         <section
@@ -412,6 +442,8 @@ export function TeamView({
               ) : null}
 
               {view === "plan" ? <DayPlanWarnings warnings={day.plan_warnings ?? []} /> : null}
+
+              {shownStarts ? <StartsSummary starts={shownStarts} /> : null}
 
               <div
                 className={dayLoading || saving || autoFilling ? "opacity-60" : ""}

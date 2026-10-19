@@ -1075,6 +1075,11 @@ export type TeamPlayer = {
   stats: StatLine | null;
   /** Plan view only (task 30); null in the Actual view. */
   plan?: PlanFlag | null;
+  /**
+   * Task 35, "Wk G": his games from this day through the end of its matchup. In the Plan
+   * view, only days he's on the plan roster (a pickup from the day he lands).
+   */
+  matchup_games_left?: number | null;
 };
 
 /** One row of the slot grid — schemas.py: SlotRow. An empty slot is still a row. */
@@ -1391,6 +1396,8 @@ export type FreeAgentRow = {
   /** Aligned with the response's `days`. */
   games: DayGame[];
   games_in_days: number;
+  /** Task 35, "Wk G": his games from today through the end of today's matchup. */
+  matchup_games_left?: number | null;
   stats: StatSummary | null;
   /** On our shared watchlist. */
   watched: boolean;
@@ -1552,6 +1559,61 @@ export type TeamCalendarResponse = {
   final_period: number;
   matchups: CalendarMatchup[];
   days: CalendarDay[];
+};
+
+/** schemas.py: StartsDayOut. One day of the starts tracker (task 35). */
+export type StartsDay = {
+  sp: number;
+  date: string;
+  weekday: string;
+  /** Before today; computed the same way as any other day. */
+  past: boolean;
+  slots: number;
+  /** Starting slots held by a player who plays, in the lineup as set. */
+  filled: number;
+  /** Starting slots the best lineup from the day's roster fills with players who play. */
+  possible: number;
+  /** slots − possible: nobody on the roster can fill them. Where a streamer helps. */
+  empty: number;
+  /** possible − filled: starts the lineup as set leaves on the bench. */
+  left_on_bench: number;
+  /** Play, but can't start: every slot that fits them is taken. */
+  benched_with_games: { id: number; name: string }[];
+  projected_points: number;
+  projected_points_as_set: number;
+};
+
+/** schemas.py: StartsTotals. */
+export type StartsTotals = {
+  days: number;
+  /** slots × days. */
+  max: number;
+  filled: number;
+  possible: number;
+  empty: number;
+  left_on_bench: number;
+  projected_points: number;
+  projected_points_as_set: number;
+};
+
+/** schemas.py: StartsDelta. The Plan view minus the Actual view. */
+export type StartsDelta = {
+  filled: number;
+  possible: number;
+  projected_points: number;
+  projected_points_as_set: number;
+};
+
+/** schemas.py: StartsResponse (`GET /team/starts`). */
+export type StartsResponse = {
+  season: number;
+  matchup: MatchupRef;
+  view: DayView;
+  days: StartsDay[];
+  totals: StartsTotals;
+  /** Plan view only. */
+  actual_totals: StartsTotals | null;
+  vs_actual: StartsDelta | null;
 };
 
 /** app/api/team.py: TeamStatusResponse. */
@@ -2021,6 +2083,12 @@ export const api = {
   teamDay: (params: { sp?: number; basis?: TeamBasis; view?: DayView } = {}) =>
     request<TeamDayResponse>(
       `/team/day${query({ sp: params.sp, basis: params.basis, view: params.view })}`,
+    ),
+
+  /** Starts filled vs possible on every day of one matchup (default: the current one). */
+  teamStarts: (params: { matchupId?: number; view?: DayView } = {}) =>
+    request<StartsResponse>(
+      `/team/starts${query({ matchup_id: params.matchupId, view: params.view })}`,
     ),
 
   /** The shared waiver plan: moves, warnings, and the acquisition math per matchup. */

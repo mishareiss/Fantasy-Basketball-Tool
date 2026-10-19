@@ -7,7 +7,7 @@ every stat line for one basis in one, waiver clears in one batch.
 """
 
 import logging
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 
 from espn_api.basketball.constant import POSITION_MAP, PRO_TEAM_MAP
@@ -42,6 +42,7 @@ from app.espn.sync import (
 )
 from app.scoring.settings import AcquisitionSettings
 from app.team.calendar import (
+    clamp_period,
     effective_period,
     final_period,
     matchup_for_period,
@@ -372,6 +373,49 @@ def _stored_lineup(
     return {day: {row.player_id: row.lineup_slot_id for row in rows}}, source
 
 
+def lineup_rows_through(
+    db: Session, model: type, season: int, team_id: int, first: int, last: int
+) -> dict[int, dict[int, int]]:
+    """`{sp: {player: slot}}`: every stored row of `model` (`LineupAssignment`, or the Plan
+    view's `PlanLineupAssignment`) for days `first`..`last`, plus the nearest earlier stored day
+    so `first` has something to carry from. Two queries however many days; what
+    `resolve_lineup` and `plan_lineup` read for each day, in one go."""
+    base = and_(model.season == season, model.team_id == team_id)
+    since = db.scalar(
+        select(func.max(model.scoring_period_id)).where(base, model.scoring_period_id <= first)
+    )
+    out: dict[int, dict[int, int]] = {}
+    for row in db.scalars(
+        select(model).where(
+            base, model.scoring_period_id.between(first if since is None else since, last)
+        )
+    ):
+        out.setdefault(row.scoring_period_id, {})[row.player_id] = row.lineup_slot_id
+    return out
+
+
+def matchup_last_period(season: int, sp: int) -> int:
+    """The last day of the matchup `sp` is in, clamped into the season."""
+    matchup = matchup_for_period(season, sp)
+    assert matchup is not None  # every period in [1, final] is in a matchup
+    return clamp_period(season, period_index(season, matchup.end))
+
+
+def games_left(
+    games: Mapping[tuple[int, int], GameInfo],
+    player: Player,
+    days: Iterable[int],
+    on_roster: Callable[[int, int], bool] | None = None,
+) -> int:
+    """How many of `days` the player has a game on (and, with `on_roster`, is on the roster
+    for: `on_roster(sp, player_id)`)."""
+    pid = player.espn_player_id
+    return sum(
+        (sp, player.pro_team_id) in games and (on_roster is None or on_roster(sp, pid))
+        for sp in days
+    )
+
+
 def day_acquisitions(
     db: Session, season: int, team: FantasyTeam, matchup_id: int, limit: int | None, today_sp: int
 ) -> Acquisitions:
@@ -403,6 +447,7 @@ def roster_player(
     game: GameInfo | None,
     line: StatLine | None,
     plan: PlanFlag | None = None,
+    matchup_games_left: int | None = None,
 ) -> RosterPlayer:
     return RosterPlayer(
         id=player.espn_player_id,
@@ -414,6 +459,7 @@ def roster_player(
         game=game_out(game),
         stats=line,
         plan=plan,
+        matchup_games_left=matchup_games_left,
     )
 
 
@@ -432,11 +478,17 @@ def day_response(
     carried_from_sp: int | None,
     acquisitions: Acquisitions,
     plan_flags: dict[int, PlanFlag] | None = None,
+    on_roster: Callable[[int, int], bool] | None = None,
     **extra: object,
 ) -> TeamDayResponse:
     """The day view's response for any roster and placement: the Actual view and the Plan
-    view are both this, fed different players and slots. `players` is in slot-fill order."""
-    games = games_index(db, season, [sp])
+    view are both this, fed different players and slots. `players` is in slot-fill order.
+
+    Each player's `matchup_games_left` counts his games from `sp` through the matchup's last
+    day, only on days `on_roster(sp, player_id)` holds when given (the Plan view's roster
+    changes as moves land). The schedule for all of those days is the one query."""
+    remaining = range(sp, matchup_last_period(season, sp) + 1)
+    games = games_index(db, season, remaining)
     lines = stat_lines(db, season, players, basis)
     rows, warnings = build_slot_grid(slot_counts, placement, order=list(players))
     flags = plan_flags or {}
@@ -444,7 +496,11 @@ def day_response(
     def cell(pid: int) -> RosterPlayer:
         player = players[pid]
         return roster_player(
-            player, games.get((sp, player.pro_team_id)), lines.get(pid), flags.get(pid)
+            player,
+            games.get((sp, player.pro_team_id)),
+            lines.get(pid),
+            flags.get(pid),
+            games_left(games, player, remaining, on_roster),
         )
 
     return TeamDayResponse(
@@ -686,13 +742,16 @@ def free_agents(
     limit: int = 100,
     offset: int = 0,
     include_unsigned: bool = False,
+    today_sp: int | None = None,
 ) -> FreeAgentsResponse:
     """Everyone we could add: FREEAGENT or WAIVERS per ESPN, and on no roster this season.
 
     The day filter: `any` keeps a player with a game on at least one of `days`, `all` one with
     a game on every one of them, `none` everybody. `positions` keeps a player eligible at ANY
     of them (none = every position). `watchlist` keeps only watched players; every row says
-    whether it's watched either way.
+    whether it's watched either way. Given `today_sp`, each row's `matchup_games_left` is his
+    games from that day through the end of its matchup: the roster's Wk G, so an add and a
+    drop compare on one yardstick.
 
     A fixed handful of queries however big the pool: the pool, the watchlist, the schedule,
     one basis of stat lines, whether actuals exist, and the waiver batch for the page's
@@ -725,7 +784,11 @@ def free_agents(
         needle = q.casefold()
         pool = [player for player in pool if needle in player.full_name.casefold()]
 
-    games = games_index(db, season, days)
+    left_days = (
+        range(today_sp, matchup_last_period(season, today_sp) + 1) if today_sp is not None else ()
+    )
+    # One schedule query for the chosen days and the rest of this matchup together.
+    games = games_index(db, season, [*days, *left_days])
 
     def schedule(player: Player) -> list[GameInfo | None]:
         return [games.get((sp, player.pro_team_id)) for sp in days]
@@ -785,6 +848,9 @@ def free_agents(
                     for sp, game in zip(days, by_player[pid], strict=True)
                 ],
                 games_in_days=games_in_days(player),
+                matchup_games_left=(
+                    games_left(games, player, left_days) if today_sp is not None else None
+                ),
                 stats=StatSummary(
                     fantasy_ppg=line.fantasy_ppg,
                     games=line.games,

@@ -6,7 +6,7 @@ import { TeamView } from "@/components/team/TeamPage";
 import { ProjectionTag } from "@/components/team/ProjectionTag";
 import { api } from "@/lib/api";
 import { imputedNote, projectionTag, shortSeason } from "@/lib/team";
-import { FREE_AGENTS, calendar, freeAgentsFor, playerCard, teamDay } from "./teamFixtures";
+import { FREE_AGENTS, calendar, freeAgentsFor, playerCard, startsFor, teamDay } from "./teamFixtures";
 
 /**
  * Where a `projected` number came from: the "25-26 actual" / "stale proj" tags beside FPTS/G,
@@ -20,6 +20,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       ...actual.api,
       teamCalendar: vi.fn(),
       teamDay: vi.fn(),
+      teamStarts: vi.fn(),
       freeAgents: vi.fn(),
       teamPlayer: vi.fn(),
       watchlist: vi.fn(),
@@ -78,6 +79,9 @@ describe("on the Team tab", () => {
     vi.resetAllMocks();
     vi.stubGlobal("localStorage", memoryStorage());
     vi.mocked(api.teamCalendar).mockResolvedValue(calendar());
+    vi.mocked(api.teamStarts).mockImplementation(async ({ matchupId, view } = {}) =>
+      startsFor(matchupId, view),
+    );
     vi.mocked(api.teamDay).mockImplementation(async ({ sp = 1, basis = "projected" } = {}) => {
       const day = teamDay(sp, { basis });
       return {

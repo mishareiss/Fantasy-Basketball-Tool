@@ -30,11 +30,18 @@ import { ViewToggle } from "./ViewToggle";
  * page saves its moves to the plan's lineup instead (`PUT /team/plan/lineup/{sp}`), never the
  * Actual one. A planned pickup's row is tinted and tagged "Planned · <day>" (words as well as
  * colour), and every real player gets a `Drop…` action that opens the move composer.
+ *
+ * WK G (task 35) is each player's games left in the matchup from this day, inclusive: in the
+ * Plan view only the days he's on the plan roster (a pickup from the day he lands, a drop
+ * through his last day). The waiver list prints the same number, so adds and drops compare.
  */
 
 const TH = "px-1.5 py-1.5 text-[10px] font-semibold tracking-wide text-zinc-500 uppercase";
 const TD = "px-1.5 py-1.5 align-middle";
-const NUM = `${TD} text-right font-mono tabular-nums`;
+// The number columns are the bulk of the row: tight padding and 13px digits keep the grid
+// from scrolling sideways at 1280px (task 35 added Wk G; the Plan view's Drop… is also wide).
+const TH_NUM = "px-1 py-1.5 text-right text-[10px] font-semibold tracking-wide text-zinc-500 uppercase";
+const NUM = "px-1 py-1.5 align-middle text-right font-mono text-[13px] tabular-nums";
 
 export function RosterHeader({
   day,
@@ -196,12 +203,23 @@ export function RosterTable({
             <th scope="col" className={`${TH} w-16 text-left`}>
               Game
             </th>
+            <th
+              scope="col"
+              className={`${TH_NUM} w-8 whitespace-nowrap`}
+              title={
+                view === "plan"
+                  ? "Games left in this matchup from this day, on the plan roster"
+                  : "Games left in this matchup from this day"
+              }
+            >
+              Wk G
+            </th>
             {columns.map((column) => (
-              <th key={column} scope="col" className={`${TH} text-right`}>
+              <th key={column} scope="col" className={TH_NUM}>
                 {column}
               </th>
             ))}
-            <th scope="col" className={`${TH} text-right`}>
+            <th scope="col" className={TH_NUM}>
               FPTS/G
             </th>
           </tr>
@@ -329,7 +347,7 @@ function SlotRowView({
       <td className={`${TD} w-10 font-mono text-xs font-semibold text-zinc-500`}>{row.slot}</td>
       <td className={`${TD} w-12`}>
         {dropAction ? (
-          <span className="flex items-center gap-1">
+          <span className="flex flex-col items-stretch gap-0.5">
             {action}
             {dropAction}
           </span>
@@ -338,7 +356,7 @@ function SlotRowView({
         )}
       </td>
       {player === null ? (
-        <td className={`${TD} text-xs text-zinc-400 italic`} colSpan={3 + columns.length}>
+        <td className={`${TD} text-xs text-zinc-400 italic`} colSpan={4 + columns.length}>
           Empty
         </td>
       ) : (
@@ -358,6 +376,9 @@ function SlotRowView({
             data-game
           >
             <GameCell game={player.game} />
+          </td>
+          <td className={`${NUM} w-8 text-xs`} data-wk-games>
+            {player.matchup_games_left ?? "–"}
           </td>
           {columns.map((column) => (
             <td key={column} className={`${NUM} ${noGame ? "opacity-45" : ""}`}>

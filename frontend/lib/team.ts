@@ -22,6 +22,9 @@ import type {
   LineupAssignment,
   LineupSource,
   ProjectionSource,
+  StartsDay,
+  StartsDelta,
+  StartsTotals,
   TeamBasis,
   TeamSlotRow,
 } from "@/lib/api";
@@ -360,4 +363,58 @@ export function imputedNote(imputed: readonly string[] | undefined): string | nu
   const known = IMPUTED_ORDER.filter((name) => imputed.includes(name));
   const rest = imputed.filter((name) => !IMPUTED_ORDER.includes(name)).sort();
   return `${[...known, ...rest].join("/")} estimated: ESPN doesn't project them`;
+}
+
+/* --- starts (task 35) --------------------------------------------------------------- */
+
+/** `2140` -> `2,140`: points as the summary bar prints them, whole. */
+export function points(value: number): string {
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function signed(value: number, text: string): string {
+  return `${value >= 0 ? "+" : "−"}${text}`;
+}
+
+/**
+ * The matchup summary bar: `Starts 38/49 · 6 open · 1 benched · Proj 2,140 pts (as set
+ * 2,095)`. "open" and "benched" drop out at zero, "as set" when it equals the best lineup's.
+ */
+export function startsSummary(totals: StartsTotals): string {
+  const parts = [`Starts ${totals.filled}/${totals.max}`];
+  if (totals.empty > 0) parts.push(`${totals.empty} open`);
+  if (totals.left_on_bench > 0) parts.push(`${totals.left_on_bench} benched`);
+  const asSet =
+    Math.round(totals.projected_points_as_set) === Math.round(totals.projected_points)
+      ? ""
+      : ` (as set ${points(totals.projected_points_as_set)})`;
+  parts.push(`Proj ${points(totals.projected_points)} pts${asSet}`);
+  return parts.join(" · ");
+}
+
+/**
+ * The Plan view's gain over Actual: `+5 starts, +412 pts vs Actual`. Both are the BEST
+ * lineup's (`possible`, `projected_points`): what the plan roster can do against what the
+ * actual roster can, whatever either lineup is set to. Lineups left unset show as "benched".
+ */
+export function startsDelta(delta: StartsDelta): string {
+  const starts = Math.abs(delta.possible);
+  return (
+    `${signed(delta.possible, `${starts} ${starts === 1 ? "start" : "starts"}`)}, ` +
+    `${signed(delta.projected_points, `${points(Math.abs(delta.projected_points))} pts`)} vs Actual`
+  );
+}
+
+/** The strip's tooltip for one day: the games, then who plays but can't start. */
+export function startsTooltip(day: StartsDay, myGames: number): string {
+  const lines = [
+    `${day.filled} of ${day.slots} starts filled (${day.possible} possible)`,
+    `${myGames} of my players play`,
+  ];
+  if (day.empty > 0) lines.push(`${day.empty} open: nobody on the roster can fill them`);
+  if (day.left_on_bench > 0)
+    lines.push(`${day.left_on_bench} benched: the lineup as set sits players who could start`);
+  if (day.benched_with_games.length > 0)
+    lines.push(`No slot for: ${day.benched_with_games.map((p) => p.name).join(", ")}`);
+  return lines.join("\n");
 }

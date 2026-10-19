@@ -533,7 +533,7 @@ export function WaiverPanel({
                       {group.matchup?.label ?? ""}
                     </th>
                   ))}
-                  <th colSpan={2} />
+                  <th colSpan={3} />
                 </tr>
               ) : null}
               <tr className="border-b border-zinc-200 dark:border-zinc-800">
@@ -552,10 +552,17 @@ export function WaiverPanel({
                     <span className="font-normal tabular-nums">{monthDay(d.date)}</span>
                   </th>
                 ))}
-                <th scope="col" className="px-2 py-1.5 text-right text-[10px] font-semibold tracking-wide text-zinc-500 uppercase" title="Games on the chosen days">
+                <th scope="col" className="px-1 py-1.5 text-right text-[10px] font-semibold tracking-wide text-zinc-500 uppercase" title="Games on the chosen days">
                   G
                 </th>
-                <th scope="col" className="px-2 py-1.5 text-right text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+                <th
+                  scope="col"
+                  className="px-1 py-1.5 text-right text-[10px] font-semibold tracking-wide whitespace-nowrap text-zinc-500 uppercase"
+                  title="Games left in this matchup from today, as the roster's Wk G counts them"
+                >
+                  Wk G
+                </th>
+                <th scope="col" className="py-1.5 pr-2 pl-1 text-right text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
                   FPTS/G
                 </th>
               </tr>
@@ -564,7 +571,7 @@ export function WaiverPanel({
               {list.players.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={columnDays.length + 3}
+                    colSpan={columnDays.length + 4}
                     data-waiver-empty={watchlist && watchCount === 0 ? "watchlist" : "filters"}
                     className="px-2 py-4 text-center text-xs text-zinc-500"
                   >
@@ -664,17 +671,22 @@ function WaiverRow({
           </td>
         );
       })}
-      <td className="px-2 py-1.5 text-right font-mono text-xs tabular-nums" data-games-in-days>
+      <td className="px-1 py-1.5 text-right font-mono text-xs tabular-nums" data-games-in-days>
         {row.games_in_days}
       </td>
+      <td className="px-1 py-1.5 text-right font-mono text-xs tabular-nums" data-wk-games>
+        {row.matchup_games_left ?? "–"}
+      </td>
       <td
-        className="px-2 py-1.5 text-right font-mono text-xs font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+        className="py-1.5 pr-2 pl-1 text-right font-mono text-xs font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
         data-fa-fpts
       >
         <ProjectionTag
           source={row.stats?.projection_source}
           season={row.stats?.projection_season}
         />
+        {/* A tag may sit above the number rather than widen the column (no sideways scroll). */}
+        <wbr />
         {decimal(row.stats?.fantasy_ppg, 1)}
       </td>
     </tr>

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import LineupAssignment, NbaGame, RosterEntry
 from app.db.session import get_db
-from app.team import autofill_views, plan_views, views
+from app.team import autofill_views, plan_views, starts_views, views
 from app.team.calendar import (
     UnknownSeasonError,
     effective_period,
@@ -38,6 +38,7 @@ from app.team.schemas import (
     PlanMutationResponse,
     PlanResponse,
     PlayerCardResponse,
+    StartsResponse,
     TeamCalendarResponse,
     TeamDayResponse,
     TeamRef,
@@ -283,7 +284,24 @@ def free_agents(
             limit=limit,
             offset=offset,
             include_unsigned=include_unsigned,
+            today_sp=effective_period(season, _now()),
         )
+
+
+@router.get("/starts", response_model=StartsResponse)
+def team_starts(
+    matchup_id: int | None = Query(None, description="The matchup (default: the current one)"),
+    view: DayView = Query("actual", description="actual: my lineups; plan: as if the plan ran"),
+    db: Session = Depends(get_db),
+) -> StartsResponse:
+    """Starts filled vs possible on every day of one matchup, and its totals. `filled` is
+    starting slots held by a player who plays in the lineup as set; `possible` what the best
+    lineup from that day's roster fills; `empty` (slots - possible) is where a streamer helps;
+    `left_on_bench` (possible - filled) is what auto-fill would fix. The Plan view adds the
+    Actual totals and the plan's delta over them."""
+    season = _season()
+    with _domain_errors():
+        return starts_views.team_starts(db, season, matchup_id, view, _now())
 
 
 @router.get("/player/{player_id}", response_model=PlayerCardResponse)

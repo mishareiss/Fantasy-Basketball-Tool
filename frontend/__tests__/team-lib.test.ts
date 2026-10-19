@@ -15,12 +15,16 @@ import {
   legalTargets,
   lineupSourceLabel,
   matchupRange,
+  points,
+  startsDelta,
+  startsSummary,
+  startsTooltip,
   syncRange,
   teamHref,
   toggleDay,
   waiverBadge,
 } from "@/lib/team";
-import { CALENDAR_DAYS, MATCHUPS, calendar, slots, teamDay } from "./teamFixtures";
+import { CALENDAR_DAYS, MATCHUPS, calendar, slots, startsFor, teamDay } from "./teamFixtures";
 
 /**
  * The Team tab's rules. The grid (teamFixtures.slots) is, by row:
@@ -207,5 +211,61 @@ describe("autoFillSummary", () => {
     expect(autoFillSummary(answer({ changed: false, days_written: 0 }))).toBe(
       "Lineup already optimal",
     );
+  });
+});
+
+describe("starts (task 35)", () => {
+  const totals = {
+    days: 7,
+    max: 49,
+    filled: 38,
+    possible: 39,
+    empty: 6,
+    left_on_bench: 1,
+    projected_points: 2140.4,
+    projected_points_as_set: 2095,
+  };
+
+  it("prints the summary bar as specified", () => {
+    expect(startsSummary(totals)).toBe(
+      "Starts 38/49 · 6 open · 1 benched · Proj 2,140 pts (as set 2,095)",
+    );
+  });
+
+  it("drops zero markers and an as-set that equals the best lineup", () => {
+    expect(
+      startsSummary({ ...totals, empty: 0, left_on_bench: 0, projected_points_as_set: 2140.2 }),
+    ).toBe("Starts 38/49 · Proj 2,140 pts");
+  });
+
+  it("signs the plan's delta, singular for one start", () => {
+    const delta = { filled: 5, possible: 5, projected_points: 412.3, projected_points_as_set: 400 };
+    expect(startsDelta(delta)).toBe("+5 starts, +412 pts vs Actual");
+    expect(startsDelta({ ...delta, possible: 1 })).toBe("+1 start, +412 pts vs Actual");
+    expect(startsDelta({ ...delta, possible: -2, projected_points: -1234.6 })).toBe(
+      "−2 starts, −1,235 pts vs Actual",
+    );
+    expect(startsDelta({ ...delta, possible: 0, projected_points: 0 })).toBe(
+      "+0 starts, +0 pts vs Actual",
+    );
+  });
+
+  it("rounds points and groups thousands", () => {
+    expect([points(0), points(999.5), points(12345.4)]).toEqual(["0", "1,000", "12,345"]);
+  });
+
+  it("explains a day in its tooltip", () => {
+    const [, day2, day3] = startsFor(1).days;
+    expect(startsTooltip(day2!, 9).split("\n")).toEqual([
+      "7 of 7 starts filled (7 possible)",
+      "9 of my players play",
+      "No slot for: Bench Wing",
+    ]);
+    expect(startsTooltip(day3!, 4).split("\n")).toEqual([
+      "3 of 7 starts filled (4 possible)",
+      "4 of my players play",
+      "3 open: nobody on the roster can fill them",
+      "1 benched: the lineup as set sits players who could start",
+    ]);
   });
 });

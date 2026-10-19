@@ -1,8 +1,8 @@
 "use client";
 
 import { QUIET_BUTTON, FIELD } from "@/components/draft/DraftStates";
-import type { TeamCalendarResponse } from "@/lib/api";
-import { dayLabel, matchupDays, matchupOf, monthDay, weekday } from "@/lib/team";
+import type { StartsResponse, TeamCalendarResponse } from "@/lib/api";
+import { dayLabel, matchupDays, matchupOf, monthDay, startsTooltip, weekday } from "@/lib/team";
 
 /**
  * Which day the ROSTER shows: one day back or forward, today, the previous or next matchup,
@@ -11,6 +11,12 @@ import { dayLabel, matchupDays, matchupOf, monthDay, weekday } from "@/lib/team"
  * Everything comes off the calendar the page read once (`GET /team/calendar`), so moving
  * between days costs one roster read and nothing else. Before tip-off there is no "today", so
  * the page opens on the first day and says when the season starts.
+ *
+ * STARTS, NOT GAMES (task 35). Each strip day shows `filled/7` from `GET /team/starts` in the
+ * roster's view (Actual or Plan): an amber "3 open" where nobody on the roster can fill a
+ * start (a streamer's day) and a red "2 benched" where the lineup as set sits players who
+ * could start. How many of mine play stays in the tooltip. Until the starts arrive (or for a
+ * day they don't cover) the day shows its game count, as before.
  */
 
 const ARROW =
@@ -20,10 +26,13 @@ export function DayPicker({
   calendar,
   sp,
   onChange,
+  starts = null,
 }: {
   calendar: TeamCalendarResponse;
   sp: number;
   onChange: (sp: number) => void;
+  /** The strip's matchup's starts, in the roster's view. */
+  starts?: StartsResponse | null;
 }) {
   const day = calendar.days.find((d) => d.sp === sp) ?? null;
   const matchup = matchupOf(calendar.matchups, sp);
@@ -31,6 +40,9 @@ export function DayPicker({
   const previousMatchup = index > 0 ? calendar.matchups[index - 1] : null;
   const nextMatchup = index >= 0 ? (calendar.matchups[index + 1] ?? null) : null;
   const strip = matchup ? matchupDays(calendar.days, matchup.id) : [];
+  const startsBySp = new Map(
+    starts && starts.matchup.id === matchup?.id ? starts.days.map((d) => [d.sp, d]) : [],
+  );
   const today = calendar.today_period ?? calendar.effective_period;
   const first = calendar.days[0];
   const last = calendar.days.at(-1);
@@ -121,12 +133,14 @@ export function DayPicker({
         <div role="group" aria-label="Days of this matchup" className="flex flex-wrap gap-1.5">
           {strip.map((d) => {
             const selected = d.sp === sp;
+            const day = startsBySp.get(d.sp);
             return (
               <button
                 key={d.sp}
                 type="button"
                 aria-pressed={selected}
                 data-strip-day={d.sp}
+                title={day ? startsTooltip(day, d.my_games) : undefined}
                 onClick={() => onChange(d.sp)}
                 className={`flex min-w-[3.5rem] flex-col items-center rounded-md border px-2 py-1 text-xs transition-colors ${
                   selected
@@ -136,12 +150,39 @@ export function DayPicker({
               >
                 <span className="font-medium">{weekday(d.date)}</span>
                 <span className="tabular-nums">{monthDay(d.date)}</span>
-                <span
-                  className={`tabular-nums ${selected ? "" : "text-zinc-500"}`}
-                  title={`${d.my_games} of my players play`}
-                >
-                  {d.my_games} G
-                </span>
+                {day ? (
+                  <>
+                    <span
+                      data-strip-starts
+                      className={`font-semibold tabular-nums ${selected ? "" : "text-zinc-900 dark:text-zinc-100"}`}
+                    >
+                      {day.filled}/{day.slots}
+                    </span>
+                    {day.empty > 0 ? (
+                      <span
+                        data-strip-open={day.empty}
+                        className="mt-0.5 rounded bg-amber-100 px-1 text-[10px] leading-4 font-medium whitespace-nowrap text-amber-900 dark:bg-amber-500/20 dark:text-amber-200"
+                      >
+                        {day.empty} open
+                      </span>
+                    ) : null}
+                    {day.left_on_bench > 0 ? (
+                      <span
+                        data-strip-benched={day.left_on_bench}
+                        className="mt-0.5 rounded bg-rose-100 px-1 text-[10px] leading-4 font-medium whitespace-nowrap text-rose-900 dark:bg-rose-500/20 dark:text-rose-200"
+                      >
+                        {day.left_on_bench} benched
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span
+                    className={`tabular-nums ${selected ? "" : "text-zinc-500"}`}
+                    title={`${d.my_games} of my players play`}
+                  >
+                    {d.my_games} G
+                  </span>
+                )}
               </button>
             );
           })}

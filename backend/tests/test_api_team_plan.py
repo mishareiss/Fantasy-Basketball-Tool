@@ -538,13 +538,15 @@ NEW_DAY_KEYS = {
     "joining_tonight",
 }
 NEW_ACQ_KEYS = {"used_source", "planned"}
+# Keys a roster player gained after the snapshot: the Plan flag, and task 35's Wk G.
+NEW_PLAYER_KEYS = {"plan", "matchup_games_left"}
 
 
 def _without_new_keys(day: dict) -> dict:
     out = {k: v for k, v in day.items() if k not in NEW_DAY_KEYS}
     out["acquisitions"] = {k: v for k, v in day["acquisitions"].items() if k not in NEW_ACQ_KEYS}
     out["slots"] = [
-        row | {"player": {k: v for k, v in row["player"].items() if k != "plan"}}
+        row | {"player": {k: v for k, v in row["player"].items() if k not in NEW_PLAYER_KEYS}}
         if row["player"]
         else row
         for row in day["slots"]

@@ -103,6 +103,10 @@ class RosterPlayer(BaseModel):
     stats: StatLine | None = None
     # Plan view only; null in the Actual view.
     plan: PlanFlag | None = None
+    # "Wk G": his games from this day through the end of its matchup (inclusive). In the Plan
+    # view, only days he's on the plan roster: a pickup from the day he lands, a drop through
+    # his last day.
+    matchup_games_left: int | None = None
 
 
 class SlotRow(BaseModel):
@@ -260,6 +264,8 @@ class FreeAgentRow(BaseModel):
     # Aligned with the response's `days`.
     games: list[DayGame]
     games_in_days: int
+    # "Wk G": his games from today through the end of today's matchup, the roster's yardstick.
+    matchup_games_left: int | None = None
     stats: StatSummary | None = None
     # On our shared watchlist this season.
     watched: bool = False
@@ -542,3 +548,65 @@ class AcquisitionOverrideIn(BaseModel):
     matchup_id: int
     # Null clears the override (ESPN's count applies again).
     used: int | None = Field(..., ge=0)
+
+
+# --- the starts tracker ---------------------------------------------------------------------
+
+
+class StartsPlayerRef(BaseModel):
+    id: int
+    name: str
+
+
+class StartsDayOut(BaseModel):
+    sp: int
+    date: date
+    weekday: str
+    # Before today. Computed the same way as any other day (box-score starts come later).
+    past: bool
+    slots: int
+    # Starting slots held by a player who plays, in the lineup as set.
+    filled: int
+    # Starting slots the best lineup from this day's roster fills with players who play.
+    possible: int
+    # slots - possible: nobody on the roster can fill them. Streaming opportunities.
+    empty: int
+    # possible - filled: starts the lineup as set leaves on the bench. Auto-fill fixes them.
+    left_on_bench: int
+    # Players who play but can't start: every slot that fits them is taken. Best first.
+    benched_with_games: list[StartsPlayerRef]
+    # The best lineup's starters' FPTS/G summed (auto-fill's value rule), and the lineup as set's.
+    projected_points: float
+    projected_points_as_set: float
+
+
+class StartsTotals(BaseModel):
+    days: int
+    # slots x days.
+    max: int
+    filled: int
+    possible: int
+    empty: int
+    left_on_bench: int
+    projected_points: float
+    projected_points_as_set: float
+
+
+class StartsDelta(BaseModel):
+    """The Plan view minus the Actual view, over the same matchup."""
+
+    filled: int
+    possible: int
+    projected_points: float
+    projected_points_as_set: float
+
+
+class StartsResponse(BaseModel):
+    season: int
+    matchup: MatchupRef
+    view: DayView
+    days: list[StartsDayOut]
+    totals: StartsTotals
+    # Plan view only: the Actual view's totals for the same matchup, and the plan's gain.
+    actual_totals: StartsTotals | None = None
+    vs_actual: StartsDelta | None = None
